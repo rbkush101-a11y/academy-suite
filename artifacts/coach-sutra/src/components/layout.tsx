@@ -67,7 +67,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <SidebarHeader className="h-16 flex items-center px-4">
             <div className="flex items-center gap-2 font-bold text-lg text-primary">
               <GraduationCap className="h-6 w-6" />
-              <span>Coach Sutra</span>
+              <span>Second School Classes</span>
             </div>
           </SidebarHeader>
           <SidebarContent>

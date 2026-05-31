@@ -53,7 +53,7 @@ export default function ReportCard() {
               </div>
             </div>
             <CardTitle className="text-2xl uppercase tracking-wider">Academic Report Card</CardTitle>
-            <p className="text-muted-foreground">Coach Sutra Institute of Excellence</p>
+            <p className="text-muted-foreground">Second School Classes</p>
           </CardHeader>
           <CardContent className="pt-6 space-y-8">
             <div className="grid grid-cols-2 gap-4 text-sm bg-slate-50 dark:bg-slate-900 p-4 rounded-lg border">

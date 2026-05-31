@@ -53,7 +53,7 @@ export default function Login() {
     <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
       <div className="flex items-center gap-2 mb-8 text-primary">
         <GraduationCap className="h-10 w-10" />
-        <h1 className="text-3xl font-bold">Coach Sutra</h1>
+        <h1 className="text-3xl font-bold">Second School Classes</h1>
       </div>
 
       <Card className="w-full max-w-md shadow-lg border-primary/10">
