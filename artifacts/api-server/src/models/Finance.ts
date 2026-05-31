@@ -54,7 +54,7 @@ const paymentSchema = new Schema<IPayment>(
   { timestamps: true }
 );
 
-paymentSchema.pre("save", function (next) {
+paymentSchema.pre("save", function (this: IPayment, next: () => void) {
   if (!this.receiptNo) {
     this.receiptNo = `RCP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   }

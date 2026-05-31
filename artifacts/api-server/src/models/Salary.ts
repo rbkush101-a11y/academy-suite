@@ -28,7 +28,7 @@ const salarySchema = new Schema<ISalary>(
   { timestamps: true }
 );
 
-salarySchema.pre("save", function (next) {
+salarySchema.pre("save", function (this: ISalary, next: () => void) {
   this.netSalary = this.basicSalary + (this.allowances ?? 0) - (this.deductions ?? 0);
   next();
 });

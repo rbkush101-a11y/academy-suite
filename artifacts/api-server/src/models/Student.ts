@@ -36,7 +36,7 @@ const studentSchema = new Schema<IStudent>(
   { timestamps: true }
 );
 
-studentSchema.pre("save", async function (next) {
+studentSchema.pre("save", async function (this: IStudent & { _id: unknown }, next: () => void) {
   if (!this.enrollmentNo) {
     const count = await Student.countDocuments();
     this.enrollmentNo = `STU${String(count + 1).padStart(4, "0")}`;
