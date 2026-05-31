@@ -1,16 +1,9 @@
-import { useEffect } from "react";
 import { useLocation } from "wouter";
 
 export function useAuth() {
   const [, setLocation] = useLocation();
 
   const token = localStorage.getItem("coach_sutra_token");
-  
-  useEffect(() => {
-    if (!token) {
-      setLocation("/login");
-    }
-  }, [token, setLocation]);
 
   const login = (newToken: string) => {
     localStorage.setItem("coach_sutra_token", newToken);

@@ -1,4 +1,4 @@
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, Redirect } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useGetMe } from "@workspace/api-client-react";
 import {
@@ -38,7 +38,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { data: user } = useGetMe({ query: { enabled: isAuthenticated } });
   const [location] = useLocation();
 
-  if (!isAuthenticated) return null;
+  if (!isAuthenticated) return <Redirect to="/login" />;
 
   const navItems = [
     { title: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
