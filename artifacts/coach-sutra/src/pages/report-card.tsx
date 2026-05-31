@@ -9,7 +9,7 @@ import { GraduationCap, Printer } from "lucide-react";
 export default function ReportCard() {
   const [studentId, setStudentId] = useState("");
   const { data: students } = useListStudents();
-  const { data: report, isLoading } = useGetStudentReportCard({ studentId }, { query: { enabled: !!studentId } });
+  const { data: report, isLoading } = useGetStudentReportCard({ studentId }, { query: { enabled: !!studentId } as any });
 
   const handlePrint = () => {
     window.print();

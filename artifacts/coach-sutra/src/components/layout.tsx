@@ -35,7 +35,7 @@ import {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, logout } = useAuth();
-  const { data: user } = useGetMe({ query: { enabled: isAuthenticated } });
+  const { data: user } = useGetMe({ query: { enabled: isAuthenticated } as any });
   const [location] = useLocation();
 
   if (!isAuthenticated) return <Redirect to="/login" />;

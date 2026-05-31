@@ -24,7 +24,7 @@ export default function Attendance() {
   
   // We simulate fetching students for this batch and their attendance.
   // In a real app, this would use a more tailored hook.
-  const { data: attendanceRecords, isLoading } = useListStudentAttendance({ batchId, date }, { query: { enabled: !!batchId } });
+  const { data: attendanceRecords, isLoading } = useListStudentAttendance({ batchId, date }, { query: { enabled: !!batchId } as any });
 
   const markAttendance = useMarkStudentAttendance();
   const queryClient = useQueryClient();

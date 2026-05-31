@@ -24,7 +24,7 @@ const timetableSchema = z.object({
 
 export default function Timetable() {
   const [selectedBatch, setSelectedBatch] = useState<string>("");
-  const { data: entries, isLoading } = useListTimetableEntries({ batchId: selectedBatch }, { query: { enabled: !!selectedBatch } });
+  const { data: entries, isLoading } = useListTimetableEntries({ batchId: selectedBatch }, { query: { enabled: !!selectedBatch } as any });
   const { data: batches } = useListBatches();
   const [open, setOpen] = useState(false);
 
