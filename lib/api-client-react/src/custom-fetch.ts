@@ -358,6 +358,14 @@ export async function customFetch<T = unknown>(
     }
   }
 
+  // Coach Sutra specific: read from localStorage
+  if (typeof window !== "undefined" && !headers.has("authorization")) {
+    const token = localStorage.getItem("coach_sutra_token");
+    if (token) {
+      headers.set("authorization", `Bearer ${token}`);
+    }
+  }
+
   const requestInfo = { method, url: resolveUrl(input) };
 
   const response = await fetch(input, { ...init, method, headers });
