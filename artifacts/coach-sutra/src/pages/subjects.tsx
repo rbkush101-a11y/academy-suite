@@ -44,10 +44,11 @@ export default function Subjects() {
 
   const onSubmit = (values: SubjectForm) => {
     const invalidate = () => { queryClient.invalidateQueries({ queryKey: getListSubjectsQueryKey() }); setOpen(false); };
+    const payload = { ...values, teacherId: values.teacherId === "__none__" ? "" : (values.teacherId ?? "") };
     if (editTarget) {
-      updateSubject.mutate({ id: editTarget.id, data: values }, { onSuccess: invalidate });
+      updateSubject.mutate({ id: editTarget.id, data: payload }, { onSuccess: invalidate });
     } else {
-      createSubject.mutate({ data: values }, { onSuccess: invalidate });
+      createSubject.mutate({ data: payload }, { onSuccess: invalidate });
     }
   };
 
@@ -93,7 +94,7 @@ export default function Subjects() {
                   <Select onValueChange={field.onChange} value={field.value ?? ""}>
                     <FormControl><SelectTrigger><SelectValue placeholder="Select teacher" /></SelectTrigger></FormControl>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="__none__">None</SelectItem>
                       {teachers.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                     </SelectContent>
                   </Select><FormMessage /></FormItem>
