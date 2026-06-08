@@ -1,19 +1,18 @@
 import mongoose from "mongoose";
 import { logger } from "./logger";
 
-const MONGODB_URI = process.env.MONGODB_URI;
-
-if (!MONGODB_URI) {
-  throw new Error("MONGODB_URI must be set in environment variables.");
-}
-
 let isConnected = false;
 
 export async function connectMongoDB(): Promise<void> {
   if (isConnected) return;
 
+  const mongodbUri = process.env.MONGODB_URI;
+  if (!mongodbUri) {
+    throw new Error("MONGODB_URI must be set in environment variables.");
+  }
+
   try {
-    await mongoose.connect(MONGODB_URI as string, {
+    await mongoose.connect(mongodbUri, {
       dbName: "coach_sutra",
     });
     isConnected = true;

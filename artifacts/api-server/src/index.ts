@@ -1,6 +1,10 @@
+import { config } from "dotenv";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { connectMongoDB } from "./lib/mongodb";
+
+config();
+config({ path: new URL("../.env", import.meta.url) });
 
 const rawPort = process.env["PORT"];
 
@@ -31,4 +35,8 @@ async function start() {
 start().catch((err) => {
   logger.error({ err }, "Failed to start server");
   process.exit(1);
+});
+
+app.listen(8080, () => {
+  console.log("Server running 🚀");
 });
