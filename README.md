@@ -137,6 +137,7 @@ pnpm dev
 
 # 📁 Project Structure
 
+```text
 academy-suite/
 │
 ├── artifacts/
@@ -148,6 +149,7 @@ academy-suite/
 ├── README.md                  # Project documentation
 │
 └── package.json
+```
 
 ---
 ---
