@@ -78,7 +78,7 @@ _Add login page screenshot here._
 
 ## Dashboard
 
-_Add dashboard screenshot here._
+![Dashboard](images/dashboard.png)
 
 ## Student Management
 
