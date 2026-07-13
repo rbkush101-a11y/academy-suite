@@ -162,7 +162,6 @@ academy-suite/
 ```
 
 ---
----
 
 # ⚙️ Environment Variables
 
@@ -202,6 +201,22 @@ VITE_API_BASE_URL=http://localhost:5000
                       ▼
               MongoDB Atlas
 ```
+
+---
+
+# 📡 API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /login | User Authentication |
+| GET | /students | Get all students |
+| POST | /students | Add new student |
+| PUT | /students/:id | Update student |
+| DELETE | /students/:id | Delete student |
+| GET | /attendance | Get attendance |
+| POST | /attendance | Mark attendance |
+| GET | /finance | Finance records |
+| GET | /report-cards | Student report cards |
 
 ---
 
