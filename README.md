@@ -184,6 +184,27 @@ VITE_API_BASE_URL=http://localhost:5000
 
 ---
 
+# 🏗️ System Architecture
+
+```text
+                    User
+                      │
+                      ▼
+          React.js Frontend
+                      │
+          HTTP / REST API
+                      │
+                      ▼
+       Node.js + Express Backend
+                      │
+          JWT Authentication
+                      │
+                      ▼
+              MongoDB Atlas
+```
+
+---
+
 # 🔮 Future Enhancements
 
 - Parent Portal
