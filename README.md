@@ -104,36 +104,35 @@ The system helps educational institutes manage students, enquiries, courses, att
 
 # 🚀 Installation
 
-Clone the repository
+## 1. Clone the Repository
 
 ```bash
 git clone https://github.com/rbkush101-a11y/academy-suite.git
 ```
 
-Go to project folder
+## 2. Go to the Project Directory
 
 ```bash
 cd academy-suite
 ```
 
-Install dependencies
+## 3. Frontend Setup
 
 ```bash
-npm install
+cd artifacts/academy-frontend
+pnpm install
+pnpm dev
 ```
 
-Start frontend
+## 4. Backend Setup
+
+Open a new terminal and run:
 
 ```bash
-npm run dev
+cd artifacts/api-server
+pnpm install
+pnpm dev
 ```
-
-Start backend
-
-```bash
-npm run dev
-```
-
 ---
 
 # 📁 Project Structure
