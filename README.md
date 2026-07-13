@@ -72,17 +72,33 @@ The system helps educational institutes manage students, enquiries, courses, att
 
 # 📸 Screenshots
 
-## Login Page
+## 🔐 Login Page
 
 ![Login](images/login.png)
 
-## Dashboard
+## 📊 Dashboard
 
 ![Dashboard](images/dashboard.png)
 
-## Student Management
+## 👨‍🎓 Student Management
 
 ![Students](images/students.png)
+
+## ✅ Attendance
+
+![Attendance](images/attendance.png)
+
+## 💰 Finance
+
+![Finance](images/finance.png)
+
+## 🎓 Report Cards
+
+![Report Cards](images/reportcards.png)
+
+## 📅 Timetable
+
+![Timetable](images/timetable.png)
 
 ---
 
