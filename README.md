@@ -98,7 +98,7 @@ The system helps educational institutes manage students, enquiries, courses, att
 
 ## 📅 Timetable
 
-![Timetable](images/timetable.png)
+![Timetable](images/timetable.png) 
 
 ---
 
