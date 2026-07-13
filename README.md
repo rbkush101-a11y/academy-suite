@@ -82,7 +82,7 @@ The system helps educational institutes manage students, enquiries, courses, att
 
 ## Student Management
 
-_Add student module screenshot here._
+![Students](images/students.png)
 
 ---
 
