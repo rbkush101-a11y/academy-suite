@@ -11,6 +11,21 @@ out-tsc
 # dependencies
 node_modules
 
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Build folders
+build
+
+# Logs
+logs
+*.log
+
+# OS files
+Desktop.ini
+
 # IDEs and editors
 /.idea
 .project
