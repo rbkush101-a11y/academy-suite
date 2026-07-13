@@ -137,16 +137,17 @@ pnpm dev
 
 # 📁 Project Structure
 
-```
 academy-suite/
 │
-├── frontend/
-├── backend/
-├── public/
-├── src/
-├── package.json
-└── README.md
-```
+├── artifacts/
+│   ├── academy-frontend/      # React Frontend
+│   └── api-server/            # Node.js + Express Backend
+│
+├── images/                    # README screenshots
+│
+├── README.md                  # Project documentation
+│
+└── package.json
 
 ---
 
