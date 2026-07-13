@@ -150,6 +150,27 @@ academy-suite/
 └── package.json
 
 ---
+---
+
+# ⚙️ Environment Variables
+
+Create a `.env` file inside the backend folder and add:
+
+```env
+PORT=5000
+MONGODB_URI=your_mongodb_connection_string
+JWT_SECRET=your_secret_key
+```
+
+For the frontend, create a `.env` file inside the frontend folder:
+
+```env
+VITE_API_BASE_URL=http://localhost:5000
+```
+
+> **Note:** Never commit your actual `.env` file or secret keys to GitHub.
+
+---
 
 # 🔮 Future Enhancements
 
