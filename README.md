@@ -2,7 +2,11 @@
 
 A production-ready **Academy Management System** built using the **MERN Stack (MongoDB, Express.js, React.js, Node.js)**.
 
-The application helps educational institutes manage students, admissions, attendance, staff, courses, batches, finance, examinations, report cards, homework, and timetables through a modern admin dashboard.
+## 📖 About the Project
+
+ParikshaDrishti is a full-stack Academy Management System developed using the MERN Stack (MongoDB, Express.js, React.js, and Node.js).
+
+The system helps educational institutes manage students, enquiries, courses, attendance, examinations, finance, report cards, homework, and timetables through a secure admin dashboard.
 
 ---
 
