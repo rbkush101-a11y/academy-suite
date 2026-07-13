@@ -74,7 +74,7 @@ The system helps educational institutes manage students, enquiries, courses, att
 
 ## Login Page
 
-_Add login page screenshot here._
+![Login](images/login.png)
 
 ## Dashboard
 
