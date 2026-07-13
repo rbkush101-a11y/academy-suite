@@ -1,0 +1,166 @@
+# 📚 ParikshaDrishti – Academy Management System
+
+A production-ready **Academy Management System** built using the **MERN Stack (MongoDB, Express.js, React.js, Node.js)**.
+
+The application helps educational institutes manage students, admissions, attendance, staff, courses, batches, finance, examinations, report cards, homework, and timetables through a modern admin dashboard.
+
+---
+
+## 🌐 Live Demo
+
+👉 https://www.parikshadrishti.com
+
+---
+
+## 📂 GitHub Repository
+
+👉 https://github.com/rbkush101-a11y/academy-suite
+
+---
+
+# ✨ Features
+
+- 🔐 JWT Authentication
+- 👨‍🎓 Student Management
+- 📝 Admission & Enquiry Management
+- 👨‍🏫 Staff Management
+- 📚 Courses & Subjects
+- 👥 Batch Management
+- ✅ Attendance Management
+- 📖 Homework Management
+- 📝 Examination Management
+- 🎓 Report Cards
+- 💰 Finance Management
+- 📅 Timetable Management
+- 📊 Analytics Dashboard
+- 📱 Responsive Design
+
+---
+
+# 🛠 Tech Stack
+
+## Frontend
+
+- React.js
+- HTML5
+- CSS3
+- JavaScript
+
+## Backend
+
+- Node.js
+- Express.js
+
+## Database
+
+- MongoDB
+
+## Authentication
+
+- JWT (JSON Web Token)
+
+## Deployment
+
+- Vercel
+- Render
+
+---
+
+# 📸 Screenshots
+
+## Login Page
+
+_Add login page screenshot here._
+
+## Dashboard
+
+_Add dashboard screenshot here._
+
+## Student Management
+
+_Add student module screenshot here._
+
+---
+
+# 🚀 Installation
+
+Clone the repository
+
+```bash
+git clone https://github.com/rbkush101-a11y/academy-suite.git
+```
+
+Go to project folder
+
+```bash
+cd academy-suite
+```
+
+Install dependencies
+
+```bash
+npm install
+```
+
+Start frontend
+
+```bash
+npm run dev
+```
+
+Start backend
+
+```bash
+npm run dev
+```
+
+---
+
+# 📁 Project Structure
+
+```
+academy-suite/
+│
+├── frontend/
+├── backend/
+├── public/
+├── src/
+├── package.json
+└── README.md
+```
+
+---
+
+# 🔮 Future Enhancements
+
+- Parent Portal
+- Teacher Portal
+- Student Portal
+- Online Fee Payment
+- Notifications
+- SMS & Email Integration
+- Mobile Application
+
+---
+
+# 👨‍💻 Author
+
+**Rishabh Kushwaha**
+
+📧 rbkush101@gmail.com
+
+🔗 LinkedIn
+
+https://linkedin.com/in/rishabh-kushwaha10
+
+💻 GitHub
+
+https://github.com/rbkush101-a11y
+
+🌐 Live Project
+
+https://www.parikshadrishti.com
+
+---
+
+⭐ If you found this project useful, please consider giving it a Star.
