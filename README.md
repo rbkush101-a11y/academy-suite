@@ -1,5 +1,15 @@
 # 📚 ParikshaDrishti – Academy Management System
 
+![License](https://img.shields.io/badge/License-MIT-blue.svg)
+
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-22-339933?logo=node.js&logoColor=white)
+![Express.js](https://img.shields.io/badge/Express.js-Backend-000000?logo=express&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-Database-47A248?logo=mongodb&logoColor=white)
+![JWT](https://img.shields.io/badge/JWT-Authentication-000000?logo=jsonwebtokens)
+![Vercel](https://img.shields.io/badge/Deploy-Vercel-000000?logo=vercel)
+![Render](https://img.shields.io/badge/Backend-Render-46E3B7?logo=render)
+
 A production-ready **Academy Management System** built using the **MERN Stack (MongoDB, Express.js, React.js, Node.js)**.
 
 ## 📖 About the Project
