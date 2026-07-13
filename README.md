@@ -2,33 +2,54 @@
 
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
-![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
-![Node.js](https://img.shields.io/badge/Node.js-22-339933?logo=node.js&logoColor=white)
-![Express.js](https://img.shields.io/badge/Express.js-Backend-000000?logo=express&logoColor=white)
-![MongoDB](https://img.shields.io/badge/MongoDB-Database-47A248?logo=mongodb&logoColor=white)
-![JWT](https://img.shields.io/badge/JWT-Authentication-000000?logo=jsonwebtokens)
-![Vercel](https://img.shields.io/badge/Deploy-Vercel-000000?logo=vercel)
-![Render](https://img.shields.io/badge/Backend-Render-46E3B7?logo=render)
+---
+
+![React](https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black)
+![Node.js](https://img.shields.io/badge/Node.js-339933?logo=node.js&logoColor=white)
+![Express.js](https://img.shields.io/badge/Express.js-000000?logo=express&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-47A248?logo=mongodb&logoColor=white)
+![JWT](https://img.shields.io/badge/JWT-000000?logo=jsonwebtokens&logoColor=white)
+![Vercel](https://img.shields.io/badge/Vercel-000000?logo=vercel&logoColor=white)
+![Render](https://img.shields.io/badge/Render-46E3B7?logo=render&logoColor=white)
+
+---
 
 A production-ready **Academy Management System** built using the **MERN Stack (MongoDB, Express.js, React.js, Node.js)**.
 
+🌐 **Live Demo:** https://www.parikshadrishti.com
+
+⭐ **Status:** Active Development
+
+📦 **Version:** v1.0
+
+---
+
 ## 📖 About the Project
 
-ParikshaDrishti is a full-stack Academy Management System developed using the MERN Stack (MongoDB, Express.js, React.js, and Node.js).
+ParikshaDrishti is a production-ready Academy Management System built with the MERN Stack.
 
-The system helps educational institutes manage students, enquiries, courses, attendance, examinations, finance, report cards, homework, and timetables through a secure admin dashboard.
-
----
-
-## 🌐 Live Demo
-
-👉 https://www.parikshadrishti.com
+It enables educational institutes to manage students, enquiries, staff, attendance, courses, examinations, report cards, finance, homework, and timetables through a secure JWT-authenticated admin dashboard.
 
 ---
 
-## 📂 GitHub Repository
+## 🔗 Quick Links
 
-👉 https://github.com/rbkush101-a11y/academy-suite
+| Resource | Link |
+|----------|------|
+| 🌐 Live Demo | https://www.parikshadrishti.com |
+| 💻 GitHub Repository | https://github.com/rbkush101-a11y/academy-suite |
+| 👤 LinkedIn | https://www.linkedin.com/in/rishabh-kushwaha10 |
+
+---
+
+# 🚀 Project Highlights
+
+- ✅ Production-ready MERN application
+- ✅ Secure JWT Authentication
+- ✅ RESTful API Architecture
+- ✅ MongoDB Database Integration
+- ✅ Responsive Admin Dashboard
+- ✅ Live Deployment using Vercel & Render
 
 ---
 
@@ -53,30 +74,14 @@ The system helps educational institutes manage students, enquiries, courses, att
 
 # 🛠 Tech Stack
 
-## Frontend
-
-- React.js
-- HTML5
-- CSS3
-- JavaScript
-
-## Backend
-
-- Node.js
-- Express.js
-
-## Database
-
-- MongoDB
-
-## Authentication
-
-- JWT (JSON Web Token)
-
-## Deployment
-
-- Vercel
-- Render
+| Layer | Technology |
+|--------|------------|
+| Frontend | React.js, HTML5, CSS3, JavaScript |
+| Backend | Node.js, Express.js |
+| Database | MongoDB |
+| Authentication | JWT (JSON Web Token) |
+| Deployment | Vercel, Render |
+| Tools | Git, GitHub, VS Code, Postman, pnpm |
 
 ---
 
@@ -109,6 +114,17 @@ The system helps educational institutes manage students, enquiries, courses, att
 ## 📅 Timetable
 
 ![Timetable](images/timetable.png) 
+
+---
+
+## 📋 Prerequisites
+
+Before running the project, make sure you have:
+
+- Node.js
+- pnpm
+- MongoDB Atlas Account
+- Git
 
 ---
 
@@ -206,29 +222,30 @@ VITE_API_BASE_URL=http://localhost:5000
 
 # 📡 API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | /login | User Authentication |
-| GET | /students | Get all students |
-| POST | /students | Add new student |
-| PUT | /students/:id | Update student |
-| DELETE | /students/:id | Delete student |
-| GET | /attendance | Get attendance |
-| POST | /attendance | Mark attendance |
-| GET | /finance | Finance records |
-| GET | /report-cards | Student report cards |
+| Method | Endpoint | Authentication | Description |
+|--------|----------|---------------|-------------|
+| POST | /login | ❌ | User Login |
+| GET | /students | ✅ | Get All Students |
+| POST | /students | ✅ | Add New Student |
+| PUT | /students/:id | ✅ | Update Student |
+| DELETE | /students/:id | ✅ | Delete Student |
+| GET | /attendance | ✅ | Get Attendance |
+| POST | /attendance | ✅ | Mark Attendance |
+| GET | /finance | ✅ | Finance Records |
+| GET | /report-cards | ✅ | Student Report Cards |
 
 ---
 
 # 🔮 Future Enhancements
 
-- Parent Portal
-- Teacher Portal
-- Student Portal
-- Online Fee Payment
-- Notifications
-- SMS & Email Integration
-- Mobile Application
+- 👨‍👩‍👧 Parent Portal
+- 👨‍🏫 Teacher Portal
+- 🎓 Student Portal
+- 💳 Online Fee Payment Gateway
+- 📱 Mobile Application
+- 🔔 SMS & Email Notifications
+- 🏫 Multi-Branch Management
+- 📊 Advanced Analytics Dashboard
 
 ---
 
@@ -236,32 +253,37 @@ VITE_API_BASE_URL=http://localhost:5000
 
 **Rishabh Kushwaha**
 
-📧 rbkush101@gmail.com
+Software Developer | MERN Stack Developer
 
-🔗 LinkedIn
+📧 Email: rbkush101@gmail.com
 
-https://linkedin.com/in/rishabh-kushwaha10
+🌐 Live Demo:
+https://www.parikshadrishti.com
 
-💻 GitHub
-
+💻 GitHub:
 https://github.com/rbkush101-a11y
 
-🌐 Live Project
-
-https://www.parikshadrishti.com
+🔗 LinkedIn:
+https://www.linkedin.com/in/rishabh-kushwaha10
 
 ---
 
-⭐ If you found this project useful, please consider giving it a Star.
+⭐ If you found this project helpful, consider giving it a Star on GitHub.
+
+Contributions, suggestions, and feedback are always welcome.
+
+---
 
 # 🤝 Contributing
 
 Contributions, issues, and feature requests are welcome.
 
-If you'd like to contribute:
+If you would like to contribute:
 
 1. Fork the repository
-2. Create a new branch
+2. Create a feature branch
 3. Commit your changes
 4. Push the branch
-5. Open a Pull Request
+5. Open a Pull Request  
+
+---
