@@ -1,47 +1,117 @@
 import mongoose, { Document, Schema } from "mongoose";
 
+export interface IStudentDocument {
+  label: string;
+  name: string;
+  dataUrl: string;
+  mimeType: string;
+}
+
 export interface IStudent extends Document {
   name: string;
-  email: string;
+  email?: string;
   phone: string;
   enrollmentNo: string;
+  instituteId: mongoose.Types.ObjectId;
   batchId: mongoose.Types.ObjectId;
   courseId: mongoose.Types.ObjectId;
   status: "active" | "inactive" | "graduated";
   academicYear: string;
-  parentName?: string;
-  parentPhone?: string;
-  address?: string;
+
   dateOfBirth?: string;
   gender?: "male" | "female" | "other";
+  schoolName?: string;
+  className?: string;
+  section?: string;
+  board?: string;
+  lastClassPercentage?: string;
+  lastClassMarks?: string;
+  photoDataUrl?: string;
+  documents?: IStudentDocument[];
+
+  parentName?: string;
+  parentPhone?: string;
+  motherName?: string;
+  motherOccupation?: string;
+  motherPhone?: string;
+  motherWhatsapp?: string;
+  fatherName?: string;
+  fatherOccupation?: string;
+  fatherPhone?: string;
+  fatherWhatsapp?: string;
+  emergencyPhone?: string;
+
+  correspondenceAddress?: string;
+  correspondenceDistrict?: string;
+  correspondenceState?: string;
+  correspondencePin?: string;
+  permanentAddress?: string;
+  permanentDistrict?: string;
+  permanentState?: string;
+  permanentPin?: string;
   createdAt: Date;
+  updatedAt: Date;
 }
+
+const studentDocumentSchema = new Schema<IStudentDocument>(
+  {
+    label: { type: String, required: true, trim: true },
+    name: { type: String, required: true, trim: true },
+    dataUrl: { type: String, required: true },
+    mimeType: { type: String, required: true, trim: true },
+  },
+  { _id: false }
+);
 
 const studentSchema = new Schema<IStudent>(
   {
-    name: { type: String, required: true },
-    email: { type: String, required: true, lowercase: true },
-    phone: { type: String, required: true },
+    name: { type: String, required: true, trim: true },
+    email: { type: String, lowercase: true, trim: true },
+    phone: { type: String, required: true, trim: true },
     enrollmentNo: { type: String, unique: true },
+    instituteId: { type: Schema.Types.ObjectId, ref: "Institute", required: true },
     batchId: { type: Schema.Types.ObjectId, ref: "Batch", required: true },
     courseId: { type: Schema.Types.ObjectId, ref: "Course", required: true },
     status: { type: String, enum: ["active", "inactive", "graduated"], default: "active" },
     academicYear: { type: String, required: true },
-    parentName: { type: String },
-    parentPhone: { type: String },
-    address: { type: String },
     dateOfBirth: { type: String },
     gender: { type: String, enum: ["male", "female", "other"] },
+    schoolName: { type: String, trim: true },
+    className: { type: String, trim: true },
+    section: { type: String, trim: true },
+    board: { type: String, trim: true },
+    lastClassPercentage: { type: String, trim: true },
+    lastClassMarks: { type: String, trim: true },
+    photoDataUrl: { type: String },
+    documents: { type: [studentDocumentSchema], default: [] },
+    parentName: { type: String, trim: true },
+    parentPhone: { type: String, trim: true },
+    motherName: { type: String, trim: true },
+    motherOccupation: { type: String, trim: true },
+    motherPhone: { type: String, trim: true },
+    motherWhatsapp: { type: String, trim: true },
+    fatherName: { type: String, trim: true },
+    fatherOccupation: { type: String, trim: true },
+    fatherPhone: { type: String, trim: true },
+    fatherWhatsapp: { type: String, trim: true },
+    emergencyPhone: { type: String, trim: true },
+    correspondenceAddress: { type: String, trim: true },
+    correspondenceDistrict: { type: String, trim: true },
+    correspondenceState: { type: String, trim: true },
+    correspondencePin: { type: String, trim: true },
+    permanentAddress: { type: String, trim: true },
+    permanentDistrict: { type: String, trim: true },
+    permanentState: { type: String, trim: true },
+    permanentPin: { type: String, trim: true },
   },
   { timestamps: true }
 );
 
-studentSchema.pre("save", async function (this: IStudent & { _id: unknown }, next: () => void) {
+studentSchema.pre("save", async function () {
   if (!this.enrollmentNo) {
-    const count = await Student.countDocuments();
-    this.enrollmentNo = `STU${String(count + 1).padStart(4, "0")}`;
+    const count = await Student.countDocuments({ instituteId: this.instituteId });
+    this.enrollmentNo = "STU" + String(count + 1).padStart(4, "0");
   }
-  next();
 });
 
 export const Student = mongoose.model<IStudent>("Student", studentSchema);

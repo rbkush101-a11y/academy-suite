@@ -23,3 +23,21 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
     res.status(401).json({ error: "Invalid or expired token" });
   }
 }
+
+export function authorize(...roles: string[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    if (!roles.includes(req.user.role)) {
+      res.status(403).json({
+        error: "Forbidden: You do not have permission"
+      });
+      return;
+    }
+
+    next();
+  };
+}
