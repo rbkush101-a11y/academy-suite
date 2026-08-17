@@ -26,7 +26,7 @@ authorize("super_admin", "institute_admin", "teacher", "student", "parent", "sta
 async (req, res): Promise<void> => {
 const { type } = req.query as Record<string, string>;
 
-```
+
 const filter: any = {};
 
 if (type) filter.type = type;
@@ -34,7 +34,7 @@ if (type) filter.type = type;
 const notifications = await Notification.find(filter).sort({ createdAt: -1 });
 
 res.json(notifications.map(fmt));
-```
+
 
 }
 );
@@ -46,7 +46,7 @@ authorize("super_admin", "institute_admin", "teacher", "staff"),
 async (req, res): Promise<void> => {
 const { title, message, type, target, targetId, scheduledAt } = req.body;
 
-```
+
 const status = scheduledAt ? "scheduled" : "sent";
 const sentAt = scheduledAt ? undefined : new Date().toISOString();
 
@@ -62,7 +62,7 @@ const notification = await Notification.create({
 });
 
 res.status(201).json(fmt(notification));
-```
+
 
 }
 );
@@ -74,11 +74,11 @@ authorize("super_admin", "institute_admin"),
 async (req, res): Promise<void> => {
 const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
-```
+
 await Notification.findByIdAndDelete(id);
 
 res.sendStatus(204);
-```
+
 
 }
 );

@@ -62,3 +62,6 @@ logs
 
 # OS files
 Desktop.ini
+
+*.backup
+*.bak

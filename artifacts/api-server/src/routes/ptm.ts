@@ -30,7 +30,7 @@ authorize("super_admin", "institute_admin", "teacher", "parent", "staff"),
 async (req, res): Promise<void> => {
 const { status, batchId } = req.query as Record<string, string>;
 
-```
+
 const filter: any = {};
 
 if (status) filter.status = status;
@@ -40,7 +40,7 @@ const meetings = await PTM.find(filter).sort({ scheduledDate: -1 });
 const result = await Promise.all(meetings.map(fmt));
 
 res.json(result);
-```
+
 
 }
 );
@@ -52,9 +52,9 @@ authorize("super_admin", "institute_admin", "teacher", "staff"),
 async (req, res): Promise<void> => {
 const ptm = await PTM.create(req.body);
 
-```
+
 res.status(201).json(await fmt(ptm));
-```
+
 
 }
 );
@@ -66,7 +66,7 @@ authorize("super_admin", "institute_admin", "teacher", "staff"),
 async (req, res): Promise<void> => {
 const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
-```
+
 const ptm = await PTM.findByIdAndUpdate(id, req.body, {
   new: true
 });
@@ -77,7 +77,7 @@ if (!ptm) {
 }
 
 res.json(await fmt(ptm));
-```
+
 
 }
 );
@@ -89,11 +89,11 @@ authorize("super_admin", "institute_admin"),
 async (req, res): Promise<void> => {
 const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
-```
+
 await PTM.findByIdAndDelete(id);
 
 res.sendStatus(204);
-```
+
 
 }
 );

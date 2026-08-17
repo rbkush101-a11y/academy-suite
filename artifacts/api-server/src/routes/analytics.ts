@@ -14,7 +14,7 @@ async (req, res): Promise<void> => {
 const { examId, batchId, limit } = req.query as Record<string, string>;
 const top = parseInt(limit ?? "10", 10);
 
-```
+
 let marks: any[];
 
 if (examId) {
@@ -75,7 +75,7 @@ const result = await Promise.all(
 );
 
 res.json(result);
-```
+
 
 }
 );
@@ -87,7 +87,7 @@ authorize("super_admin", "institute_admin", "teacher"),
 async (req, res): Promise<void> => {
 const { batchId } = req.query as Record<string, string>;
 
-```
+
 let marks: any[];
 const attendanceFilter: any = {};
 
@@ -179,7 +179,7 @@ res.json({
   gradeDistribution: grades,
   monthlyTrend
 });
-```
+
 
 }
 );

@@ -3,6 +3,8 @@ import { authenticate, authorize } from "../middlewares/auth";
 import { Student } from "../models/Student";
 import { Batch } from "../models/Batch";
 import { Course } from "../models/Course";
+import { FeeStructure, StudentFeeAssignment, Payment } from "../models/Finance";
+import { getCycleDay, generateDueDates, getMonthInfo } from "../lib/feeCycle";
 
 const router: IRouter = Router();
 
@@ -295,7 +297,116 @@ router.post(
         },
       });
 
-      res.status(201).json(await populateStudent(student));
+      // ============================================================
+      // 🔥 AUTO FEE ASSIGNMENT ON ADMISSION 🔥
+      // ============================================================
+      let feeAssignmentInfo: any = null;
+
+      try {
+        // Get admission date (today or from body)
+        const admissionDate =
+          req.body.admissionDate ||
+          new Date().toISOString().split("T")[0];
+
+        const totalMonths = Number(req.body.totalMonths) || 12;
+        const scholarshipPercent = Number(req.body.scholarshipPercent) || 0;
+
+        // Find fee structure for this course
+        const feeStructure = await FeeStructure.findOne({
+          instituteId,
+          courseId: data.courseId,
+        });
+
+        if (feeStructure) {
+          const feeCycleDay = getCycleDay(admissionDate);
+          const dueDates = generateDueDates(admissionDate, totalMonths);
+          const startInfo = getMonthInfo(dueDates[0]!);
+          const endInfo = getMonthInfo(dueDates[dueDates.length - 1]!);
+
+          const scholarshipAmount = Math.round(
+            (feeStructure.amount * scholarshipPercent) / 100
+          );
+          const monthlyAmount = Math.max(
+            0,
+            feeStructure.amount - scholarshipAmount
+          );
+
+          // Create fee assignment
+          const assignment = await StudentFeeAssignment.create({
+            instituteId,
+            studentId: student._id,
+            feeStructureId: feeStructure._id,
+            admissionDate,
+            feeCycleDay,
+            monthlyAmount,
+            scholarshipPercent,
+            totalMonths,
+            startMonth: startInfo.month,
+            endMonth: endInfo.month,
+            status: "active",
+          });
+
+          // Auto-generate monthly bills
+          const payments = await Promise.all(
+            dueDates.map(async (dueDate) => {
+              const info = getMonthInfo(dueDate);
+              return Payment.create({
+                instituteId,
+                studentId: student._id,
+                feeStructureId: feeStructure._id,
+                assignmentId: assignment._id,
+                originalAmount: feeStructure.amount,
+                scholarshipPercent,
+                scholarshipAmount,
+                amount: monthlyAmount,
+                lateFee: 0,
+                totalAmount: monthlyAmount,
+                paidAmount: 0,
+                dueDate,
+                month: info.month,
+                monthLabel: info.label,
+                status: "pending",
+              });
+            })
+          );
+
+          feeAssignmentInfo = {
+            assigned: true,
+            assignmentId: String(assignment._id),
+            monthlyAmount,
+            totalMonths,
+            firstDueDate: dueDates[0],
+            lastDueDate: dueDates[dueDates.length - 1],
+            billsGenerated: payments.length,
+          };
+
+          console.log(
+            `✅ Auto-assigned fee for ${student.name}: ${payments.length} bills, ₹${monthlyAmount}/month`
+          );
+        } else {
+          feeAssignmentInfo = {
+            assigned: false,
+            reason:
+              "No fee structure found for this course. Please create one first.",
+          };
+          console.log(
+            `⚠️ No fee structure for course ${data.courseId} — student created without fee`
+          );
+        }
+      } catch (feeError: any) {
+        console.error("AUTO FEE ASSIGNMENT ERROR:", feeError);
+        feeAssignmentInfo = {
+          assigned: false,
+          error: feeError?.message ?? "Fee assignment failed",
+        };
+        // Don't fail student creation if fee assignment fails
+      }
+
+      const studentData = await populateStudent(student);
+      res.status(201).json({
+        ...studentData,
+        feeAssignment: feeAssignmentInfo,
+      });
     } catch (error: any) {
       console.error("STUDENT CREATE ERROR:", error);
 
@@ -305,7 +416,6 @@ router.post(
     }
   }
 );
-
 router.get(
   "/students/:id",
   authenticate,
