@@ -76,6 +76,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [reportCardsOpen, setReportCardsOpen] = useState(
     location.startsWith("/report-card")
   );
+  const [financeOpen, setFinanceOpen] = useState(
+  location.startsWith("/finance")
+);
 
   if (!isAuthenticated) return <Redirect to="/login" />;
 
@@ -192,6 +195,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 const isHomework = item.title === "Homework";
                 const isExams = item.title === "Exams";
                 const isReportCards = item.title === "Report Cards";
+                const isFinance = item.title === "Finance";
 
                 if (isEnquiry) {
                   return (
@@ -386,6 +390,59 @@ export function Layout({ children }: { children: React.ReactNode }) {
                           >
                             <GraduationCap className="h-3 w-3" />
                             <span className="whitespace-nowrap">Computer Report Cards</span>
+                          </a>
+                        </div>
+                      ) : null}
+                    </SidebarMenuItem>
+                  );
+                }
+
+                if (isFinance) {
+                  return (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton
+                        type="button"
+                        onClick={() => setFinanceOpen((open) => !open)}
+                        isActive={location.startsWith("/finance")}
+                        tooltip="Finance"
+                        className="cursor-pointer"
+                      >
+                        <IndianRupee className="h-4 w-4" />
+                        <span>Finance</span>
+                        <ChevronDown
+                          className={`ml-auto h-4 w-4 transition-transform ${
+                            financeOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </SidebarMenuButton>
+
+                      {financeOpen ? (
+                        <div className="ml-7 mt-1 space-y-1 border-l pl-3">
+                          <a
+                            href="/finance/student-fee-management"
+                            className={`flex h-7 items-center gap-1.5 rounded-md px-2 text-xs whitespace-nowrap transition-colors hover:bg-muted hover:text-foreground ${
+                              location.startsWith("/finance/student-fee-management") ||
+                              location === "/finance"
+                                ? "bg-muted font-medium text-foreground"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            <span className="whitespace-nowrap">
+                              Student Fee Management
+                            </span>
+                          </a>
+
+                          <a
+                            href="/finance/daily-expense"
+                            className={`flex h-7 items-center gap-1.5 rounded-md px-2 text-xs whitespace-nowrap transition-colors hover:bg-muted hover:text-foreground ${
+                              location.startsWith("/finance/daily-expense")
+                                ? "bg-muted font-medium text-foreground"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            <span className="whitespace-nowrap">
+                              Daily Expense
+                            </span>
                           </a>
                         </div>
                       ) : null}

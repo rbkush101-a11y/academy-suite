@@ -1,4 +1,4 @@
-import { useListCourses, useListBatches, useListStudents } from "@workspace/api-client-react";
+﻿import { useListCourses, useListBatches, useListStudents } from "@workspace/api-client-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ const headers = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 const typeLabel = (value:string) => value.replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-
+``
 function SearchDropdown({label,value,options,placeholder,onChange,disabled=false}:{label:string;value:string;options:Option[];placeholder:string;onChange:(v:string)=>void;disabled?:boolean}) {
   const [open,setOpen]=useState(false), [term,setTerm]=useState("");
   const selected=options.find((item)=>item.value===value);
@@ -62,7 +62,7 @@ export default function ReportCard() {
     const params=new URLSearchParams({batchId});
     if(mode==="date")params.set("date",date);
     if(mode==="month")params.set("month",month);
-    fetch(`/api/exam-series?${params}`,{headers:headers()}).then(async r=>r.ok?r.json():[]).then((items)=>{setSeries(items);setSelectedIds(items.map((x:Series)=>x.id));}).catch(()=>setSeries([]));
+    fetch(`/api/exam-series?${params}`,{headers: headers() as HeadersInit as HeadersInit}).then(async r=>r.ok?r.json():[]).then((items)=>{setSeries(items);setSelectedIds(items.map((x:Series)=>x.id));}).catch(()=>setSeries([]));
   },[batchId,mode,date,month]);
 
   const toggle=(id:string)=>setSelectedIds((old)=>old.includes(id)?old.filter((x)=>x!==id):[...old,id]);
@@ -71,7 +71,7 @@ export default function ReportCard() {
     if(!selectedIds.length){setMessage("Kam se kam ek Test / Exam select karo.");return;}
     setLoading(true);setMessage("");
     try{
-      const response=await fetch(`/api/report-card?studentId=${studentId}&seriesIds=${selectedIds.join(",")}`,{headers:headers()});
+      const response=await fetch(`/api/report-card?studentId=${studentId}&seriesIds=${selectedIds.join(",")}`,{headers: headers() as HeadersInit});
       const data=await response.json().catch(()=>null);
       if(!response.ok){setMessage(data?.error??"Report card load nahi hua.");return;}
       if(!data?.examResults?.length){setMessage("Selected test me is student ke marks abhi enter nahi hain.");return;}

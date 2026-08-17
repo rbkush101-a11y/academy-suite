@@ -14,7 +14,7 @@ getListPaymentsQueryKey,
 getGetFinanceSummaryQueryKey,
 } from "@workspace/api-client-react";
 import { useState } from "react";
-import {
+import {  
   useMutation,
   useQuery,
   useQueryClient,
@@ -33,18 +33,24 @@ import {
   type CreateFeeAssignmentResult,
 } from "../lib/finance-api";
 import { SearchableDropdown } from "@/components/searchable-dropdown";
+import { MonthNav } from "@/components/month-nav";
 import { useLocation } from "wouter";
 
-export default function Finance() {
-const [location] = useLocation();
-const financeSection = location.includes("section=daily-expense")
-  ? "daily-expense"
-  : "student-fee-management";
-
+export default function StudentFeeManagement() {
 const queryClient = useQueryClient();
 
-const { data: summary } = useGetFinanceSummary();
-const { data: payments, isLoading: isLoadingPayments } = useListPayments();
+const [selectedMonth, setSelectedMonth] = useState(
+  new Date().toISOString().slice(0, 7)
+);
+
+const { data: summary } = useGetFinanceSummary({
+  month: selectedMonth,
+} as any);
+
+const { data: payments, isLoading: isLoadingPayments } = useListPayments({
+  month: selectedMonth,
+} as any);
+
 const { data: feeStructures, isLoading: isLoadingFeeStructures } =
 useListFeeStructures();
 const { data: courses } = useListCourses();
@@ -836,35 +842,40 @@ const assignmentPayableAmount = Math.max(
 
 
 return (
-<div className="space-y-6">
-<div className="mb-4 flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-center sm:justify-between">
-<h1 className="text-3xl font-bold tracking-tight">Student Fee Management</h1>
+  <div className="space-y-6">
+    <div className="mb-4 flex flex-col gap-4 border-b pb-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="space-y-3">
+        <h1 className="text-3xl font-bold tracking-tight">
+          Student Fee Management
+        </h1>
 
-    <div className="flex gap-2">
-      {financeSection === "student-fee-management" && (
-        <>
-          <Button variant="outline" onClick={openFeeStructureDialog}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Fee Structure
-          </Button>
+        <MonthNav
+          value={selectedMonth}
+          onChange={setSelectedMonth}
+          hint="Is month ki fees aur pending list neeche dikhegi."
+        />
+      </div>
 
-          <Button variant="outline" onClick={openAssignmentDialog}>
-            <Plus className="mr-2 h-4 w-4" />
-            Assign Fee Cycle
-          </Button>
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={openFeeStructureDialog}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add Fee Structure
+        </Button>
 
-          <Button onClick={openPaymentDialog}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Manual Fee
-          </Button>
-        </>
-      )}
+        <Button variant="outline" onClick={openAssignmentDialog}>
+          <Plus className="mr-2 h-4 w-4" />
+          Assign Fee Cycle
+        </Button>
 
+        <Button onClick={openPaymentDialog}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add Manual Fee
+        </Button>
+      </div>
     </div>
-  </div>
 
-
-  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
     <Card>
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
@@ -1909,8 +1920,8 @@ Delete
     </CardContent>
   </Card>
 )}
-</div>
+    </div>
+  </div>
 
 );
 }
-

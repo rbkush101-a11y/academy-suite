@@ -1,4 +1,4 @@
-import { useListAdmissions, useListCourses, getListAdmissionsQueryKey } from "@workspace/api-client-react";
+﻿import { useListAdmissions, useListCourses, getListAdmissionsQueryKey } from "@workspace/api-client-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -283,15 +283,15 @@ export default function Admissions() {
     setMessage("");
     setEditTarget(enquiry);
     form.reset({
-      enquiryType: enquiry.enquiryType ?? "academic",
+      enquiryType: (enquiry as any).enquiryType ?? "academic",
       studentName: enquiry.studentName ?? "",
-      className: enquiry.className ?? "",
-      board: enquiry.board ?? "",
+      className: (enquiry as any).className ?? "",
+      board: (enquiry as any).board ?? "",
       courseInterest: enquiry.courseInterest ?? "",
       phone: enquiry.phone ?? "",
       source: enquiry.source ?? "walk-in",
-      enquiryDate: enquiry.enquiryDate ?? String(enquiry.createdAt ?? "").slice(0, 10) ?? todayDate(),
-      enquiryDay: enquiry.enquiryDay ?? dayFromDate(enquiry.enquiryDate ?? String(enquiry.createdAt ?? "").slice(0, 10)),
+      enquiryDate: (enquiry as any).enquiryDate ?? String(enquiry.createdAt ?? "").slice(0, 10) ?? todayDate(),
+      enquiryDay: (enquiry as any).enquiryDay ?? dayFromDate((enquiry as any).enquiryDate ?? String(enquiry.createdAt ?? "").slice(0, 10)),
       remarks: enquiry.remarks ?? "",
     });
     setOpen(true);
@@ -417,7 +417,7 @@ export default function Admissions() {
     enquiries?.filter((enquiry: any) => {
       const { board, remark } = readRemarks(enquiry.remarks);
       const term = search.toLowerCase();
-      const enquiryType = enquiry.enquiryType ?? "academic";
+      const enquiryType = (enquiry as any).enquiryType ?? "academic";
 
       if (pageType && enquiryType !== pageType) return false;
       if (statusFilter !== "all" && enquiry.status !== statusFilter) return false;
@@ -425,15 +425,15 @@ export default function Admissions() {
       return (
         enquiry.studentName.toLowerCase().includes(term) ||
         enquiry.phone.includes(search) ||
-        (enquiry.className ?? enquiry.courseInterest ?? "").toLowerCase().includes(term) ||
+        ((enquiry as any).className ?? enquiry.courseInterest ?? "").toLowerCase().includes(term) ||
         (enquiry.courseInterest ?? "").toLowerCase().includes(term) ||
-        (enquiry.board ?? board ?? "").toLowerCase().includes(term) ||
+        ((enquiry as any).board ?? board ?? "").toLowerCase().includes(term) ||
         remark.toLowerCase().includes(term)
       );
     }) ?? [];
 
   const typeWiseEnquiries = (enquiries ?? []).filter((enquiry: any) =>
-    !pageType || (enquiry.enquiryType ?? "academic") === pageType
+    !pageType || ((enquiry as any).enquiryType ?? "academic") === pageType
   );
 
   const statusCounts = {
@@ -549,7 +549,7 @@ export default function Admissions() {
                 <div className="grid grid-cols-2 gap-4">
                   <SearchableDropdown
                     label="Class"
-                    value={form.watch("className")}
+                    value={form.watch("className") ?? ""}
                     placeholder="Search or select class"
                     options={[
                       { label: "NURSERY", value: "NURSERY" },
@@ -573,7 +573,7 @@ export default function Admissions() {
 
                   <SearchableDropdown
                     label="Board"
-                    value={form.watch("board")}
+                    value={form.watch("board") ?? ""}
                     placeholder="Search or select board"
                     options={[
                       { label: "CBSE", value: "CBSE" },
@@ -717,18 +717,18 @@ export default function Admissions() {
                         </div>
                       </TableCell>
                       <TableCell className="text-sm">
-                        <div>{displayDate(enquiry.enquiryDate ?? String(enquiry.createdAt ?? "").slice(0, 10))}</div>
+                        <div>{displayDate((enquiry as any).enquiryDate ?? String(enquiry.createdAt ?? "").slice(0, 10))}</div>
                         <div className="text-xs text-muted-foreground">
-                          {enquiry.enquiryDay ?? dayFromDate(enquiry.enquiryDate ?? String(enquiry.createdAt ?? "").slice(0, 10))}
+                          {(enquiry as any).enquiryDay ?? dayFromDate((enquiry as any).enquiryDate ?? String(enquiry.createdAt ?? "").slice(0, 10))}
                         </div>
                       </TableCell>
                       <TableCell className="font-medium">
-                        {(enquiry.enquiryType ?? "academic") === "computer"
+                        {((enquiry as any).enquiryType ?? "academic") === "computer"
                           ? enquiry.courseInterest || "-"
-                          : enquiry.className || "-"}
+                          : (enquiry as any).className || "-"}
                       </TableCell>
                       <TableCell>
-                        {(enquiry.enquiryType ?? "academic") === "computer" ? "-" : enquiry.board || "-"}
+                        {((enquiry as any).enquiryType ?? "academic") === "computer" ? "-" : (enquiry as any).board || "-"}
                       </TableCell>
                       <TableCell className="text-sm">{enquiry.phone}</TableCell>
                       <TableCell className="capitalize text-sm">
@@ -790,3 +790,4 @@ export default function Admissions() {
     </div>
   );
 }
+

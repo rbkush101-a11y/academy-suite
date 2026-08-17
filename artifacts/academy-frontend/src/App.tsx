@@ -4,6 +4,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
+import DailyExpense from "@/pages/daily-expense";
+import StudentFeeManagement from "@/pages/student-fee-management";
 
 import Login from "@/pages/login";
 import Signup from "@/pages/signup";
@@ -49,7 +51,17 @@ function Router() {
       <Route path="/staff"><ProtectedRoute component={Staff} /></Route>
       <Route path="/subjects"><ProtectedRoute component={Subjects} /></Route>
       <Route path="/attendance"><ProtectedRoute component={Attendance} /></Route>
-      <Route path="/finance"><ProtectedRoute component={Finance} /></Route>
+      <Route path="/finance/student-fee-management">
+        <ProtectedRoute component={StudentFeeManagement} />
+      </Route>
+
+      <Route path="/finance/daily-expense">
+        <ProtectedRoute component={DailyExpense} />
+      </Route>
+
+      <Route path="/finance">
+        <ProtectedRoute component={StudentFeeManagement} />
+      </Route>
       
       <Route path="/timetable"><ProtectedRoute component={Timetable} /></Route>
       <Route path="/homework"><ProtectedRoute component={Homework} /></Route>
