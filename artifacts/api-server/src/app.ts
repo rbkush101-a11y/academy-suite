@@ -37,6 +37,15 @@ app.get("/", (_req, res) => {
   res.send("Server chal raha hai");
 });
 
+// Keep-alive / health check — auth ke bina, cron isko ping karega
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    uptime: Math.round(process.uptime()),
+    time: new Date().toISOString(),
+  });
+});
+
 app.use("/api", router);
 
 export default app;
