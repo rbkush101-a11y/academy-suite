@@ -30,7 +30,20 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Plus, Pencil, Trash2, Upload, UserRound, Download, FileText, Eye, X } from "lucide-react";
+import {
+  Search, Plus, Pencil, Trash2, Upload, UserRound, Download, FileText,
+  Eye, X, Camera, GraduationCap, Users, MapPin, KeyRound, IdCard,
+  Phone, Mail, Check,
+} from "lucide-react";
+import { CameraCapture } from "@/components/camera-capture";
+import { INDIA_STATES, getDistricts } from "@/lib/india-locations";
+import { SCHOOL_OPTIONS } from "@/lib/schools";
+import {
+  FormRow, FormHeader, FormInput, FormSelect,
+  FormTextarea, PhoneInput, CustomFieldsBox, FormFooter,
+  SectionTitle, DateInput,
+} from "@/components/form-fields";
+
 
 type StudentDocument = {
   label: string;
@@ -73,6 +86,8 @@ type StudentForm = {
   permanentDistrict: string;
   permanentState: string;
   permanentPin: string;
+  loginId: string;
+  loginPassword: string;
   status: "active" | "inactive";
 };
 
@@ -110,6 +125,8 @@ const blankForm: StudentForm = {
   permanentDistrict: "",
   permanentState: "",
   permanentPin: "",
+  loginId: "",
+  loginPassword: "",
   status: "active",
 };
 
@@ -125,10 +142,147 @@ const CLASS_OPTIONS = [
 
 const BOARD_OPTIONS = ["CBSE", "ICSE", "UP Board", "Other"];
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+
+
+/* Phone input — sirf 10 digit lega */
+function PhoneField({
+  label,
+  value,
+  onChange,
+  required = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  required?: boolean;
+}) {
   return (
-    <div className="rounded-md bg-primary px-4 py-2 text-center font-bold text-primary-foreground">
-      {children}
+    <div className="space-y-1.5">
+      <Label className="flex items-center gap-1.5">
+        <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+        {label}
+        {required ? <span className="text-red-500">*</span> : null}
+      </Label>
+      <Input
+        inputMode="numeric"
+        placeholder="10 digit mobile"
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 10))}
+      />
+    </div>
+  );
+}
+
+/* WhatsApp — "same as contact" checkbox ke saath */
+function WhatsappField({
+  value,
+  contact,
+  onChange,
+}: {
+  value: string;
+  contact: string;
+  onChange: (v: string) => void;
+}) {
+  const same = Boolean(contact) && value === contact;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Label className="flex items-center gap-1.5">
+          <svg className="h-3.5 w-3.5 fill-green-600" viewBox="0 0 24 24">
+            <path d="M17.5 14.4c-.3-.2-1.7-.9-2-1s-.5-.1-.7.1-.7 1-.9 1.2-.4.2-.7 0a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.6-2c-.2-.4 0-.5.1-.7l.5-.6.3-.5v-.5l-1-2.2c-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4a3 3 0 0 0-1 2.2 5.3 5.3 0 0 0 1.1 2.8 12 12 0 0 0 4.7 4.1c2.2.9 2.2.6 2.6.5a2.7 2.7 0 0 0 1.8-1.2 2.2 2.2 0 0 0 .2-1.3l-.5-.3zM12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.4A10 10 0 1 0 12 2z" />
+          </svg>
+          WhatsApp Number
+        </Label>
+
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5 accent-green-600"
+            checked={same}
+            disabled={!contact}
+            onChange={(e) => onChange(e.target.checked ? contact : "")}
+          />
+          Same as contact
+        </label>
+      </div>
+
+      <Input
+        inputMode="numeric"
+        placeholder="10 digit WhatsApp"
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 10))}
+      />
+    </div>
+  );
+}
+
+/* Percentage — % apne aap dikhega */
+function PercentField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label>Percentage of Last Class</Label>
+      <div className="relative">
+        <Input
+          inputMode="decimal"
+          placeholder="82"
+          value={value}
+          onChange={(e) => {
+            const clean = e.target.value.replace(/[^\d.]/g, "");
+            if (clean !== "" && Number(clean) > 100) return;
+            onChange(clean);
+          }}
+          className="pr-8"
+        />
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">
+          %
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* Email — @gmail.com apne aap */
+function EmailField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const suggest = value.trim() && !value.includes("@");
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="flex items-center gap-1.5">
+        <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+        E-mail ID
+      </Label>
+
+      <Input
+        value={value}
+        placeholder="name@gmail.com"
+        onChange={(e) => onChange(e.target.value.trim())}
+        onBlur={() => {
+          if (suggest) onChange(`${value.trim()}@gmail.com`);
+        }}
+      />
+
+      {suggest ? (
+        <button
+          type="button"
+          onClick={() => onChange(`${value.trim()}@gmail.com`)}
+          className="text-xs text-primary hover:underline"
+        >
+          + @gmail.com lagao → <b>{value}@gmail.com</b>
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -454,6 +608,8 @@ export default function Students() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<any>(null);
   const [form, setForm] = useState<StudentForm>(blankForm);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const setValue = (key: keyof StudentForm, value: string) => {
     setForm((old) => ({ ...old, [key]: value }));
@@ -528,6 +684,8 @@ export default function Students() {
       permanentDistrict: student.permanentDistrict ?? "",
       permanentState: student.permanentState ?? "",
       permanentPin: student.permanentPin ?? "",
+      loginId: student.loginId ?? "",
+      loginPassword: "",
       status: student.status === "inactive" ? "inactive" : "active",
     });
     setDialogOpen(true);
@@ -1083,17 +1241,30 @@ export default function Students() {
   };
 
   const saveStudent = () => {
-    if (!form.name.trim() || !form.phone.trim() || !form.courseId || !form.batchId) {
-      alert("Student Name, Contact Number, Course and Batch are required.");
+    const contact = form.fatherPhone || form.motherPhone || form.emergencyPhone;
+
+    if (!form.name.trim()) {
+      alert("Student ka naam zaroori hai.");
+      return;
+    }
+    if (!contact) {
+      alert("Father ya Mother ka contact number zaroori hai.");
+      return;
+    }
+    if (!form.courseId || !form.batchId) {
+      alert("Course aur Batch select karna zaroori hai.");
       return;
     }
 
     const data: any = {
       ...form,
+      phone: contact,
       gender: form.gender || undefined,
       email: form.email || undefined,
       parentName: form.fatherName || undefined,
       parentPhone: form.fatherPhone || undefined,
+      loginId: form.loginId || undefined,
+      loginPassword: form.loginPassword || undefined,
     };
 
     const refresh = () => {
@@ -1102,10 +1273,7 @@ export default function Students() {
     };
 
     if (editingStudent) {
-      updateStudent.mutate(
-        { id: editingStudent.id, data },
-        { onSuccess: refresh }
-      );
+      updateStudent.mutate({ id: editingStudent.id, data }, { onSuccess: refresh });
     } else {
       createStudent.mutate({ data }, { onSuccess: refresh });
     }
@@ -1220,6 +1388,10 @@ export default function Students() {
     return String(first.name ?? "").localeCompare(String(second.name ?? ""));
   });
 
+  const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
+
+  const isFormValid = !Object.values(formErrors).some(Boolean);
+
   const saving = createStudent.isPending || updateStudent.isPending;
 
   return (
@@ -1272,163 +1444,254 @@ export default function Students() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-xl">
-              {editingStudent ? "Edit Student Admission Form" : "Add Student Admission Form"}
-            </DialogTitle>
-            {studentCategory === "academic" || studentCategory === "computer" ? (
-              <p className="text-sm text-muted-foreground">
-                Student Type: {studentCategory === "academic" ? "Academic Student" : "Computer Student"}
-              </p>
-            ) : null}
-          </DialogHeader>
+        <DialogContent className="max-h-[92vh] max-w-3xl gap-0 overflow-y-auto p-0" showCloseButton={false}>
+          <FormHeader
+            title={editingStudent ? "Edit Student Admission" : "Student Admission Form"}
+            subtitle={
+              studentCategory === "academic"
+                ? "Academic Student"
+                : studentCategory === "computer"
+                ? "Computer Student"
+                : "Student Type: All"
+            }
+            onClose={() => setDialogOpen(false)}
+          />
 
-          <div className="space-y-6 pb-2">
-            <SectionTitle>Student’s Information</SectionTitle>
+          <div className="space-y-6 bg-slate-50/30 px-6 py-5">
+            {/* ============ STUDENT INFO ============ */}
+            <SectionTitle icon={<GraduationCap className="h-5 w-5" />} tone="red">
+              Student's Information
+            </SectionTitle>
 
-            <div className="grid gap-4 md:grid-cols-[1fr_170px]">
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Student Name" value={form.name} onChange={(v) => setValue("name", v)} required />
-                <Field label="Date of Birth" value={form.dateOfBirth} onChange={(v) => setValue("dateOfBirth", v)} type="date" />
-                <SearchableOptionDropdown
+            <div className="grid gap-5 md:grid-cols-[1fr_200px]">
+              <FormRow cols={2}>
+                <FormInput
+                  label="Student Name"
+                  required
+                  value={form.name}
+                  onChange={(v) => setValue("name", v)}
+                  placeholder="Enter student name"
+                />
+               <DateInput
+                label="Date of Birth"
+                required
+                value={form.dateOfBirth}
+                onChange={(v) => setValue("dateOfBirth", v)}
+                onValidityChange={(valid) =>
+                  setFormErrors((old) => ({ ...old, dob: !valid }))
+                }
+                hint="DD/MM/YYYY format"
+              />
+                <FormSelect
                   label="Gender"
                   value={form.gender}
-                  placeholder="Select gender"
+                  onChange={(v) => setValue("gender", v)}
                   options={[
                     { label: "Male", value: "male" },
                     { label: "Female", value: "female" },
                     { label: "Other", value: "other" },
                   ]}
-                  onChange={(value) => setValue("gender", value)}
+                  placeholder="Select gender"
                 />
-                <Field label="Contact Number" value={form.phone} onChange={(v) => setValue("phone", v)} placeholder="Mobile number" required />
-                <Field label="School Name" value={form.schoolName} onChange={(v) => setValue("schoolName", v)} />
-                <Field label="Academic Year" value={form.academicYear} onChange={(v) => setValue("academicYear", v)} required />
+                <FormInput
+                  label="School Name"
+                  value={form.schoolName}
+                  onChange={(v) => setValue("schoolName", v)}
+                  placeholder="Enter school name"
+                />
+                <FormInput
+                  label="Academic Year"
+                  required
+                  value={form.academicYear}
+                  onChange={(v) => setValue("academicYear", v)}
+                />
+              </FormRow>
 
-              </div>
+              {/* Photo box waise hi rahega */}
+              <div className="rounded-xl border-2 border-dashed bg-muted/30 p-3">
+                <Label className="block text-center text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                  Student Photo
+                </Label>
 
-              <div className="rounded-lg border p-3">
-                <Label>Student Photo</Label>
-                <div className="mt-2 flex min-h-32 items-center justify-center overflow-hidden rounded border bg-muted">
+                <div className="mx-auto mt-3 flex h-36 w-36 items-center justify-center overflow-hidden rounded-full border-4 border-background bg-muted shadow-lg ring-2 ring-primary/20">
                   {form.photoDataUrl ? (
-                    <img src={form.photoDataUrl} alt="Student preview" className="h-32 w-full object-cover" />
+                    <img
+                      src={form.photoDataUrl}
+                      alt="Student"
+                      className="h-full w-full object-cover"
+                    />
                   ) : (
-                    <div className="text-center text-xs text-muted-foreground">
-                      <UserRound className="mx-auto mb-2 h-8 w-8" />
-                      Passport Photo
-                    </div>
+                    <UserRound className="h-14 w-14 text-muted-foreground/30" />
                   )}
                 </div>
-                <label className="mt-3 flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md border text-sm font-medium hover:bg-muted">
-                  <Upload className="h-4 w-4" />
-                  Upload Photo
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(event) => handlePhotoChange(event.target.files?.[0])}
-                  />
-                </label>
-                <p className="mt-2 text-xs text-muted-foreground">Maximum 1.5 MB</p>
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <label className="flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border bg-background text-xs font-semibold shadow-sm transition hover:bg-muted hover:shadow">
+                    <Upload className="h-3.5 w-3.5" />
+                    Upload
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => handlePhotoChange(e.target.files?.[0])}
+                    />
+                  </label>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 bg-background text-xs font-semibold shadow-sm hover:shadow"
+                    onClick={() => setCameraOpen(true)}
+                  >
+                    <Camera className="mr-1.5 h-3.5 w-3.5" />
+                    Camera
+                  </Button>
+                </div>
+
+                {form.photoDataUrl ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="mt-2 h-7 w-full text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={() => setValue("photoDataUrl", "")}
+                  >
+                    <X className="mr-1 h-3 w-3" />
+                    Remove
+                  </Button>
+                ) : null}
+
+                <p className="mt-2 text-center text-[10px] text-muted-foreground">
+                  Max 1.5 MB
+                </p>
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
-              <SearchableDropdown
+            <FormRow cols={3}>
+              <FormSelect
                 label="Class"
                 value={form.className}
-                options={CLASS_OPTIONS}
-                placeholder="Select or type class"
-                onChange={(value) => setValue("className", value)}
+                onChange={(v) => setValue("className", v)}
+                options={CLASS_OPTIONS.map((c) => ({ label: c, value: c }))}
+                placeholder="Select class"
               />
-
-              <Field label="Section" value={form.section} onChange={(v) => setValue("section", v)} placeholder="Example: A" />
-
-              <SearchableDropdown
+              <FormInput
+                label="Section"
+                value={form.section}
+                onChange={(v) => setValue("section", v)}
+                placeholder="Example: A"
+              />
+              <FormSelect
                 label="Board"
                 value={form.board}
-                options={BOARD_OPTIONS}
-                placeholder="Select or type board"
-                onChange={(value) => setValue("board", value)}
+                onChange={(v) => setValue("board", v)}
+                options={BOARD_OPTIONS.map((b) => ({ label: b, value: b }))}
+                placeholder="Select board"
               />
-            </div>
+            </FormRow>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Percentage of Last Class" value={form.lastClassPercentage} onChange={(v) => setValue("lastClassPercentage", v)} placeholder="Example: 82%" />
-              <Field label="Marks Obtained in Last Class" value={form.lastClassMarks} onChange={(v) => setValue("lastClassMarks", v)} placeholder="Example: 410 / 500" />
-            </div>
+            <FormRow cols={2}>
+              <FormInput
+                label="Percentage of Last Class"
+                value={form.lastClassPercentage}
+                onChange={(v) => setValue("lastClassPercentage", v)}
+                placeholder="Example: 82%"
+              />
+              <FormInput
+                label="Marks Obtained in Last Class"
+                value={form.lastClassMarks}
+                onChange={(v) => setValue("lastClassMarks", v)}
+                placeholder="Example: 410 / 500"
+              />
+            </FormRow>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <SearchableOptionDropdown
-                label="Course *"
+            <FormRow cols={2}>
+              <FormSelect
+                label="Course"
+                required
                 value={form.courseId}
-                placeholder="Search or select course"
-                options={visibleCourses.map((course: any) => ({
-                  label: course.name,
-                  value: course.id,
-                }))}
-                onChange={(value) =>
-                  setForm((old) => ({
-                    ...old,
-                    courseId: value,
-                    batchId: "",
-                  }))
+                onChange={(v) =>
+                  setForm((old) => ({ ...old, courseId: v, batchId: "" }))
                 }
-              />
-
-              <SearchableOptionDropdown
-                label="Batch *"
-                value={form.batchId}
-                placeholder={form.courseId ? "Search or select batch" : "Select course first"}
-                options={filteredBatches.map((batch: any) => ({
-                  label: batch.name,
-                  value: batch.id,
+                options={visibleCourses.map((c: any) => ({
+                  label: c.name,
+                  value: c.id,
                 }))}
-                onChange={(value) => setValue("batchId", value)}
+                placeholder="Search or select course"
               />
-            </div>
+              <FormSelect
+                label="Batch"
+                required
+                value={form.batchId}
+                onChange={(v) => setValue("batchId", v)}
+                options={filteredBatches.map((b: any) => ({
+                  label: b.name,
+                  value: b.id,
+                }))}
+                placeholder={
+                  form.courseId ? "Search or select batch" : "Select course first"
+                }
+                disabled={!form.courseId}
+              />
+            </FormRow>
 
-            <div className="rounded-md border p-4">
+            {/* ============ DOCUMENTS ============ */}
+            <div className="rounded-xl border p-4">
               <div className="mb-1 flex items-center gap-2">
                 <FileText className="h-5 w-5 text-primary" />
                 <h3 className="font-semibold">Document Upload</h3>
               </div>
               <p className="mb-4 text-xs text-muted-foreground">
-                Upload PDF, JPG, PNG or WEBP files. Maximum size: 3 MB per document.
+                PDF, JPG, PNG ya WEBP. Maximum 3 MB per document.
               </p>
 
               <div className="grid gap-4 md:grid-cols-2">
-                {["Aadhaar Card", "Birth Certificate", "Previous Class Marksheet", "Other Document"].map((label) => {
-                  const document = getDocument(label);
-
+                {["Aadhaar Card", "Previous Class Marksheet"].map((label) => {
+                  const doc = getDocument(label);
                   return (
-                    <div key={label} className="rounded-md border p-3">
+                    <div key={label} className="rounded-lg border bg-muted/20 p-3">
                       <Label>{label}</Label>
-                      {document ? (
-                        <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-muted p-2">
+                      {doc ? (
+                        <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-background p-2">
                           <div className="min-w-0">
-                            <div className="truncate text-sm font-medium">{document.name}</div>
-                            <div className="text-xs text-muted-foreground">Uploaded</div>
+                            <div className="truncate text-sm font-medium">
+                              {doc.name}
+                            </div>
+                            <div className="flex items-center gap-1 text-xs text-green-600">
+                              <Check className="h-3 w-3" /> Uploaded
+                            </div>
                           </div>
                           <div className="flex shrink-0 gap-1">
-                            <Button type="button" size="icon" variant="ghost" title="View document" onClick={() => window.open(document.dataUrl, "_blank")}>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              onClick={() => window.open(doc.dataUrl, "_blank")}
+                            >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button type="button" size="icon" variant="ghost" className="text-destructive" title="Remove document" onClick={() => removeDocument(label)}>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-destructive"
+                              onClick={() => removeDocument(label)}
+                            >
                               <X className="h-4 w-4" />
                             </Button>
                           </div>
                         </div>
                       ) : (
-                        <label className="mt-2 flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border text-sm font-medium hover:bg-muted">
+                        <label className="mt-2 flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border bg-background text-sm font-medium transition hover:bg-muted">
                           <Upload className="h-4 w-4" />
                           Upload Document
                           <input
                             type="file"
                             accept=".pdf,image/jpeg,image/png,image/webp"
                             className="hidden"
-                            onChange={(event) => handleDocumentChange(label, event.target.files?.[0])}
+                            onChange={(e) =>
+                              handleDocumentChange(label, e.target.files?.[0])
+                            }
                           />
                         </label>
                       )}
@@ -1438,46 +1701,126 @@ export default function Students() {
               </div>
             </div>
 
-            <SectionTitle>Parent’s Information</SectionTitle>
+            {/* ============ PARENTS ============ */}
+            <SectionTitle icon={<Users className="h-5 w-5" />} tone="red">
+              Parent's Information
+            </SectionTitle>
 
-            <div className="rounded-md border p-4">
-              <h3 className="mb-4 font-semibold">Mother’s Details</h3>
+            <div className="rounded-xl border p-4">
+              <h3 className="mb-4 flex items-center gap-2 font-semibold">
+                <span className="h-2 w-2 rounded-full bg-pink-500" />
+                Mother's Details
+              </h3>
               <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Mother’s Name" value={form.motherName} onChange={(v) => setValue("motherName", v)} />
-                <Field label="Occupation" value={form.motherOccupation} onChange={(v) => setValue("motherOccupation", v)} />
-                <Field label="Contact Number" value={form.motherPhone} onChange={(v) => setValue("motherPhone", v)} />
-                <Field label="WhatsApp Number" value={form.motherWhatsapp} onChange={(v) => setValue("motherWhatsapp", v)} />
+                <Field
+                  label="Mother's Name"
+                  value={form.motherName}
+                  onChange={(v) => setValue("motherName", v)}
+                />
+                <Field
+                  label="Occupation"
+                  value={form.motherOccupation}
+                  onChange={(v) => setValue("motherOccupation", v)}
+                />
+                <PhoneField
+                  label="Contact Number"
+                  value={form.motherPhone}
+                  onChange={(v) => setValue("motherPhone", v)}
+                />
+                <WhatsappField
+                  value={form.motherWhatsapp}
+                  contact={form.motherPhone}
+                  onChange={(v) => setValue("motherWhatsapp", v)}
+                />
               </div>
             </div>
 
-            <div className="rounded-md border p-4">
-              <h3 className="mb-4 font-semibold">Father’s Details</h3>
+            <div className="rounded-xl border p-4">
+              <h3 className="mb-4 flex items-center gap-2 font-semibold">
+                <span className="h-2 w-2 rounded-full bg-blue-500" />
+                Father's Details
+              </h3>
               <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Father’s Name" value={form.fatherName} onChange={(v) => setValue("fatherName", v)} />
-                <Field label="Occupation" value={form.fatherOccupation} onChange={(v) => setValue("fatherOccupation", v)} />
-                <Field label="Contact Number" value={form.fatherPhone} onChange={(v) => setValue("fatherPhone", v)} />
-                <Field label="WhatsApp Number" value={form.fatherWhatsapp} onChange={(v) => setValue("fatherWhatsapp", v)} />
+                <Field
+                  label="Father's Name"
+                  value={form.fatherName}
+                  onChange={(v) => setValue("fatherName", v)}
+                />
+                <Field
+                  label="Occupation"
+                  value={form.fatherOccupation}
+                  onChange={(v) => setValue("fatherOccupation", v)}
+                />
+                <PhoneField
+                  label="Contact Number"
+                  value={form.fatherPhone}
+                  onChange={(v) => setValue("fatherPhone", v)}
+                  required
+                />
+                <WhatsappField
+                  value={form.fatherWhatsapp}
+                  contact={form.fatherPhone}
+                  onChange={(v) => setValue("fatherWhatsapp", v)}
+                />
               </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Emergency Contact Number" value={form.emergencyPhone} onChange={(v) => setValue("emergencyPhone", v)} />
-              <Field label="E-mail ID" value={form.email} onChange={(v) => setValue("email", v)} type="email" />
+              <PhoneField
+                label="Emergency Contact Number"
+                value={form.emergencyPhone}
+                onChange={(v) => setValue("emergencyPhone", v)}
+              />
+              <EmailField value={form.email} onChange={(v) => setValue("email", v)} />
             </div>
 
-            <div className="rounded-md border p-4">
+            {/* ============ ADDRESS ============ */}
+            <SectionTitle icon={<MapPin className="h-5 w-5" />} tone="red">
+              Address Details
+            </SectionTitle>
+
+            <div className="rounded-xl border p-4">
               <h3 className="mb-4 font-semibold">Correspondence Address</h3>
               <div className="grid gap-4">
-                <Field label="Address" value={form.correspondenceAddress} onChange={(v) => setValue("correspondenceAddress", v)} />
+                <Field
+                  label="Address"
+                  value={form.correspondenceAddress}
+                  onChange={(v) => setValue("correspondenceAddress", v)}
+                />
                 <div className="grid gap-4 md:grid-cols-3">
-                  <Field label="District" value={form.correspondenceDistrict} onChange={(v) => setValue("correspondenceDistrict", v)} />
-                  <Field label="State" value={form.correspondenceState} onChange={(v) => setValue("correspondenceState", v)} />
-                  <Field label="PIN" value={form.correspondencePin} onChange={(v) => setValue("correspondencePin", v)} />
+                  <SearchableDropdown
+                    label="State"
+                    value={form.correspondenceState}
+                    options={INDIA_STATES}
+                    placeholder="Search state"
+                    onChange={(v) =>
+                      setForm((old) => ({
+                        ...old,
+                        correspondenceState: v,
+                        correspondenceDistrict: "",
+                      }))
+                    }
+                  />
+                  <SearchableDropdown
+                    label="District"
+                    value={form.correspondenceDistrict}
+                    options={getDistricts(form.correspondenceState)}
+                    placeholder="Search district"
+                    onChange={(v) => setValue("correspondenceDistrict", v)}
+                  />
+                  <Field
+                    label="PIN"
+                    value={form.correspondencePin}
+                    onChange={(v) =>
+                      setValue("correspondencePin", v.replace(/\D/g, "").slice(0, 6))
+                    }
+                    placeholder="6 digit"
+                  />
                 </div>
               </div>
             </div>
 
-            <div className="rounded-md border p-4">
+            <div className="rounded-xl border p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold">Permanent Address</h3>
                 <Button
@@ -1494,24 +1837,156 @@ export default function Students() {
                     }))
                   }
                 >
-                  Same as Correspondence Address
+                  <Check className="mr-1.5 h-3.5 w-3.5" />
+                  Same as Correspondence
                 </Button>
               </div>
 
               <div className="grid gap-4">
-                <Field label="Address" value={form.permanentAddress} onChange={(v) => setValue("permanentAddress", v)} />
+                <Field
+                  label="Address"
+                  value={form.permanentAddress}
+                  onChange={(v) => setValue("permanentAddress", v)}
+                />
                 <div className="grid gap-4 md:grid-cols-3">
-                  <Field label="District" value={form.permanentDistrict} onChange={(v) => setValue("permanentDistrict", v)} />
-                  <Field label="State" value={form.permanentState} onChange={(v) => setValue("permanentState", v)} />
-                  <Field label="PIN" value={form.permanentPin} onChange={(v) => setValue("permanentPin", v)} />
+                  <SearchableDropdown
+                    label="State"
+                    value={form.permanentState}
+                    options={INDIA_STATES}
+                    placeholder="Search state"
+                    onChange={(v) =>
+                      setForm((old) => ({
+                        ...old,
+                        permanentState: v,
+                        permanentDistrict: "",
+                      }))
+                    }
+                  />
+                  <SearchableDropdown
+                    label="District"
+                    value={form.permanentDistrict}
+                    options={getDistricts(form.permanentState)}
+                    placeholder="Search district"
+                    onChange={(v) => setValue("permanentDistrict", v)}
+                  />
+                  <Field
+                    label="PIN"
+                    value={form.permanentPin}
+                    onChange={(v) =>
+                      setValue("permanentPin", v.replace(/\D/g, "").slice(0, 6))
+                    }
+                    placeholder="6 digit"
+                  />
                 </div>
               </div>
             </div>
 
-            <Button className="w-full" onClick={saveStudent} disabled={saving}>
-              {saving ? "Saving..." : editingStudent ? "Update Student" : "Save Student Admission"}
-            </Button>
+            {/* ============ LOGIN ============ */}
+            <SectionTitle icon={<KeyRound className="h-5 w-5" />} tone="red">
+              Student Login Details
+            </SectionTitle>
+
+            <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-4">
+              <p className="mb-4 text-xs text-muted-foreground">
+                Student in details se portal me login karega. Login ID unique honi
+                chahiye.
+              </p>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5">
+                    <IdCard className="h-3.5 w-3.5 text-muted-foreground" />
+                    Login ID
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={form.loginId}
+                      placeholder="example: rahul1234"
+                      onChange={(e) =>
+                        setValue(
+                          "loginId",
+                          e.target.value.toLowerCase().replace(/\s/g, "")
+                        )
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => {
+                        const base = form.name
+                          .trim()
+                          .toLowerCase()
+                          .replace(/[^a-z]/g, "");
+                        const last4 = (form.fatherPhone || form.motherPhone).slice(-4);
+                        if (base) setValue("loginId", `${base}${last4}`);
+                      }}
+                    >
+                      Auto
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-1.5">
+                      <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+                      Password
+                    </Label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((s) => !s)}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      {showPassword ? "Hide" : "Show"}
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      value={form.loginPassword}
+                      placeholder={
+                        editingStudent ? "Blank = no change" : "Min 6 characters"
+                      }
+                      onChange={(e) => setValue("loginPassword", e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => {
+                        const dob = form.dateOfBirth.replaceAll("-", "");
+                        setValue(
+                          "loginPassword",
+                          dob || Math.random().toString(36).slice(-8)
+                        );
+                        setShowPassword(true);
+                      }}
+                    >
+                      Generate
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ============ SAVE ============ */}
+            <div className="sticky bottom-0 -mx-6 border-t bg-background px-6 py-4">
+             <FormFooter
+                onCancel={() => setDialogOpen(false)}
+                onSubmit={saveStudent}
+                loading={saving}
+                submitDisabled={!isFormValid}
+                submitText={editingStudent ? "Update Student" : "Save Student Admission"}
+              />
+            </div>
           </div>
+
+          <CameraCapture
+            open={cameraOpen}
+            onClose={() => setCameraOpen(false)}
+            onCapture={(dataUrl) => setValue("photoDataUrl", dataUrl)}
+          />
         </DialogContent>
       </Dialog>
 
