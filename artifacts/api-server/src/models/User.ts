@@ -12,6 +12,7 @@ export type UserRole =
 export interface IUser extends Document {
   name: string;
   email: string;
+  loginId?: string;
   password: string;
   role: UserRole;
   instituteId?: Types.ObjectId;
@@ -29,6 +30,14 @@ const userSchema = new Schema(
       unique: true,
       lowercase: true,
       trim: true
+    },
+
+    loginId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      lowercase: true,
+      trim: true,
     },
 
     password: { type: String, required: true },

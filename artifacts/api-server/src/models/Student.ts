@@ -1,4 +1,5 @@
 import mongoose, { Document, Schema } from "mongoose";
+import bcrypt from "bcryptjs";
 
 export interface IStudentDocument {
   label: string;
@@ -49,6 +50,8 @@ export interface IStudent extends Document {
   permanentDistrict?: string;
   permanentState?: string;
   permanentPin?: string;
+  loginId?: string;
+  loginPassword?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -103,6 +106,17 @@ const studentSchema = new Schema<IStudent>(
     permanentDistrict: { type: String, trim: true },
     permanentState: { type: String, trim: true },
     permanentPin: { type: String, trim: true },
+    loginId: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      unique: true,
+      sparse: true,
+    },
+    loginPassword: {
+      type: String,
+      select: false,
+    },
   },
   { timestamps: true }
 );
@@ -111,6 +125,33 @@ studentSchema.pre("save", async function () {
   if (!this.enrollmentNo) {
     const count = await Student.countDocuments({ instituteId: this.instituteId });
     this.enrollmentNo = "STU" + String(count + 1).padStart(4, "0");
+  }
+
+  if (
+    this.loginPassword &&
+    this.isModified("loginPassword") &&
+    !this.loginPassword.startsWith("$2")
+  ) {
+    this.loginPassword = await bcrypt.hash(this.loginPassword, 10);
+  }
+});
+
+studentSchema.pre("findOneAndUpdate", async function () {
+  const update = this.getUpdate() as any;
+  if (!update) return;
+
+  const data = update.$set ?? update;
+
+  if (data.loginPassword === "") {
+    delete data.loginPassword;
+  }
+
+  if (
+    data.loginPassword &&
+    typeof data.loginPassword === "string" &&
+    !data.loginPassword.startsWith("$2")
+  ) {
+    data.loginPassword = await bcrypt.hash(data.loginPassword, 10);
   }
 });
 

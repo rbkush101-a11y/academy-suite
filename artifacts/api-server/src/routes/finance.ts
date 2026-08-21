@@ -459,6 +459,42 @@ router.delete(
 );
 
 // ============================================================
+// STUDENT PORTAL — My Fee Payments
+// ============================================================
+router.get(
+  "/finance/my-payments",
+  authenticate,
+  authorize("student", "parent"),
+  async (req, res): Promise<void> => {
+    try {
+      const studentId = req.user!.userId;
+
+      const payments = await Payment.find({
+        studentId,
+      }).sort({ dueDate: 1 });
+
+      // Auto update overdue
+      for (const payment of payments) {
+        if (payment.status === "pending" && isOverdue(payment.dueDate)) {
+          payment.status = "overdue";
+          await payment.save();
+        }
+      }
+
+      const updated = await Payment.find({
+        studentId,
+      }).sort({ dueDate: 1 });
+
+      res.json(await Promise.all(updated.map(fmtPayment)));
+    } catch (error: any) {
+      res.status(500).json({
+        error: error?.message ?? "Unable to load student fee payments",
+      });
+    }
+  }
+);
+
+// ============================================================
 // PAYMENTS
 // ============================================================
 router.get(

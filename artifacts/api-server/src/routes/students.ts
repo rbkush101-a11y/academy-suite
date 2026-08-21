@@ -5,6 +5,7 @@ import { Batch } from "../models/Batch";
 import { Course } from "../models/Course";
 import { FeeStructure, StudentFeeAssignment, Payment } from "../models/Finance";
 import { getCycleDay, generateDueDates, getMonthInfo } from "../lib/feeCycle";
+import bcrypt from "bcryptjs";
 
 const router: IRouter = Router();
 
@@ -78,6 +79,7 @@ async function populateStudent(student: any) {
     permanentDistrict: student.permanentDistrict ?? null,
     permanentState: student.permanentState ?? null,
     permanentPin: student.permanentPin ?? null,
+    loginId: student.loginId ?? null,
 
     createdAt: student.createdAt.toISOString(),
     updatedAt: student.updatedAt.toISOString(),
@@ -122,6 +124,8 @@ function cleanStudentBody(body: any) {
     "permanentDistrict",
     "permanentState",
     "permanentPin",
+    "loginId",
+    "loginPassword",
   ];
 
   const data: Record<string, any> = {};
@@ -132,11 +136,41 @@ function cleanStudentBody(body: any) {
     }
   }
 
-  if (!data.email) {
+    if (!data.email) {
     delete data.email;
   }
 
+  // Login ID ko lowercase + trim karo
+  if (data.loginId) {
+    data.loginId = String(data.loginId).toLowerCase().trim();
+  }
+
+  // Agar password blank bheja gaya hai to old password change mat karo
+  if (!data.loginPassword) {
+    delete data.loginPassword;
+  }
+
   return data;
+}
+
+async function prepareStudentAuthFields(data: Record<string, any>) {
+  if (data.loginId) {
+    data.loginId = String(data.loginId).toLowerCase().trim();
+  }
+
+  // Blank password ka matlab: old password change mat karo
+  if (!data.loginPassword) {
+    delete data.loginPassword;
+    return;
+  }
+
+  // Plain password ko hash karo
+  if (
+    typeof data.loginPassword === "string" &&
+    !data.loginPassword.startsWith("$2")
+  ) {
+    data.loginPassword = await bcrypt.hash(data.loginPassword, 10);
+  }
 }
 
 async function generateEnrollmentNo(instituteId: string) {
@@ -264,6 +298,7 @@ router.post(
       }
 
       const data = cleanStudentBody(req.body);
+      await prepareStudentAuthFields(data);
 
       if (!data.name || !data.phone || !data.courseId || !data.batchId || !data.academicYear) {
         res.status(400).json({
@@ -488,6 +523,7 @@ router.patch(
       }
 
       const updateData = cleanStudentBody(req.body);
+      await prepareStudentAuthFields(updateData);
 
       const nextCourseId = updateData.courseId ?? String(existingStudent.courseId);
       const nextBatchId = updateData.batchId ?? String(existingStudent.batchId);

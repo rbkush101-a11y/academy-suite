@@ -773,11 +773,15 @@ export default function Students() {
   const openAdd = () => {
     setEditingStudent(null);
     setForm(blankForm);
+    setFieldErrors({});
+    setDobInvalid(false);
     setDialogOpen(true);
   };
 
   const openEdit = (student: any) => {
     setEditingStudent(student);
+    setFieldErrors({});
+    setDobInvalid(false);
     setForm({
       ...blankForm,
       name: student.name ?? "",
@@ -1461,9 +1465,10 @@ export default function Students() {
   const saveStudent = () => {
     /* ===== Inline validation ===== */
     const errs: Record<string, string> = {};
+    if (dobInvalid) errs.dateOfBirth = "Date of Birth valid nahi hai";
     if (!form.name.trim()) errs.name = "Student ka naam zaroori hai";
     if (!form.fatherPhone && !form.motherPhone && !form.emergencyPhone)
-      errs.fatherPhone = "Father/Mother/Emergency number chahiye";
+      errs.contact = "Mother, Father ya Emergency me se koi ek contact number zaroori hai";
     if (!form.courseId) errs.courseId = "Course select karo";
     if (!form.batchId) errs.batchId = "Batch select karo";
     if (form.lastClassPercentage) {
@@ -1480,7 +1485,7 @@ export default function Students() {
 
     setFieldErrors(errs);
     if (Object.keys(errs).length) {
-      notify("error", `${Object.keys(errs).length} field me problem hai`);
+      notify("error", Object.values(errs)[0] || `${Object.keys(errs).length} field me problem hai`);
       return;
     }
     /* ===== end validation ===== */
@@ -1641,7 +1646,8 @@ export default function Students() {
     form.courseId !== "" &&
     form.batchId !== "";
 
-  const section2Filled = filled("fatherName") && filled("fatherPhone");
+  const section2Filled =
+  filled("motherPhone") || filled("fatherPhone") || filled("emergencyPhone");
 
   const section3Filled =
     filled("correspondenceAddress") &&
@@ -2070,7 +2076,6 @@ export default function Students() {
                 onChange={(v) => setValue("fatherPhone", v)}
                 code={form.fatherPhoneCode}
                 onCodeChange={(c) => setValue("fatherPhoneCode", c)}
-                required
               />
               <WhatsappField
                 value={form.fatherWhatsapp}
@@ -2093,6 +2098,11 @@ export default function Students() {
               />
               <EmailField value={form.email} onChange={(v) => setValue("email", v)} />
             </div>
+            {fieldErrors.contact ? (
+              <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                {fieldErrors.contact}
+              </p>
+            ) : null}
 
             {/* ============ ADDRESS ============ */}
             <SectionTitle number={3} icon={<MapPin className="h-5 w-5" />} tone="red">
@@ -2309,7 +2319,6 @@ export default function Students() {
                 onCancel={() => setDialogOpen(false)}
                 onSubmit={saveStudent}
                 loading={saving}
-                submitDisabled={!isFormValid}
                 submitText={editingStudent ? "Update Student" : "Save Student Admission"}
               />
             </div>

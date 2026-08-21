@@ -98,7 +98,14 @@ router.post("/exam-series", authenticate, authorize("super_admin","institute_adm
     if (!validTypes.has(type)) { res.status(400).json({ error: "Invalid test type." }); return; }
     const batch = await batchInfo(batchId);
     if (!batch) { res.status(404).json({ error: "Batch not found." }); return; }
-    const item = await ExamSeries.create({ title, type, batchId, testDate, instructions, status: "scheduled" });
+    const item = await ExamSeries.create({
+      title,
+      type: type as any,
+      batchId,
+      testDate,
+      instructions,
+      status: "scheduled",
+    });
     res.status(201).json(await formatSeries(item));
   } catch (error:any) {
     res.status(500).json({ error: error?.message ?? "Unable to create test session." });

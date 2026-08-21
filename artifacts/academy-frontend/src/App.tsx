@@ -5,12 +5,18 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
 import DailyExpense from "@/pages/daily-expense";
-import StudentFeeManagement from "@/pages/student-fee-management";
+
 
 import Login from "@/pages/login";
 import Signup from "@/pages/signup";
 import Dashboard from "@/pages/dashboard";
 import Students from "@/pages/students";
+import StudentFeeManagement from "@/pages/student-fee-management";
+import StudentLogin from "@/pages/student-login";
+import StudentDashboard from "@/pages/student-dashboard";
+import TeacherDashboard from "@/pages/teacher-dashboard";
+import AccountantDashboard from "@/pages/accountant-dashboard";
+import SuperAdminDashboard from "@/pages/super-admin-dashboard";
 import Courses from "@/pages/courses";
 import Batches from "@/pages/batches";
 import Staff from "@/pages/staff";
@@ -42,6 +48,19 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/student-login" component={StudentLogin} />
+      <Route path="/student-dashboard" component={StudentDashboard} />
+      <Route path="/super-admin-dashboard">
+        <ProtectedRoute component={SuperAdminDashboard} />
+      </Route>
+
+      <Route path="/teacher-dashboard">
+        <ProtectedRoute component={TeacherDashboard} />
+      </Route>
+
+      <Route path="/accountant-dashboard">
+        <ProtectedRoute component={AccountantDashboard} />
+      </Route>
       <Route path="/signup" component={Signup} />
       
       <Route path="/dashboard"><ProtectedRoute component={Dashboard} /></Route>

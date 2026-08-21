@@ -23,8 +23,8 @@ import {
 } from "@/components/ui/card";
 
 const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
+  email: z.string().min(1, "Login ID required hai"),
+  password: z.string().min(1, "Password required hai"),
 });
 
 export default function Login() {
@@ -48,7 +48,7 @@ export default function Login() {
       { data: values },
       {
         onSuccess: (data) => {
-          login(data.token);
+          login(data.token, data.user?.role);
         },
         onError: (err: any) => {
           setError(
@@ -79,7 +79,7 @@ export default function Login() {
         <CardHeader className="space-y-1 text-center">
           <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
           <CardDescription>
-            Enter your credentials to access your command center
+            Login ID aur password se sign in karein
           </CardDescription>
         </CardHeader>
 
@@ -91,9 +91,9 @@ export default function Login() {
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email</FormLabel>
+                    <FormLabel>Login ID</FormLabel>
                     <FormControl>
-                      <Input placeholder="admin@institute.com" {...field} />
+                      <Input placeholder="Enter your login ID" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -109,11 +109,11 @@ router.post(
 
       const duplicateEntry = await Timetable.findOne({
         batchId,
+        day: day as any,
         subjectId,
-        day,
         startTime,
         endTime,
-      });
+      } as any);
 
       if (duplicateEntry) {
         res.status(409).json({
@@ -147,14 +147,13 @@ router.post(
       const entry = await Timetable.create({
         batchId,
         subjectId,
-        teacherId: subject.teacherId || undefined,
-        day,
+        day: day as any,
         startTime,
         endTime,
         room,
-      });
+      } as any);
 
-      const populated = await populatedTimetableEntry(String(entry._id));
+      const populated = await populatedTimetableEntry(String((entry as any)._id));
       res.status(201).json(formatEntry(populated));
     } catch (error: any) {
       res.status(500).json({
