@@ -17,11 +17,11 @@ export function FormHeader({
   onClose?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between bg-blue-900 px-4 py-2.5 text-white shadow-md">
+    <div className="sticky top-0 z-30 flex items-center justify-between bg-blue-900 px-4 py-2 text-white shadow-md">
       <div>
-        <h2 className="text-sm font-semibold tracking-wide">{title}</h2>
+        <h2 className="text-[13px] font-semibold tracking-wide">{title}</h2>
         {subtitle ? (
-          <p className="text-[10px] text-blue-200">{subtitle}</p>
+          <p className="text-[9px] text-blue-200">{subtitle}</p>
         ) : null}
       </div>
       {onClose ? (
@@ -386,6 +386,7 @@ export function FormSelect({
   disabled?: boolean;
   readOnlyText?: string;
 }) {
+  /* Readonly mode */
   if (readOnlyText !== undefined) {
     return (
       <div className="space-y-1.5">
@@ -403,53 +404,60 @@ export function FormSelect({
   }
 
   const [open, setOpen] = useState(false);
-  const [text, setText] = useState(
-    options.find((o) => o.value === value)?.label ?? ""
-  );
+  const [text, setText] = useState("");
+  const [highlight, setHighlight] = useState(0);
 
-  /* sync with parent value */
-  useEffect(() => {
-    setText(options.find((o) => o.value === value)?.label ?? "");
-  }, [value, options]);
+  /* Selected option ka label */
+  const selectedLabel = options.find((o) => o.value === value)?.label ?? "";
 
-  const filtered = options;   // saare options dikhao
+  /* ✅ FEATURE 1: Type karke filter */
+  const filtered = text.trim()
+    ? options.filter((o) =>
+        o.label.toLowerCase().includes(text.toLowerCase()),
+      )
+    : options;
 
-  const select = (o: Option) => {
+  /* ✅ FEATURE 3: No record message */
+  const noMatch = text.trim() && filtered.length === 0;
+
+  /* Click bahar hone par actual value dikhao */
+  const closeDropdown = () => {
+    setOpen(false);
+    setText(selectedLabel);
+    setHighlight(0);
+  };
+
+  const choose = (o: Option) => {
     onChange(o.value);
     setText(o.label);
+    setHighlight(0);
     setOpen(false);
   };
-  
-    const [highlight, setHighlight] = useState(-1);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  /* ✅ FEATURE 2: Enter se select */
+  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (disabled) return;
+
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setOpen(true);
-      setHighlight((h) =>
-        filtered.length === 0 ? -1 : Math.min(h + 1, filtered.length - 1)
-      );
+      setHighlight((h) => Math.min(h + 1, filtered.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setOpen(true);
       setHighlight((h) => Math.max(h - 1, 0));
     } else if (e.key === "Enter") {
+      e.preventDefault();
       if (open && filtered[highlight]) {
-        e.preventDefault();
-        select(filtered[highlight]);
+        choose(filtered[highlight]);
+      } else {
+        setOpen(true);
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
-      setText(options.find((o) => o.value === value)?.label ?? "");
-      setOpen(false);
-      setHighlight(-1);
+      closeDropdown();
     }
   };
-
-  /* jab text ya open change ho, highlight reset karo */
-  useEffect(() => {
-    setHighlight(-1);
-  }, [text, open]);
 
   return (
     <div className="space-y-1.5">
@@ -457,27 +465,23 @@ export function FormSelect({
 
       <div className="relative">
         <Input
-          value={text}
+          value={text || selectedLabel}
           placeholder={placeholder}
           disabled={disabled}
           onFocus={() => {
             if (disabled) return;
-            setHighlight(-1);
             setOpen(true);
+            setText(""); /* click par filter ke liye empty */
+            setHighlight(0);
           }}
-          onKeyDown={handleKeyDown}
           onChange={(e) => {
             setText(e.target.value);
             setOpen(true);
+            setHighlight(0);
             if (e.target.value === "") onChange("");
           }}
-          onBlur={() => {
-            setTimeout(() => {
-              setText(options.find((o) => o.value === value)?.label ?? "");
-              setOpen(false);
-              setHighlight(-1);
-            }, 150);
-          }}
+          onKeyDown={handleKey}
+          onBlur={() => setTimeout(closeDropdown, 150)}
           className="h-9 border-slate-300 bg-white pr-9 text-sm shadow-sm focus-visible:border-blue-500 focus-visible:ring-1 focus-visible:ring-blue-500"
         />
 
@@ -488,44 +492,46 @@ export function FormSelect({
           onClick={() => {
             if (disabled) return;
             if (open) {
-              setOpen(false);
-              return;
+              closeDropdown();
+            } else {
+              setText("");
+              setOpen(true);
             }
-            /* Click karne par text clear karo — saare options dikhein */
-            setText("");
-            setHighlight(-1);
-            setOpen(true);
           }}
-          className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-slate-100"
         >
           <span className="text-xs">▼</span>
         </button>
 
         {open && !disabled ? (
-          <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
-            {filtered.length > 0 ? (
+          <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+            {/* ✅ FEATURE 3: No record */}
+            {noMatch ? (
+              <div className="px-3 py-3 text-center text-xs italic text-slate-400">
+                No record found
+              </div>
+            ) : (
               filtered.map((o, idx) => (
                 <button
                   key={o.value}
                   type="button"
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    select(o);
+                    choose(o);
                   }}
                   onMouseEnter={() => setHighlight(idx)}
-                  className={`flex w-full rounded px-3 py-1.5 text-left text-sm ${
+                  className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-sm ${
                     idx === highlight
                       ? "bg-blue-100 text-blue-900"
-                      : "hover:bg-blue-50"
+                      : o.value === value
+                        ? "bg-blue-50 font-medium"
+                        : "hover:bg-slate-50"
                   }`}
                 >
-                  {o.label}
+                  <span>{o.label}</span>
+                  {o.value === value ? <span className="text-blue-600">✓</span> : null}
                 </button>
               ))
-            ) : (
-              <div className="px-3 py-2 text-xs italic text-slate-400">
-                No match found
-              </div>
             )}
           </div>
         ) : null}
@@ -605,12 +611,14 @@ export function SectionTitle({
   tone = "blue",
   hint,
   className,
+  number,
 }: {
   children: ReactNode;
   icon?: ReactNode;
   tone?: keyof typeof SECTION_THEME;
   hint?: string;
   className?: string;
+  number?: number;
 }) {
   return (
     <div
@@ -620,7 +628,14 @@ export function SectionTitle({
       )}
     >
       {icon ? (
-        <div className="rounded-md bg-white/20 p-1.5 backdrop-blur-sm">{icon}</div>
+        <div className="flex items-center gap-2">
+          {number !== undefined ? (
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/30 text-sm font-bold backdrop-blur-sm">
+              {number}
+            </span>
+          ) : null}
+          <div className="rounded-md bg-white/20 p-1.5 backdrop-blur-sm">{icon}</div>
+        </div>
       ) : null}
       <div>
         <div className="text-sm font-semibold tracking-wide">{children}</div>

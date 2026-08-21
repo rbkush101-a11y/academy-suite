@@ -7,7 +7,7 @@ import {
   useListCourses,
   getListStudentsQueryKey,
 } from "@workspace/api-client-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Search, Plus, Pencil, Trash2, Upload, UserRound, Download, FileText,
-  Eye, X, Camera, GraduationCap, Users, MapPin, KeyRound, IdCard,
+  Eye, EyeOff, X, Camera, GraduationCap, Users, MapPin, KeyRound, IdCard,
   Phone, Mail, Check,
 } from "lucide-react";
 import { CameraCapture } from "@/components/camera-capture";
@@ -43,6 +43,7 @@ import {
   FormTextarea, PhoneInput, CustomFieldsBox, FormFooter,
   SectionTitle, DateInput,
 } from "@/components/form-fields";
+import { FormProgress } from "@/components/form-progress";
 
 
 type StudentDocument = {
@@ -72,12 +73,17 @@ type StudentForm = {
   motherName: string;
   motherOccupation: string;
   motherPhone: string;
+  motherPhoneCode: string;
   motherWhatsapp: string;
+  motherWhatsappCode: string;
   fatherName: string;
   fatherOccupation: string;
   fatherPhone: string;
+  fatherPhoneCode: string;
   fatherWhatsapp: string;
+  fatherWhatsappCode: string;
   emergencyPhone: string;
+  emergencyPhoneCode: string;
   correspondenceAddress: string;
   correspondenceDistrict: string;
   correspondenceState: string;
@@ -111,12 +117,17 @@ const blankForm: StudentForm = {
   motherName: "",
   motherOccupation: "",
   motherPhone: "",
+  motherPhoneCode: "+91",
   motherWhatsapp: "",
+  motherWhatsappCode: "+91",
   fatherName: "",
   fatherOccupation: "",
   fatherPhone: "",
+  fatherPhoneCode: "+91",
   fatherWhatsapp: "",
+  fatherWhatsappCode: "+91",
   emergencyPhone: "",
+  emergencyPhoneCode: "+91",
   correspondenceAddress: "",
   correspondenceDistrict: "",
   correspondenceState: "",
@@ -145,30 +156,98 @@ const BOARD_OPTIONS = ["CBSE", "ICSE", "UP Board", "Other"];
 
 
 /* Phone input — sirf 10 digit lega */
+const COUNTRY_CODES = [
+  { code: "+91", iso: "in", name: "India" },
+  { code: "+1", iso: "us", name: "USA" },
+  { code: "+44", iso: "gb", name: "UK" },
+  { code: "+971", iso: "ae", name: "UAE" },
+  { code: "+966", iso: "sa", name: "Saudi" },
+  { code: "+974", iso: "qa", name: "Qatar" },
+  { code: "+965", iso: "kw", name: "Kuwait" },
+  { code: "+968", iso: "om", name: "Oman" },
+  { code: "+973", iso: "bh", name: "Bahrain" },
+  { code: "+92", iso: "pk", name: "Pakistan" },
+  { code: "+880", iso: "bd", name: "Bangladesh" },
+  { code: "+977", iso: "np", name: "Nepal" },
+  { code: "+94", iso: "lk", name: "Sri Lanka" },
+  { code: "+61", iso: "au", name: "Australia" },
+  { code: "+65", iso: "sg", name: "Singapore" },
+  { code: "+60", iso: "my", name: "Malaysia" },
+  { code: "+49", iso: "de", name: "Germany" },
+  { code: "+33", iso: "fr", name: "France" },
+  { code: "+81", iso: "jp", name: "Japan" },
+  { code: "+86", iso: "cn", name: "China" },
+];
+
+function Flag({ iso }: { iso: string }) {
+  return (
+    <img
+      src={`https://flagcdn.com/w40/${iso}.png`}
+      srcSet={`https://flagcdn.com/w80/${iso}.png 2x`}
+      alt=""
+      className="h-4 w-5 rounded-[2px] object-cover"
+      loading="lazy"
+    />
+  );
+}
+
 function PhoneField({
   label,
   value,
   onChange,
+  code = "+91",
+  onCodeChange,
   required = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  code?: string;
+  onCodeChange?: (c: string) => void;
   required?: boolean;
 }) {
+  const selected =
+    COUNTRY_CODES.find((c) => c.code === code) ?? COUNTRY_CODES[0];
+
   return (
     <div className="space-y-1.5">
-      <Label className="flex items-center gap-1.5">
-        <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+      <Label className="text-xs font-medium text-slate-600">
         {label}
-        {required ? <span className="text-red-500">*</span> : null}
+        {required ? <span className="ml-0.5 text-red-500">*</span> : null}
       </Label>
-      <Input
-        inputMode="numeric"
-        placeholder="10 digit mobile"
-        value={value}
-        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 10))}
-      />
+
+      <div className="flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+        {/* 🇮🇳 ⌄ +91 */}
+        <div className="relative flex shrink-0 items-center gap-1 border-r border-slate-200 bg-white px-2.5">
+          <Flag iso={selected.iso} />
+          <svg className="h-3 w-3 text-slate-500" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M5.25 7.5L10 12.25L14.75 7.5H5.25Z" />
+          </svg>
+          <span className="text-sm font-medium text-slate-800">{code}</span>
+          <select
+            value={code}
+            onChange={(e) => onCodeChange?.(e.target.value)}
+            className="absolute inset-0 cursor-pointer opacity-0"
+            title={selected.name}
+          >
+            {COUNTRY_CODES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.name} ({c.code})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <input
+          inputMode="numeric"
+          placeholder="Mobile number"
+          value={value}
+          onChange={(e) =>
+            onChange(e.target.value.replace(/\D/g, "").slice(0, 15))
+          }
+          className="h-full w-full border-0 bg-transparent px-3 text-sm outline-none"
+        />
+      </div>
     </div>
   );
 }
@@ -178,41 +257,81 @@ function WhatsappField({
   value,
   contact,
   onChange,
+  code = "+91",
+  onCodeChange,
+  contactCode = "+91",
 }: {
   value: string;
   contact: string;
   onChange: (v: string) => void;
+  code?: string;
+  onCodeChange?: (c: string) => void;
+  contactCode?: string;
 }) {
-  const same = Boolean(contact) && value === contact;
+  const same =
+    Boolean(contact) && value === contact && code === contactCode;
+  const selected = COUNTRY_CODES.find((c) => c.code === code) ?? COUNTRY_CODES[0];
 
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <Label className="flex items-center gap-1.5">
+        <Label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
           <svg className="h-3.5 w-3.5 fill-green-600" viewBox="0 0 24 24">
             <path d="M17.5 14.4c-.3-.2-1.7-.9-2-1s-.5-.1-.7.1-.7 1-.9 1.2-.4.2-.7 0a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.6-2c-.2-.4 0-.5.1-.7l.5-.6.3-.5v-.5l-1-2.2c-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4a3 3 0 0 0-1 2.2 5.3 5.3 0 0 0 1.1 2.8 12 12 0 0 0 4.7 4.1c2.2.9 2.2.6 2.6.5a2.7 2.7 0 0 0 1.8-1.2 2.2 2.2 0 0 0 .2-1.3l-.5-.3zM12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.4A10 10 0 1 0 12 2z" />
           </svg>
           WhatsApp Number
         </Label>
 
-        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+        <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground">
           <input
             type="checkbox"
             className="h-3.5 w-3.5 accent-green-600"
             checked={same}
             disabled={!contact}
-            onChange={(e) => onChange(e.target.checked ? contact : "")}
+            onChange={(e) => {
+              if (e.target.checked) {
+                onChange(contact);
+                onCodeChange?.(contactCode);
+              } else {
+                onChange("");
+              }
+            }}
           />
           Same as contact
         </label>
       </div>
 
-      <Input
-        inputMode="numeric"
-        placeholder="10 digit WhatsApp"
-        value={value}
-        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 10))}
-      />
+      <div className="flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm focus-within:border-green-500 focus-within:ring-1 focus-within:ring-green-500">
+        <div className="relative flex shrink-0 items-center gap-1 border-r border-slate-200 bg-white px-2.5">
+          <Flag iso={selected.iso} />
+          <svg className="h-3 w-3 text-slate-500" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M5.25 7.5L10 12.25L14.75 7.5H5.25Z" />
+          </svg>
+          <span className="text-sm font-medium text-slate-800">{code}</span>
+          <select
+            value={code}
+            onChange={(e) => onCodeChange?.(e.target.value)}
+            className="absolute inset-0 cursor-pointer opacity-0"
+            title={selected.name}
+          >
+            {COUNTRY_CODES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.name} ({c.code})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <input
+          inputMode="numeric"
+          placeholder="WhatsApp number"
+          value={value}
+          onChange={(e) =>
+            onChange(e.target.value.replace(/\D/g, "").slice(0, 15))
+          }
+          className="h-full w-full border-0 bg-transparent px-3 text-sm outline-none"
+        />
+      </div>
     </div>
   );
 }
@@ -329,51 +448,45 @@ function SearchableDropdown({
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [searchText, setSearchText] = useState(value);
-  const [activeIndex, setActiveIndex] = useState(-1);
+  const [text, setText] = useState(value);
+  useEffect(() => {
+    setText(value);
+  }, [value]);
+  const [highlight, setHighlight] = useState(0);
 
-  const filteredOptions = options.filter((option) =>
-    option.toLowerCase().includes(searchText.toLowerCase())
-  );
+  const filtered = text.trim()
+    ? options.filter((o) => o.toLowerCase().includes(text.toLowerCase()))
+    : options;
 
-  const selectOption = (option: string) => {
+  const noMatch = text.trim() && filtered.length === 0;
+
+  const choose = (option: string) => {
     onChange(option);
-    setSearchText(option);
-    setActiveIndex(-1);
+    setText(option);
+    setHighlight(0);
     setOpen(false);
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
+  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
       setOpen(true);
-      setActiveIndex((old) =>
-        filteredOptions.length === 0 ? -1 : Math.min(old + 1, filteredOptions.length - 1)
-      );
-      return;
-    }
-
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
+      setHighlight((h) => Math.min(h + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
       setOpen(true);
-      setActiveIndex((old) =>
-        filteredOptions.length === 0 ? -1 : Math.max(old - 1, 0)
-      );
-      return;
-    }
-
-    if (event.key === "Enter") {
-      if (open && filteredOptions.length > 0) {
-        event.preventDefault();
-        selectOption(filteredOptions[activeIndex >= 0 ? activeIndex : 0]);
+      setHighlight((h) => Math.max(h - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (open && filtered[highlight]) {
+        choose(filtered[highlight]);
+      } else {
+        setOpen(true);
       }
-      return;
-    }
-
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setSearchText(value);
-      setActiveIndex(-1);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setText(value);
+      setHighlight(0);
       setOpen(false);
     }
   };
@@ -382,67 +495,78 @@ function SearchableDropdown({
     <div className="relative space-y-1.5">
       <Label>{label}</Label>
 
-      <Input
-        value={searchText}
-        placeholder={placeholder}
-        onFocus={() => {
-          setOpen(true);
-          setActiveIndex(-1);
-        }}
-        onChange={(event) => {
-          setSearchText(event.target.value);
-          setOpen(true);
-          setActiveIndex(-1);
-        }}
-        onKeyDown={handleKeyDown}
-        onBlur={() => {
-          window.setTimeout(() => {
-            setSearchText(value);
-            setActiveIndex(-1);
+      <div className="relative">
+        <Input
+          value={text}
+          placeholder={placeholder}
+          onFocus={() => {
+            setText("");
+            setOpen(true);
+            setHighlight(0);
+          }}
+          onChange={(event) => {
+            setText(event.target.value);
+            setOpen(true);
+            setHighlight(0);
+          }}
+          onKeyDown={handleKey}
+          onBlur={() => setTimeout(() => {
+            setText(value);
+            setHighlight(0);
             setOpen(false);
-          }, 150);
-        }}
-      />
+          }, 150)}
+          className="h-9 border-slate-300 bg-white pr-9 text-sm shadow-sm focus-visible:border-blue-500 focus-visible:ring-1 focus-visible:ring-blue-500"
+        />
 
-      <button
-        type="button"
-        aria-label={`Open ${label} options`}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => {
-          setSearchText(value);
-          setOpen((old) => !old);
-          setActiveIndex(-1);
-        }}
-        className="absolute right-2 top-[31px] flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-      >
-        <span className="text-xs">▼</span>
-      </button>
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => {
+            if (open) {
+              setText(value);
+              setOpen(false);
+            } else {
+              setText("");
+              setOpen(true);
+            }
+          }}
+          className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-slate-100"
+        >
+          <span className="text-xs">▼</span>
+        </button>
 
-      {open ? (
-        <div className="absolute z-50 max-h-56 w-full overflow-y-auto rounded-md border bg-popover p-1 shadow-md">
-          {filteredOptions.length > 0 ? (
-            filteredOptions.map((option, index) => (
-              <button
-                key={option}
-                type="button"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  selectOption(option);
-                }}
-                className={`flex w-full rounded-sm px-3 py-2 text-left text-sm ${
-                  index === activeIndex ? "bg-muted font-medium" : "hover:bg-muted"
-                }`}
-              >
-                {option}
-              </button>
-            ))
-          ) : (
-            <div className="px-3 py-2 text-sm text-muted-foreground">
-              No matching option found. Please choose from the available list.
-            </div>
-          )}
-        </div>
-      ) : null}
+        {open ? (
+          <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+            {noMatch ? (
+              <div className="px-3 py-3 text-center text-xs italic text-slate-400">
+                No record found
+              </div>
+            ) : (
+              filtered.map((option, index) => (
+                <button
+                  key={option}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    choose(option);
+                  }}
+                  onMouseEnter={() => setHighlight(index)}
+                  className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-sm ${
+                    index === highlight
+                      ? "bg-blue-100 text-blue-900"
+                      : option === value
+                        ? "bg-blue-50 font-medium"
+                        : "hover:bg-slate-50"
+                  }`}
+                >
+                  <span>{option}</span>
+                  {option === value ? <span className="text-blue-600">✓</span> : null}
+                </button>
+              ))
+            )}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -609,7 +733,12 @@ export default function Students() {
   const [editingStudent, setEditingStudent] = useState<any>(null);
   const [form, setForm] = useState<StudentForm>(blankForm);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [docCameraLabel, setDocCameraLabel] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+
+    /* Field-level error messages */
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [dobInvalid, setDobInvalid] = useState(false);
 
   const setValue = (key: keyof StudentForm, value: string) => {
     setForm((old) => ({ ...old, [key]: value }));
@@ -667,15 +796,16 @@ export default function Students() {
       courseId: student.courseId ?? "",
       batchId: student.batchId ?? "",
       academicYear: student.academicYear ?? "2026-2027",
-      motherName: student.motherName ?? "",
-      motherOccupation: student.motherOccupation ?? "",
       motherPhone: student.motherPhone ?? "",
+      motherPhoneCode: student.motherPhoneCode ?? "+91",
       motherWhatsapp: student.motherWhatsapp ?? "",
-      fatherName: student.fatherName ?? student.parentName ?? "",
-      fatherOccupation: student.fatherOccupation ?? "",
+      motherWhatsappCode: student.motherWhatsappCode ?? "+91",
       fatherPhone: student.fatherPhone ?? student.parentPhone ?? "",
+      fatherPhoneCode: student.fatherPhoneCode ?? "+91",
       fatherWhatsapp: student.fatherWhatsapp ?? "",
+      fatherWhatsappCode: student.fatherWhatsappCode ?? "+91",
       emergencyPhone: student.emergencyPhone ?? "",
+      emergencyPhoneCode: student.emergencyPhoneCode ?? "+91",
       correspondenceAddress: student.correspondenceAddress ?? student.address ?? "",
       correspondenceDistrict: student.correspondenceDistrict ?? "",
       correspondenceState: student.correspondenceState ?? "",
@@ -745,6 +875,23 @@ export default function Students() {
     reader.readAsDataURL(file);
   };
 
+  const handleDocumentCapture = (label: string, dataUrl: string) => {
+    const newDocument: StudentDocument = {
+      label,
+      name: `${label.replace(/\s+/g, "-").toLowerCase()}-camera.jpg`,
+      dataUrl,
+      mimeType: "image/jpeg",
+    };
+
+    setForm((old) => ({
+      ...old,
+      documents: [
+        ...old.documents.filter((document) => document.label !== label),
+        newDocument,
+      ],
+    }));
+  };
+
   const removeDocument = (label: string) => {
     setForm((old) => ({
       ...old,
@@ -754,6 +901,66 @@ export default function Students() {
 
   const getDocument = (label: string) =>
     form.documents.find((document) => document.label === label);
+
+  const viewDocument = (doc: StudentDocument) => {
+    // PDF
+    if (
+      doc.mimeType === "application/pdf" ||
+      doc.dataUrl.startsWith("data:application/pdf")
+    ) {
+      const win = window.open("", "_blank");
+      if (!win) {
+        alert("Popup block ho gaya. Browser me popups allow karo.");
+        return;
+      }
+      win.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head><title>${doc.name || "Document"}</title></head>
+          <body style="margin:0;background:#111">
+            <embed src="${doc.dataUrl}" type="application/pdf" width="100%" height="100%" style="min-height:100vh;border:0" />
+          </body>
+        </html>
+      `);
+      win.document.close();
+      return;
+    }
+
+    // Image
+    const win = window.open("", "_blank");
+    if (!win) {
+      alert("Popup block ho gaya. Browser me popups allow karo.");
+      return;
+    }
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${doc.name || "Preview"}</title>
+          <style>
+            body {
+              margin: 0;
+              min-height: 100vh;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: #0f172a;
+            }
+            img {
+              max-width: 95vw;
+              max-height: 95vh;
+              object-fit: contain;
+              border-radius: 8px;
+            }
+          </style>
+        </head>
+        <body>
+          <img src="${doc.dataUrl}" alt="${doc.name || "Document"}" />
+        </body>
+      </html>
+    `);
+    win.document.close();
+  };
 
   const downloadAdmissionForm = (student: any) => {
     const safe = (value: unknown) =>
@@ -1240,21 +1447,45 @@ export default function Students() {
     popup.document.close();
   };
 
-  const saveStudent = () => {
-    const contact = form.fatherPhone || form.motherPhone || form.emergencyPhone;
+    /* Simple toast notification */
+  const [toast, setToast] = useState<{
+    type: "success" | "error";
+    msg: string;
+  } | null>(null);
 
-    if (!form.name.trim()) {
-      alert("Student ka naam zaroori hai.");
+  const notify = (type: "success" | "error", msg: string) => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const saveStudent = () => {
+    /* ===== Inline validation ===== */
+    const errs: Record<string, string> = {};
+    if (!form.name.trim()) errs.name = "Student ka naam zaroori hai";
+    if (!form.fatherPhone && !form.motherPhone && !form.emergencyPhone)
+      errs.fatherPhone = "Father/Mother/Emergency number chahiye";
+    if (!form.courseId) errs.courseId = "Course select karo";
+    if (!form.batchId) errs.batchId = "Batch select karo";
+    if (form.lastClassPercentage) {
+      const n = Number(form.lastClassPercentage);
+      if (Number.isNaN(n) || n < 0 || n > 100)
+        errs.lastClassPercentage = "0-100 ke beech hona chahiye";
+    }
+    if (
+      form.loginPassword &&
+      form.loginPassword.length > 0 &&
+      form.loginPassword.length < 6
+    )
+      errs.loginPassword = "Password minimum 6 characters";
+
+    setFieldErrors(errs);
+    if (Object.keys(errs).length) {
+      notify("error", `${Object.keys(errs).length} field me problem hai`);
       return;
     }
-    if (!contact) {
-      alert("Father ya Mother ka contact number zaroori hai.");
-      return;
-    }
-    if (!form.courseId || !form.batchId) {
-      alert("Course aur Batch select karna zaroori hai.");
-      return;
-    }
+    /* ===== end validation ===== */
+
+    const contact = form.fatherPhone || form.motherPhone || form.emergencyPhone;
 
     const data: any = {
       ...form,
@@ -1269,11 +1500,15 @@ export default function Students() {
 
     const refresh = () => {
       queryClient.invalidateQueries({ queryKey: getListStudentsQueryKey() });
+      localStorage.removeItem("student-draft");
       setDialogOpen(false);
     };
 
     if (editingStudent) {
-      updateStudent.mutate({ id: editingStudent.id, data }, { onSuccess: refresh });
+      updateStudent.mutate(
+        { id: editingStudent.id, data },
+        { onSuccess: refresh }
+      );
     } else {
       createStudent.mutate({ data }, { onSuccess: refresh });
     }
@@ -1388,9 +1623,33 @@ export default function Students() {
     return String(first.name ?? "").localeCompare(String(second.name ?? ""));
   });
 
-  const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
+  
 
-  const isFormValid = !Object.values(formErrors).some(Boolean);
+  const isFormValid = !Object.values(fieldErrors).some(
+    (v) => typeof v === "string" && v.length > 0
+  ) && !dobInvalid;
+
+    /* Section fill tracking */
+  const filled = (s: keyof StudentForm) =>
+    String(form[s] ?? "").trim().length > 0;
+
+  const section1Filled =
+    filled("name") &&
+    filled("dateOfBirth") &&
+    filled("gender") &&
+    filled("schoolName") &&
+    form.courseId !== "" &&
+    form.batchId !== "";
+
+  const section2Filled = filled("fatherName") && filled("fatherPhone");
+
+  const section3Filled =
+    filled("correspondenceAddress") &&
+    filled("correspondenceState") &&
+    filled("correspondenceDistrict") &&
+    filled("correspondencePin");
+
+  const section4Filled = filled("loginId") && filled("loginPassword");
 
   const saving = createStudent.isPending || updateStudent.isPending;
 
@@ -1445,21 +1704,38 @@ export default function Students() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-h-[92vh] max-w-3xl gap-0 overflow-y-auto p-0" showCloseButton={false}>
-          <FormHeader
-            title={editingStudent ? "Edit Student Admission" : "Student Admission Form"}
-            subtitle={
-              studentCategory === "academic"
-                ? "Academic Student"
-                : studentCategory === "computer"
-                ? "Computer Student"
-                : "Student Type: All"
-            }
-            onClose={() => setDialogOpen(false)}
-          />
+                    <div className="sticky top-0 z-30">
+            <FormHeader
+              title={
+                editingStudent
+                  ? "Edit Student Admission"
+                  : "Student Admission Form"
+              }
+              subtitle={
+                studentCategory === "academic"
+                  ? "Academic Student"
+                  : studentCategory === "computer"
+                    ? "Computer Student"
+                    : "Student Type: All"
+              }
+              onClose={() => setDialogOpen(false)}
+            />
+
+            <div className="border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <FormProgress
+                steps={[
+                  { label: "Student", filled: section1Filled },
+                  { label: "Parents", filled: section2Filled },
+                  { label: "Address", filled: section3Filled },
+                  { label: "Login", filled: section4Filled },
+                ]}
+              />
+            </div>
+          </div>
 
           <div className="space-y-6 bg-slate-50/30 px-6 py-5">
             {/* ============ STUDENT INFO ============ */}
-            <SectionTitle icon={<GraduationCap className="h-5 w-5" />} tone="red">
+            <SectionTitle number={1} icon={<GraduationCap className="h-5 w-5" />} tone="red">
               Student's Information
             </SectionTitle>
 
@@ -1478,7 +1754,7 @@ export default function Students() {
                 value={form.dateOfBirth}
                 onChange={(v) => setValue("dateOfBirth", v)}
                 onValidityChange={(valid) =>
-                  setFormErrors((old) => ({ ...old, dob: !valid }))
+                  setDobInvalid(!valid)
                 }
                 hint="DD/MM/YYYY format"
               />
@@ -1541,7 +1817,10 @@ export default function Students() {
                     type="button"
                     variant="outline"
                     className="h-9 bg-background text-xs font-semibold shadow-sm hover:shadow"
-                    onClick={() => setCameraOpen(true)}
+                    onClick={() => {
+                      setDocCameraLabel(null); // photo mode
+                      setCameraOpen(true);
+                    }}
                   >
                     <Camera className="mr-1.5 h-3.5 w-3.5" />
                     Camera
@@ -1641,15 +1920,24 @@ export default function Students() {
                 <h3 className="font-semibold">Document Upload</h3>
               </div>
               <p className="mb-4 text-xs text-muted-foreground">
-                PDF, JPG, PNG ya WEBP. Maximum 3 MB per document.
+                PDF, JPG, PNG ya WEBP. Maximum 3 MB. Camera se bhi click kar sakte ho.
               </p>
 
               <div className="grid gap-4 md:grid-cols-2">
-                {["Aadhaar Card", "Previous Class Marksheet"].map((label) => {
+                {[
+                  "Aadhaar Card (Front)",
+                  "Aadhaar Card (Back)",
+                  "Previous Class Marksheet",
+                ].map((label) => {
                   const doc = getDocument(label);
+
                   return (
-                    <div key={label} className="rounded-lg border bg-muted/20 p-3">
+                    <div
+                      key={label}
+                      className="rounded-lg border bg-muted/20 p-3"
+                    >
                       <Label>{label}</Label>
+
                       {doc ? (
                         <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-background p-2">
                           <div className="min-w-0">
@@ -1666,7 +1954,8 @@ export default function Students() {
                               size="icon"
                               variant="ghost"
                               className="h-8 w-8"
-                              onClick={() => window.open(doc.dataUrl, "_blank")}
+                              title="View"
+                              onClick={() => viewDocument(doc)}
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
@@ -1675,6 +1964,7 @@ export default function Students() {
                               size="icon"
                               variant="ghost"
                               className="h-8 w-8 text-destructive"
+                              title="Remove"
                               onClick={() => removeDocument(label)}
                             >
                               <X className="h-4 w-4" />
@@ -1682,18 +1972,36 @@ export default function Students() {
                           </div>
                         </div>
                       ) : (
-                        <label className="mt-2 flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border bg-background text-sm font-medium transition hover:bg-muted">
-                          <Upload className="h-4 w-4" />
-                          Upload Document
-                          <input
-                            type="file"
-                            accept=".pdf,image/jpeg,image/png,image/webp"
-                            className="hidden"
-                            onChange={(e) =>
-                              handleDocumentChange(label, e.target.files?.[0])
-                            }
-                          />
-                        </label>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <label className="flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md border bg-background text-xs font-medium transition hover:bg-muted">
+                            <Upload className="h-3.5 w-3.5" />
+                            Upload
+                            <input
+                              type="file"
+                              accept=".pdf,image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              onChange={(e) =>
+                                handleDocumentChange(
+                                  label,
+                                  e.target.files?.[0]
+                                )
+                              }
+                            />
+                          </label>
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-9 text-xs"
+                            onClick={() => {
+                              setDocCameraLabel(label);
+                              setCameraOpen(true);
+                            }}
+                          >
+                            <Camera className="mr-1.5 h-3.5 w-3.5" />
+                            Camera
+                          </Button>
+                        </div>
                       )}
                     </div>
                   );
@@ -1702,7 +2010,7 @@ export default function Students() {
             </div>
 
             {/* ============ PARENTS ============ */}
-            <SectionTitle icon={<Users className="h-5 w-5" />} tone="red">
+            <SectionTitle number={2} icon={<Users className="h-5 w-5" />} tone="red">
               Parent's Information
             </SectionTitle>
 
@@ -1726,11 +2034,16 @@ export default function Students() {
                   label="Contact Number"
                   value={form.motherPhone}
                   onChange={(v) => setValue("motherPhone", v)}
+                  code={form.motherPhoneCode}
+                  onCodeChange={(c) => setValue("motherPhoneCode", c)}
                 />
                 <WhatsappField
                   value={form.motherWhatsapp}
                   contact={form.motherPhone}
+                  contactCode={form.motherPhoneCode}
                   onChange={(v) => setValue("motherWhatsapp", v)}
+                  code={form.motherWhatsappCode}
+                  onCodeChange={(c) => setValue("motherWhatsappCode", c)}
                 />
               </div>
             </div>
@@ -1751,17 +2064,22 @@ export default function Students() {
                   value={form.fatherOccupation}
                   onChange={(v) => setValue("fatherOccupation", v)}
                 />
-                <PhoneField
-                  label="Contact Number"
-                  value={form.fatherPhone}
-                  onChange={(v) => setValue("fatherPhone", v)}
-                  required
-                />
-                <WhatsappField
-                  value={form.fatherWhatsapp}
-                  contact={form.fatherPhone}
-                  onChange={(v) => setValue("fatherWhatsapp", v)}
-                />
+               <PhoneField
+                label="Contact Number"
+                value={form.fatherPhone}
+                onChange={(v) => setValue("fatherPhone", v)}
+                code={form.fatherPhoneCode}
+                onCodeChange={(c) => setValue("fatherPhoneCode", c)}
+                required
+              />
+              <WhatsappField
+                value={form.fatherWhatsapp}
+                contact={form.fatherPhone}
+                contactCode={form.fatherPhoneCode}
+                onChange={(v) => setValue("fatherWhatsapp", v)}
+                code={form.fatherWhatsappCode}
+                onCodeChange={(c) => setValue("fatherWhatsappCode", c)}
+              />
               </div>
             </div>
 
@@ -1770,12 +2088,14 @@ export default function Students() {
                 label="Emergency Contact Number"
                 value={form.emergencyPhone}
                 onChange={(v) => setValue("emergencyPhone", v)}
+                code={form.emergencyPhoneCode}
+                onCodeChange={(c) => setValue("emergencyPhoneCode", c)}
               />
               <EmailField value={form.email} onChange={(v) => setValue("email", v)} />
             </div>
 
             {/* ============ ADDRESS ============ */}
-            <SectionTitle icon={<MapPin className="h-5 w-5" />} tone="red">
+            <SectionTitle number={3} icon={<MapPin className="h-5 w-5" />} tone="red">
               Address Details
             </SectionTitle>
 
@@ -1882,7 +2202,7 @@ export default function Students() {
             </div>
 
             {/* ============ LOGIN ============ */}
-            <SectionTitle icon={<KeyRound className="h-5 w-5" />} tone="red">
+            <SectionTitle number={4} icon={<KeyRound className="h-5 w-5" />} tone="red">
               Student Login Details
             </SectionTitle>
 
@@ -1928,28 +2248,41 @@ export default function Students() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label className="flex items-center gap-1.5">
-                      <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
-                      Password
-                    </Label>
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((s) => !s)}
-                      className="text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      {showPassword ? "Hide" : "Show"}
-                    </button>
-                  </div>
-                  <div className="flex gap-2">
-                    <Input
-                      type={showPassword ? "text" : "password"}
-                      value={form.loginPassword}
-                      placeholder={
-                        editingStudent ? "Blank = no change" : "Min 6 characters"
-                      }
-                      onChange={(e) => setValue("loginPassword", e.target.value)}
-                    />
+                  <Label className="flex items-center gap-1.5">
+                    <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+                    Password
+                  </Label>
+
+                  <div className="relative flex gap-2">
+                    <div className="relative flex-1">
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        value={form.loginPassword}
+                        placeholder={
+                          editingStudent
+                            ? "Blank = no change"
+                            : "Min 6 characters"
+                        }
+                        onChange={(e) =>
+                          setValue("loginPassword", e.target.value)
+                        }
+                        className="pr-10"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((s) => !s)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        title={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+
                     <Button
                       type="button"
                       variant="outline"
@@ -1984,10 +2317,33 @@ export default function Students() {
 
           <CameraCapture
             open={cameraOpen}
-            onClose={() => setCameraOpen(false)}
-            onCapture={(dataUrl) => setValue("photoDataUrl", dataUrl)}
+            onClose={() => {
+              setCameraOpen(false);
+              setDocCameraLabel(null);
+            }}
+            onCapture={(dataUrl) => {
+              if (docCameraLabel) {
+                handleDocumentCapture(docCameraLabel, dataUrl);
+              } else {
+                setValue("photoDataUrl", dataUrl);
+              }
+              setDocCameraLabel(null);
+            }}
           />
         </DialogContent>
+              {/* Toast notification */}
+              {toast ? (
+                <div
+                  className={`fixed bottom-4 right-4 z-[200] flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm shadow-lg ${
+                    toast.type === "success"
+                      ? "border-green-300 bg-green-50 text-green-800"
+                      : "border-red-300 bg-red-50 text-red-800"
+                  }`}
+                >
+                  {toast.type === "success" ? "✅" : "⚠️"}
+                  <span>{toast.msg}</span>
+                </div>
+              ) : null}
       </Dialog>
 
       <Card>
