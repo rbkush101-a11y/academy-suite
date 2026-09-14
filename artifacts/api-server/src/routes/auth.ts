@@ -244,11 +244,122 @@ router.get("/auth/me", authenticate, async (req, res): Promise<void> => {
     id: String(user._id),
     name: user.name,
     email: user.email,
+    phone: (user as any).phone ?? "",
+    businessAddress: (user as any).businessAddress ?? "",
+    businessType: (user as any).businessType ?? "",
+    promoCode: (user as any).promoCode ?? "",
+    logoDataUrl: (user as any).logoDataUrl ?? "",
     role: user.role,
     instituteId: user.instituteId ? String(user.instituteId) : null,
     isApproved: user.isApproved,
     createdAt: user.createdAt,
   });
+});
+
+router.patch("/auth/me", authenticate, async (req, res): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const role = req.user!.role;
+
+    const updateData: any = {};
+
+    if (req.body.name !== undefined) {
+      updateData.name = String(req.body.name).trim();
+    }
+
+    if (req.body.email !== undefined) {
+      updateData.email = String(req.body.email).toLowerCase().trim();
+    }
+
+    if (req.body.phone !== undefined) {
+      updateData.phone = String(req.body.phone).trim();
+    }
+
+    if (req.body.businessAddress !== undefined) {
+      updateData.businessAddress = String(req.body.businessAddress).trim();
+    }
+
+    if (req.body.businessType !== undefined) {
+      updateData.businessType = String(req.body.businessType).trim();
+    }
+
+    if (req.body.promoCode !== undefined) {
+      updateData.promoCode = String(req.body.promoCode).trim();
+    }
+
+    if (req.body.logoDataUrl !== undefined) {
+      updateData.logoDataUrl = String(req.body.logoDataUrl);
+    }
+
+    // Password change
+    if (req.body.password && String(req.body.password).trim().length > 0) {
+      const plainPassword = String(req.body.password).trim();
+
+      if (plainPassword.length < 6) {
+        res.status(400).json({
+          error: "Password minimum 6 characters hona chahiye.",
+        });
+        return;
+      }
+
+      if (role === "student") {
+        updateData.loginPassword = await bcrypt.hash(plainPassword, 10);
+      } else {
+        updateData.password = await bcrypt.hash(plainPassword, 10);
+      }
+    }
+
+    if (role === "student") {
+      const student = await Student.findByIdAndUpdate(userId, updateData, {
+        new: true,
+        runValidators: true,
+      }).select("-loginPassword");
+
+      if (!student) {
+        res.status(404).json({ error: "Student not found" });
+        return;
+      }
+
+      res.json({
+        id: String(student._id),
+        name: student.name,
+        email: student.email ?? "",
+        phone: student.phone ?? "",
+        role: "student",
+        instituteId: String(student.instituteId),
+      });
+      return;
+    }
+
+    const user = await User.findByIdAndUpdate(userId, updateData, {
+      new: true,
+      runValidators: true,
+    }).select("-password");
+
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    res.json({
+      id: String(user._id),
+      name: user.name,
+      email: user.email,
+      phone: (user as any).phone ?? "",
+      businessAddress: (user as any).businessAddress ?? "",
+      businessType: (user as any).businessType ?? "",
+      promoCode: (user as any).promoCode ?? "",
+      logoDataUrl: (user as any).logoDataUrl ?? "",
+      role: user.role,
+      instituteId: user.instituteId ? String(user.instituteId) : null,
+      isApproved: user.isApproved,
+      createdAt: user.createdAt,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      error: error?.message ?? "Profile update nahi hua.",
+    });
+  }
 });
 
 export default router;

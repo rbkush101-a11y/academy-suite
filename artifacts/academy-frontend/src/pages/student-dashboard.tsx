@@ -59,6 +59,15 @@ type Homework = {
   status: string;
 };
 
+type AttendanceSummary = {
+  studentId: string;
+  totalClasses: number;
+  present: number;
+  absent: number;
+  late: number;
+  percentage: number;
+};
+
 const inr = (v: unknown) =>
   `₹${Number(v ?? 0).toLocaleString("en-IN")}`;
 
@@ -74,6 +83,7 @@ export default function StudentDashboard() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [homework, setHomework] = useState<Homework[]>([]);
   const [report, setReport] = useState<any>(null);
+  const [attendance, setAttendance] = useState<AttendanceSummary | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -117,24 +127,32 @@ export default function StudentDashboard() {
 
         setStudent(me);
 
-        const [feeRes, homeworkRes, reportRes] = await Promise.allSettled([
-          fetch("/api/finance/my-payments", {
+        const currentMonth = new Date().toISOString().slice(0, 7);
+
+        const [feeRes, homeworkRes, reportRes, attendanceRes] =
+        await Promise.allSettled([
+            fetch("/api/finance/my-payments", {
             credentials: "include",
             headers,
-          }),
-          fetch(`/api/homework?batchId=${me.batchId || ""}`, {
+            }),
+
+            fetch(`/api/homework?batchId=${me.batchId || ""}`, {
             credentials: "include",
             headers,
-          }),
-          fetch(
-            `/api/report-card?studentId=${me.id}&month=${new Date()
-              .toISOString()
-              .slice(0, 7)}`,
+            }),
+
+            fetch(`/api/report-card?studentId=${me.id}&month=${currentMonth}`, {
+            credentials: "include",
+            headers,
+            }),
+
+            fetch(
+            `/api/attendance/student/summary?studentId=${me.id}&month=${currentMonth}`,
             {
-              credentials: "include",
-              headers,
+                credentials: "include",
+                headers,
             }
-          ),
+            ),
         ]);
 
         if (feeRes.status === "fulfilled") {
@@ -150,6 +168,11 @@ export default function StudentDashboard() {
         if (reportRes.status === "fulfilled") {
           const data = await reportRes.value.json().catch(() => null);
           if (reportRes.value.ok) setReport(data);
+        }
+
+        if (attendanceRes.status === "fulfilled") {
+            const data = await attendanceRes.value.json().catch(() => null);
+            if (attendanceRes.value.ok) setAttendance(data);
         }
       } catch {
         setMessage("Student portal load nahi ho saka.");
@@ -288,6 +311,12 @@ export default function StudentDashboard() {
             icon={<CalendarDays className="h-6 w-6" />}
             color="text-purple-700"
           />
+          <StatCard
+            title="Attendance"
+            value={`${attendance?.percentage ?? 0}%`}
+            icon={<ClipboardCheck className="h-6 w-6" />}
+            color="text-indigo-700"
+            />
         </div>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -357,6 +386,61 @@ export default function StudentDashboard() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Attendance */}
+            <Card>
+            <CardContent className="p-5">
+                <SectionHeader
+                icon={<ClipboardCheck className="h-5 w-5" />}
+                title="Attendance Summary"
+                />
+
+                {attendance ? (
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-lg border bg-white p-3">
+                    <p className="text-xs text-muted-foreground">Total Classes</p>
+                    <p className="mt-1 text-xl font-bold">{attendance.totalClasses}</p>
+                    </div>
+
+                    <div className="rounded-lg border bg-white p-3">
+                    <p className="text-xs text-muted-foreground">Present</p>
+                    <p className="mt-1 text-xl font-bold text-green-600">
+                        {attendance.present}
+                    </p>
+                    </div>
+
+                    <div className="rounded-lg border bg-white p-3">
+                    <p className="text-xs text-muted-foreground">Absent</p>
+                    <p className="mt-1 text-xl font-bold text-red-600">
+                        {attendance.absent}
+                    </p>
+                    </div>
+
+                    <div className="rounded-lg border bg-white p-3">
+                    <p className="text-xs text-muted-foreground">Late</p>
+                    <p className="mt-1 text-xl font-bold text-amber-600">
+                        {attendance.late}
+                    </p>
+                    </div>
+
+                    <div className="col-span-2 rounded-lg border bg-indigo-50 p-3">
+                    <p className="text-xs text-indigo-700">Attendance Percentage</p>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-indigo-100">
+                        <div
+                        className="h-full rounded-full bg-indigo-600"
+                        style={{ width: `${attendance.percentage}%` }}
+                        />
+                    </div>
+                    <p className="mt-2 text-lg font-bold text-indigo-700">
+                        {attendance.percentage}%
+                    </p>
+                    </div>
+                </div>
+                ) : (
+                <EmptyText text="Attendance summary available nahi hai." />
+                )}
+            </CardContent>
+            </Card>
 
           {/* Results */}
           <Card className="lg:col-span-2">

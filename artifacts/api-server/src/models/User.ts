@@ -18,6 +18,11 @@ export interface IUser extends Document {
   instituteId?: Types.ObjectId;
   isApproved: boolean;
   createdAt: Date;
+  phone?: string;
+  businessAddress?: string;
+  businessType?: string;
+  promoCode?: string;
+  logoDataUrl?: string;
 }
 
 const userSchema = new Schema(
@@ -39,6 +44,12 @@ const userSchema = new Schema(
       lowercase: true,
       trim: true,
     },
+
+    phone: { type: String, trim: true },
+    businessAddress: { type: String, trim: true },
+    businessType: { type: String, trim: true },
+    promoCode: { type: String, trim: true },
+    logoDataUrl: { type: String },
 
     password: { type: String, required: true },
 

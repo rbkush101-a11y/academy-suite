@@ -49,14 +49,20 @@ async function populateStudent(student: any) {
 
     dateOfBirth: student.dateOfBirth ?? null,
     gender: student.gender ?? null,
+    genderOther: student.genderOther ?? null, // 👈 ADDED TO RESPONSE
+    bloodGroup: student.bloodGroup ?? null,   // 👈 ADDED TO RESPONSE
     schoolName: student.schoolName ?? null,
     className: student.className ?? null,
     section: student.section ?? null,
     board: student.board ?? null,
+    boardOther: student.boardOther ?? null,   // 👈 ADDED TO RESPONSE
     lastClassPercentage: student.lastClassPercentage ?? null,
     lastClassMarks: student.lastClassMarks ?? null,
     photoDataUrl: student.photoDataUrl ?? null,
     documents: Array.isArray(student.documents) ? student.documents : [],
+
+    aadhaarCard: student.aadhaarCard ?? null,            // 👈 ADDED TO RESPONSE
+    previousMarksheet: student.previousMarksheet ?? null, // 👈 ADDED TO RESPONSE
 
     parentName: student.parentName ?? null,
     parentPhone: student.parentPhone ?? null,
@@ -97,14 +103,19 @@ function cleanStudentBody(body: any) {
     "academicYear",
     "dateOfBirth",
     "gender",
+    "genderOther",
+    "bloodGroup",
     "schoolName",
     "className",
     "section",
     "board",
+    "boardOther",
     "lastClassPercentage",
     "lastClassMarks",
     "photoDataUrl",
     "documents",
+    "aadhaarCard",        // 👈 Khali string "" allow karega taaki DB me delete ho sake
+    "previousMarksheet",  // 👈 Khali string "" allow karega taaki DB me delete ho sake
     "parentName",
     "parentPhone",
     "motherName",
@@ -132,20 +143,19 @@ function cleanStudentBody(body: any) {
 
   for (const field of allowedFields) {
     if (body[field] !== undefined) {
-      data[field] = body[field] === "" ? undefined : body[field];
+      // 🌟 FIX: Khali string "" ko undefined mat banao, taaki Mongoose use DB me clear kar sake
+      data[field] = body[field];
     }
   }
 
-    if (!data.email) {
+  if (!data.email) {
     delete data.email;
   }
 
-  // Login ID ko lowercase + trim karo
   if (data.loginId) {
     data.loginId = String(data.loginId).toLowerCase().trim();
   }
 
-  // Agar password blank bheja gaya hai to old password change mat karo
   if (!data.loginPassword) {
     delete data.loginPassword;
   }
@@ -158,13 +168,11 @@ async function prepareStudentAuthFields(data: Record<string, any>) {
     data.loginId = String(data.loginId).toLowerCase().trim();
   }
 
-  // Blank password ka matlab: old password change mat karo
   if (!data.loginPassword) {
     delete data.loginPassword;
     return;
   }
 
-  // Plain password ko hash karo
   if (
     typeof data.loginPassword === "string" &&
     !data.loginPassword.startsWith("$2")
@@ -174,7 +182,6 @@ async function prepareStudentAuthFields(data: Record<string, any>) {
 }
 
 async function generateEnrollmentNo(instituteId: string) {
-  // SSC = Second School Classes | 202627 = academic session 2026-27
   const prefix = "SSC202627";
 
   const students = await Student.find({
@@ -332,13 +339,9 @@ router.post(
         },
       });
 
-      // ============================================================
-      // 🔥 AUTO FEE ASSIGNMENT ON ADMISSION 🔥
-      // ============================================================
       let feeAssignmentInfo: any = null;
 
       try {
-        // Get admission date (today or from body)
         const admissionDate =
           req.body.admissionDate ||
           new Date().toISOString().split("T")[0];
@@ -346,7 +349,6 @@ router.post(
         const totalMonths = Number(req.body.totalMonths) || 12;
         const scholarshipPercent = Number(req.body.scholarshipPercent) || 0;
 
-        // Find fee structure for this course
         const feeStructure = await FeeStructure.findOne({
           instituteId,
           courseId: data.courseId,
@@ -366,7 +368,6 @@ router.post(
             feeStructure.amount - scholarshipAmount
           );
 
-          // Create fee assignment
           const assignment = await StudentFeeAssignment.create({
             instituteId,
             studentId: student._id,
@@ -381,7 +382,6 @@ router.post(
             status: "active",
           });
 
-          // Auto-generate monthly bills
           const payments = await Promise.all(
             dueDates.map(async (dueDate) => {
               const info = getMonthInfo(dueDate);
@@ -414,19 +414,12 @@ router.post(
             lastDueDate: dueDates[dueDates.length - 1],
             billsGenerated: payments.length,
           };
-
-          console.log(
-            `✅ Auto-assigned fee for ${student.name}: ${payments.length} bills, ₹${monthlyAmount}/month`
-          );
         } else {
           feeAssignmentInfo = {
             assigned: false,
             reason:
               "No fee structure found for this course. Please create one first.",
           };
-          console.log(
-            `⚠️ No fee structure for course ${data.courseId} — student created without fee`
-          );
         }
       } catch (feeError: any) {
         console.error("AUTO FEE ASSIGNMENT ERROR:", feeError);
@@ -434,7 +427,6 @@ router.post(
           assigned: false,
           error: feeError?.message ?? "Fee assignment failed",
         };
-        // Don't fail student creation if fee assignment fails
       }
 
       const studentData = await populateStudent(student);
@@ -451,6 +443,7 @@ router.post(
     }
   }
 );
+
 router.get(
   "/students/:id",
   authenticate,

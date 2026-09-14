@@ -21,14 +21,20 @@ export interface IStudent extends Document {
 
   dateOfBirth?: string;
   gender?: "male" | "female" | "other";
+  genderOther?: string;
+  bloodGroup?: string;
   schoolName?: string;
   className?: string;
   section?: string;
   board?: string;
+  boardOther?: string;
   lastClassPercentage?: string;
   lastClassMarks?: string;
   photoDataUrl?: string;
   documents?: IStudentDocument[];
+
+  aadhaarCard?: string;
+  previousMarksheet?: string;
 
   parentName?: string;
   parentPhone?: string;
@@ -79,14 +85,21 @@ const studentSchema = new Schema<IStudent>(
     academicYear: { type: String, required: true },
     dateOfBirth: { type: String },
     gender: { type: String, enum: ["male", "female", "other"] },
+    genderOther: { type: String, trim: true },
+    bloodGroup: { type: String, trim: true },
     schoolName: { type: String, trim: true },
     className: { type: String, trim: true },
     section: { type: String, trim: true },
     board: { type: String, trim: true },
+    boardOther: { type: String, trim: true },
     lastClassPercentage: { type: String, trim: true },
     lastClassMarks: { type: String, trim: true },
     photoDataUrl: { type: String },
     documents: { type: [studentDocumentSchema], default: [] },
+
+    aadhaarCard: { type: String },
+    previousMarksheet: { type: String },
+
     parentName: { type: String, trim: true },
     parentPhone: { type: String, trim: true },
     motherName: { type: String, trim: true },

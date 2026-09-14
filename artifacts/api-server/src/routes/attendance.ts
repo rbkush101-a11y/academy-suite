@@ -231,8 +231,19 @@ router.get(
   authorize("super_admin", "institute_admin", "teacher", "student", "parent"),
   async (req, res): Promise<void> => {
     try {
-      const studentId = toText(req.query.studentId);
+      let studentId = toText(req.query.studentId);
       const month = toText(req.query.month);
+
+      // Student login hai to hamesha apna hi attendance dekhe
+      if (req.user!.role === "student") {
+        studentId = req.user!.userId;
+      }
+
+      if (!studentId) {
+        res.status(400).json({ error: "studentId is required." });
+        return;
+      }
+
       const filter: any = { studentId };
 
       if (month) filter.date = new RegExp("^" + month);

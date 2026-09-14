@@ -1,27 +1,28 @@
 import { useLocation } from "wouter";
 
-const routeByRole = (role?: string) => {
+export const routeByRole = (role?: string | null) => {
   if (role === "student") return "/student-dashboard";
   if (role === "teacher") return "/teacher-dashboard";
   if (role === "accountant") return "/accountant-dashboard";
-  if (role === "super_admin") return "/dashboard";
   return "/dashboard";
+};
+
+export const getStoredRole = () => {
+  return localStorage.getItem("coach_sutra_user_role");
 };
 
 export function useAuth() {
   const [, setLocation] = useLocation();
 
   const token = localStorage.getItem("coach_sutra_token");
+  const role = getStoredRole();
 
-  const login = (newToken: string, role?: string) => {
+  const login = (newToken: string, newRole?: string) => {
     localStorage.setItem("coach_sutra_token", newToken);
-
-    if (role) {
-      localStorage.setItem("coach_sutra_user_role", role);
-    }
+    if (newRole) localStorage.setItem("coach_sutra_user_role", newRole);
 
     window.dispatchEvent(new Event("storage"));
-    setLocation(routeByRole(role));
+    setLocation(routeByRole(newRole));
   };
 
   const logout = () => {
@@ -31,5 +32,5 @@ export function useAuth() {
     setLocation("/login");
   };
 
-  return { isAuthenticated: !!token, login, logout };
+  return { isAuthenticated: !!token, token, role, login, logout };
 }
