@@ -66,7 +66,7 @@ export default function Dashboard() {
     ? ((monthlyRev / totalDemand) * 100).toFixed(1) + "%" 
     : "0.0%";
 
-  // Real At-Risk Count (Absent students today needing attention)
+  // Real At-Risk Count
   const totalStud = stats?.totalStudents ?? 0;
   const presentTod = stats?.presentToday ?? 0;
   const atRiskCount = Math.max(0, totalStud - presentTod);
@@ -185,11 +185,16 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="absolute right-2 bottom-2 w-[48%] h-[90%] pointer-events-none flex items-center justify-center">
+          {/* 🟢 EXACT GRADUATION CAP & BOOKS IMAGE */}
+          <div className="absolute right-2 bottom-2 w-[48%] h-[92%] pointer-events-none flex items-center justify-center">
             <img
-              src="https://cdn-icons-png.flaticon.com/512/3281/3281323.png"
-              alt="3D Dashboard Illustration"
-              className="w-full h-full object-contain drop-shadow-xl"
+              src="/grad-books.png"
+              alt="Graduation Cap on Books Stack"
+              className="w-full h-full object-contain drop-shadow-2xl"
+              onError={(e) => {
+                // फ़ॉलबैक यदि फाइल अभी तक public फोल्डर में सेव न हुई हो
+                e.currentTarget.src = "https://i.ibb.co/6P0J9Xy/grad-cap-books.png";
+              }}
             />
           </div>
         </div>
@@ -212,7 +217,7 @@ export default function Dashboard() {
             waveColor="#024a53"
           />
 
-          {/* Card 2: REVENUE (MONTH) - REAL CONNECTED */}
+          {/* Card 2: REVENUE (MONTH) */}
           <MetricCard
             href="/finance/student-fee-management"
             title="REVENUE (MONTH)"
@@ -227,23 +232,7 @@ export default function Dashboard() {
             waveColor="#10b981"
           />
 
-          {/* Card 3: AT-RISK STUDENTS - REAL CONNECTED 
-          <MetricCard
-            href="/attendance"
-            title="AT-RISK STUDENTS"
-            value={atRiskCount}
-            isLoading={isLoadingStats}
-            topBarColor="bg-red-400"
-            valueColor="text-red-500"
-            icon={AlertTriangle}
-            iconBg="bg-red-50 text-red-400"
-            subtext={atRiskCount > 0 ? "Absent today · Needs attention" : "All students present"}
-            subtextColor="text-emerald-500 font-semibold"
-            waveColor="#ef4444"
-          />
-          */}
-
-          {/* Card 4: FEE COLLECTION - REAL CONNECTED */}
+          {/* Card 4: FEE COLLECTION */}
           <MetricCard
             href="/analytics"
             title="FEE COLLECTION"
@@ -380,7 +369,7 @@ function MetricCard({
         fill="none"
       >
         <path
-          d="M0 30 Q 30 10, 60 25 T 100 5 L 100 40 L 0 40 Z"
+          d="M0 30 Q 30 10, 60 25 T 100 5 L 100 40 Z"
           fill={waveColor}
         />
       </svg>
