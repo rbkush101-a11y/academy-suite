@@ -25,6 +25,7 @@ import Staff from "@/pages/staff";
 import Branches from "@/pages/branches";
 import Subjects from "@/pages/subjects";
 import Attendance from "@/pages/attendance";
+import AttendanceReport from "@/pages/AttendanceReport";
 import Finance from "@/pages/finance";
 
 import StudentLogin from "@/pages/student-login";
@@ -203,7 +204,14 @@ function Router() {
         />
       </Route>
 
-      {/* Teacher/Admin */}
+      {/* Teacher/Admin Attendance Routes (Report MUST come before main Attendance) */}
+      <Route path="/attendance/report">
+        <ProtectedRoute
+          component={AttendanceReport}
+          roles={["super_admin", "institute_admin", "teacher", "staff"]}
+        />
+      </Route>
+
       <Route path="/attendance">
         <ProtectedRoute
           component={Attendance}
