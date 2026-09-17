@@ -69,6 +69,7 @@ type StudentMe = {
   genderOther?: string;
   bloodGroup?: string;
   aadhaarCard?: string;
+  previousMarksheet?: string;
   lastClassPercentage?: string;
   lastClassMarks?: string;
   parentName?: string;
@@ -161,11 +162,7 @@ const formatTime = (time?: string) => {
   try {
     const d = new Date(time);
     if (!isNaN(d.getTime())) {
-      return d.toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      });
+      return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
     }
     return time;
   } catch {
@@ -198,23 +195,10 @@ const INDIA_STATES = ["Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "
 
 const AppStyles = () => (
   <style>{`
-    @keyframes slideUp {
-      from { transform: translateY(100%); opacity: 0.5; }
-      to { transform: translateY(0); opacity: 1; }
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes shake {
-      0%, 100% { transform: translateX(0); }
-      25% { transform: translateX(-4px); }
-      75% { transform: translateX(4px); }
-    }
-    @keyframes livePulse {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
-      50% { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
-    }
+    @keyframes slideUp { from { transform: translateY(100%); opacity: 0.5; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+    @keyframes livePulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.6); } 50% { box-shadow: 0 0 0 8px rgba(239,68,68,0); } }
     .animate-slideUp { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     .animate-fadeIn { animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     .animate-shake { animation: shake 0.4s ease-in-out; }
@@ -238,7 +222,7 @@ export default function StudentDashboard() {
   const [message, setMessage] = useState("");
   const [, forceTick] = useState(0);
 
-  // App Tabs
+  // Tabs navigation
   const [activeTab, setActiveTab] = useState<"home" | "homework" | "exams" | "fees" | "results">("home");
   const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
@@ -247,7 +231,7 @@ export default function StudentDashboard() {
   const [homeworkSearch, setHomeworkSearch] = useState("");
   const [examFilter, setExamFilter] = useState<"all" | "upcoming" | "live" | "completed">("all");
 
-  // FULL Admin-Form Replica State
+  // Edit form state
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
   const [fieldErrors, setFieldErrors] = useState<any>({});
@@ -365,7 +349,7 @@ export default function StudentDashboard() {
   const latestPayments = payments.slice(0, 8);
   const latestResults = report?.examResults ?? [];
 
-  // Pura Student Form Admin Replica Open Logic
+  // Edit logic (Pre-fill full form)
   const openEditModal = () => {
     if (!student) return;
     setEditForm({
@@ -375,6 +359,7 @@ export default function StudentDashboard() {
       genderOther: student.genderOther || "",
       bloodGroup: student.bloodGroup || "",
       aadhaarCard: student.aadhaarCard || "",
+      previousMarksheet: student.previousMarksheet || "",
       photoDataUrl: student.photoDataUrl || "",
 
       phone: student.phone || "",
@@ -411,9 +396,10 @@ export default function StudentDashboard() {
       permanentState: student.permanentState || "",
       permanentPin: student.permanentPin || "",
     });
-    setSameAddress(false);
-    setShowPassword(false);
+    setFieldErrors({});
     setEditMessage(null);
+    setShowPassword(false);
+    setSameAddress(false);
     setIsEditOpen(true);
     setIsProfileOpen(false);
   };
@@ -441,6 +427,19 @@ export default function StudentDashboard() {
     const reader = new FileReader();
     reader.onloadend = () => {
       setEditForm((prev: any) => ({ ...prev, photoDataUrl: reader.result }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDocumentUpload = (key: string, file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setEditMessage({ type: "error", text: "Document size limit max 5MB" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setEditForm((prev: any) => ({ ...prev, [key]: reader.result }));
     };
     reader.readAsDataURL(file);
   };
@@ -975,7 +974,7 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* FULL STUDENT FORM REPLICA DRAWER */}
+        {/* FULL STUDENT FORM REPLICA DRAWER (WITH DOCUMENTS & CAMERA) */}
         {isEditOpen && (
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0">
             <div className="absolute inset-0" onClick={() => !isSaving && setIsEditOpen(false)} />
@@ -1030,26 +1029,28 @@ export default function StudentDashboard() {
                             </select>
                           </div>
                         </FormRow>
-
-                        <FormRow>
-                          <EditField label="Aadhaar Card No." value={editForm.aadhaarCard} onChange={(v) => setFormValue("aadhaarCard", v)} disabled={isSaving} />
-                        </FormRow>
                       </div>
 
-                      {/* Photo Box */}
+                      {/* Photo Box with Camera Option */}
                       <div className="rounded-xl border-2 border-dashed bg-slate-50 p-3 shrink-0 w-full md:w-[160px] flex flex-col items-center justify-center">
                         <Label className="block text-center text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-2">Student Photo</Label>
-                        <div className="relative h-28 w-28 overflow-hidden rounded-full border-4 border-white bg-white shadow-md ring-1 ring-slate-200">
+                        <div className="relative h-24 w-24 overflow-hidden rounded-full border-4 border-white bg-white shadow-sm ring-1 ring-slate-200">
                           {editForm.photoDataUrl ? (
                             <img src={editForm.photoDataUrl} alt="Student" className="h-full w-full object-cover" />
                           ) : (
-                            <UserRound className="h-full w-full p-6 text-slate-300 bg-slate-100" />
+                            <UserRound className="h-full w-full p-5 text-slate-300 bg-slate-100" />
                           )}
                         </div>
-                        <label className="mt-3 flex h-8 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border bg-white text-xs font-semibold shadow-sm hover:bg-slate-50 text-slate-700">
-                          <Upload className="h-3.5 w-3.5" /> Upload Photo
-                          <input type="file" accept="image/*" className="hidden" onChange={(e: any) => handlePhotoChange(e.target.files?.[0])} disabled={isSaving} />
-                        </label>
+                        <div className="mt-3 w-full grid grid-cols-2 gap-1.5">
+                          <label className="flex h-8 cursor-pointer items-center justify-center gap-1 rounded-lg border bg-white text-[10px] font-bold shadow-sm hover:bg-slate-50 text-slate-700">
+                            <Upload className="h-3 w-3" /> Files
+                            <input type="file" accept="image/*" className="hidden" onChange={(e: any) => handlePhotoChange(e.target.files?.[0])} disabled={isSaving} />
+                          </label>
+                          <label className="flex h-8 cursor-pointer items-center justify-center gap-1 rounded-lg border bg-white text-[10px] font-bold shadow-sm hover:bg-slate-50 text-slate-700">
+                            <Camera className="h-3 w-3" /> Snap
+                            <input type="file" accept="image/*" capture="user" className="hidden" onChange={(e: any) => handlePhotoChange(e.target.files?.[0])} disabled={isSaving} />
+                          </label>
+                        </div>
                       </div>
                     </div>
 
@@ -1080,7 +1081,6 @@ export default function StudentDashboard() {
                         <EditField label="Last Class Marks" value={editForm.lastClassMarks} onChange={(v) => setFormValue("lastClassMarks", v)} placeholder="E.g. 410/500" disabled={isSaving} />
                       </FormRow>
 
-                      {/* Read-only Course/Batch */}
                       <div className="grid grid-cols-2 gap-3 opacity-60 pointer-events-none mt-2">
                         <EditField label="Course" value={student?.courseName || ""} onChange={() => {}} disabled />
                         <EditField label="Batch" value={student?.batchName || ""} onChange={() => {}} disabled />
@@ -1170,10 +1170,163 @@ export default function StudentDashboard() {
                   </CardContent>
                 </Card>
 
-                {/* 4. STUDENT LOGIN */}
+                {/* 4. DOCUMENTS UPLOAD */}
+                <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white">
+                  <CardContent className="p-5 space-y-4">
+                    <SectionTitle number={4} icon={<FileCheck2 className="h-4 w-4" />}>
+                      Documents
+                    </SectionTitle>
+                    <p className="text-xs text-slate-500 -mt-2">
+                      Upload Aadhaar Card and Previous Class Marksheet (Image/PDF, Max 5MB)
+                    </p>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {/* Aadhaar Card */}
+                      <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 space-y-3">
+                        <Label className="text-[10px] font-bold text-slate-500 uppercase">
+                          Aadhaar Card
+                        </Label>
+
+                        {editForm.aadhaarCard ? (
+                          <div className="space-y-2">
+                            <div className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                              ✅ Aadhaar uploaded
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 text-[10px] font-bold"
+                                onClick={() => {
+                                  // optional: open preview if image
+                                  if (String(editForm.aadhaarCard).startsWith("data:image")) {
+                                    window.open(editForm.aadhaarCard, "_blank");
+                                  }
+                                }}
+                              >
+                                <Eye className="h-3 w-3 mr-1" /> View
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="h-8 text-[10px] font-bold text-red-600 hover:bg-red-50"
+                                onClick={() => setFormValue("aadhaarCard", "")}
+                                disabled={isSaving}
+                              >
+                                <X className="h-3 w-3 mr-1" /> Remove
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="flex h-11 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-sm">
+                              <Upload className="h-3.5 w-3.5" /> Upload
+                              <input
+                                type="file"
+                                accept="image/*,application/pdf"
+                                className="hidden"
+                                disabled={isSaving}
+                                onChange={(e: any) =>
+                                  handleDocumentUpload("aadhaarCard", e.target.files?.[0])
+                                }
+                              />
+                            </label>
+                            <label className="flex h-11 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-sm">
+                              <Camera className="h-3.5 w-3.5" /> Camera
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                className="hidden"
+                                disabled={isSaving}
+                                onChange={(e: any) =>
+                                  handleDocumentUpload("aadhaarCard", e.target.files?.[0])
+                                }
+                              />
+                            </label>
+                          </div>
+                        )}
+                        <p className="text-[9px] text-slate-400 font-medium text-center">
+                          Image or PDF · Max 5MB
+                        </p>
+                      </div>
+
+                      {/* Previous Class Marksheet */}
+                      <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 space-y-3">
+                        <Label className="text-[10px] font-bold text-slate-500 uppercase">
+                          Previous Class Marksheet
+                        </Label>
+
+                        {editForm.previousMarksheet ? (
+                          <div className="space-y-2">
+                            <div className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                              ✅ Marksheet uploaded
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 text-[10px] font-bold"
+                                onClick={() => {
+                                  if (String(editForm.previousMarksheet).startsWith("data:image")) {
+                                    window.open(editForm.previousMarksheet, "_blank");
+                                  }
+                                }}
+                              >
+                                <Eye className="h-3 w-3 mr-1" /> View
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="h-8 text-[10px] font-bold text-red-600 hover:bg-red-50"
+                                onClick={() => setFormValue("previousMarksheet", "")}
+                                disabled={isSaving}
+                              >
+                                <X className="h-3 w-3 mr-1" /> Remove
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="flex h-11 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-sm">
+                              <Upload className="h-3.5 w-3.5" /> Upload
+                              <input
+                                type="file"
+                                accept="image/*,application/pdf"
+                                className="hidden"
+                                disabled={isSaving}
+                                onChange={(e: any) =>
+                                  handleDocumentUpload("previousMarksheet", e.target.files?.[0])
+                                }
+                              />
+                            </label>
+                            <label className="flex h-11 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-sm">
+                              <Camera className="h-3.5 w-3.5" /> Camera
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                className="hidden"
+                                disabled={isSaving}
+                                onChange={(e: any) =>
+                                  handleDocumentUpload("previousMarksheet", e.target.files?.[0])
+                                }
+                              />
+                            </label>
+                          </div>
+                        )}
+                        <p className="text-[9px] text-slate-400 font-medium text-center">
+                          Image or PDF · Max 5MB
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* 5. STUDENT LOGIN */}
                 <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white">
                   <CardContent className="p-5 space-y-5">
-                    <SectionTitle number={4} icon={<KeyRound className="h-4 w-4" />}>Student Login Details</SectionTitle>
+                    <SectionTitle number={5} icon={<KeyRound className="h-4 w-4" />}>Student Login Details</SectionTitle>
                     <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
                       <p className="mb-4 text-[10px] font-medium text-slate-500">Login ID is required to login to portal. Passwords change instantly.</p>
                       <div className="grid gap-4 md:grid-cols-2">
@@ -1346,7 +1499,7 @@ function EditField({
   label, value, onChange, type = "text", textarea = false, disabled = false, placeholder = "", icon = null, error
 }: {
   label: string; value: string; onChange: (v: string) => void; type?: string; textarea?: boolean; disabled?: boolean; placeholder?: string; icon?: React.ReactNode; error?: string;
-}) { 
+}) {
   return (
     <div className="space-y-1 col-span-2 md:col-span-1">
       <label className="text-[10px] font-bold text-slate-500 uppercase">{label}</label>
