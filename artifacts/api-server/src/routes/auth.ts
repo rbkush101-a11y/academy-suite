@@ -15,39 +15,93 @@ error: "Public signup is disabled. Please contact administrator.",
 });
 });
 
-/*
-TEMPORARY FIX ROUTE
-Login successful hone ke baad is route ko disabled/comment rakho.
+router.get("/auth/me", authenticate, async (req, res): Promise<void> => {
+  if (req.user!.role === "student") {
+    const student = await Student.findById(req.user!.userId).select("-loginPassword");
 
-router.get("/auth/fix-rbk-super-admin", async (_req, res): Promise<void> => {
-const email = "rbkush101@gmail.com";
-const plainPassword = "Admin@12345";
-const hashedPassword = await bcrypt.hash(plainPassword, 10);
+    if (!student) {
+      res.status(404).json({ error: "Student not found" });
+      return;
+    }
 
-await User.deleteMany({
-email: email.toLowerCase().trim(),
+    const [course, batch] = await Promise.all([
+      Course.findById(student.courseId).select("name"),
+      Batch.findById(student.batchId).select("name"),
+    ]);
+
+    res.json({
+      id: String(student._id),
+      name: student.name,
+      email: student.email ?? "",
+      phone: student.phone ?? "",
+      loginId: student.loginId ?? "",
+      role: "student",
+      instituteId: String(student.instituteId),
+      enrollmentNo: student.enrollmentNo,
+      courseId: String(student.courseId),
+      courseName: course?.name ?? "",
+      batchId: String(student.batchId),
+      batchName: batch?.name ?? "",
+      academicYear: student.academicYear ?? "",
+      className: student.className ?? "",
+      section: student.section ?? "",
+      board: student.board ?? "",
+      boardOther: (student as any).boardOther ?? "",
+      schoolName: student.schoolName ?? "",
+      photoDataUrl: student.photoDataUrl ?? "",
+      dateOfBirth: student.dateOfBirth ?? "",
+      gender: student.gender ?? "",
+      genderOther: (student as any).genderOther ?? "",
+      bloodGroup: student.bloodGroup ?? "",
+      aadhaarCard: (student as any).aadhaarCard ?? "",
+      lastClassPercentage: (student as any).lastClassPercentage ?? "",
+      lastClassMarks: (student as any).lastClassMarks ?? "",
+      parentName: student.parentName ?? "",
+      parentPhone: student.parentPhone ?? "",
+      fatherName: student.fatherName ?? "",
+      fatherOccupation: (student as any).fatherOccupation ?? "",
+      fatherPhone: (student as any).fatherPhone ?? "",
+      fatherWhatsapp: (student as any).fatherWhatsapp ?? "",
+      motherName: student.motherName ?? "",
+      motherOccupation: (student as any).motherOccupation ?? "",
+      motherPhone: (student as any).motherPhone ?? "",
+      motherWhatsapp: (student as any).motherWhatsapp ?? "",
+      emergencyPhone: (student as any).emergencyPhone ?? "",
+      correspondenceAddress: (student as any).correspondenceAddress ?? "",
+      correspondenceDistrict: (student as any).correspondenceDistrict ?? "",
+      correspondenceState: (student as any).correspondenceState ?? "",
+      correspondencePin: (student as any).correspondencePin ?? "",
+      permanentAddress: (student as any).permanentAddress ?? "",
+      permanentDistrict: (student as any).permanentDistrict ?? "",
+      permanentState: (student as any).permanentState ?? "",
+      permanentPin: (student as any).permanentPin ?? "",
+      createdAt: student.createdAt,
+    });
+    return;
+  }
+
+  const user = await User.findById(req.user!.userId).select("-password");
+
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  res.json({
+    id: String(user._id),
+    name: user.name,
+    email: user.email,
+    phone: (user as any).phone ?? "",
+    businessAddress: (user as any).businessAddress ?? "",
+    businessType: (user as any).businessType ?? "",
+    promoCode: (user as any).promoCode ?? "",
+    logoDataUrl: (user as any).logoDataUrl ?? "",
+    role: user.role,
+    instituteId: user.instituteId ? String(user.instituteId) : null,
+    isApproved: user.isApproved,
+    createdAt: user.createdAt,
+  });
 });
-
-const user = await User.create({
-name: "Rishabh Kushwaha",
-email: email.toLowerCase().trim(),
-password: hashedPassword,
-role: "super_admin",
-isApproved: true,
-});
-
-const passwordTest = await bcrypt.compare(plainPassword, user.password);
-
-res.json({
-message: "RBK Super Admin fixed successfully",
-email: user.email,
-role: user.role,
-isApproved: user.isApproved,
-passwordTest: passwordTest ? "PASS" : "FAIL",
-loginPassword: plainPassword,
-});
-});
-*/
 
 router.post("/auth/login", async (req, res): Promise<void> => {
   const { email, loginId, password } = req.body;
@@ -194,44 +248,68 @@ router.post("/auth/student-login", async (req, res): Promise<void> => {
 
 router.get("/auth/me", authenticate, async (req, res): Promise<void> => {
   if (req.user!.role === "student") {
-  const student = await Student.findById(req.user!.userId).select(
-    "-loginPassword",
-  );
+    const student = await Student.findById(req.user!.userId).select("-loginPassword");
 
-  if (!student) {
-    res.status(404).json({ error: "Student not found" });
+    if (!student) {
+      res.status(404).json({ error: "Student not found" });
+      return;
+    }
+
+    const [course, batch] = await Promise.all([
+      Course.findById(student.courseId).select("name"),
+      Batch.findById(student.batchId).select("name"),
+    ]);
+
+    res.json({
+      id: String(student._id),
+      name: student.name,
+      email: student.email ?? "",
+      phone: student.phone ?? "",
+      loginId: student.loginId ?? "",
+      role: "student",
+      instituteId: String(student.instituteId),
+      enrollmentNo: student.enrollmentNo,
+      courseId: String(student.courseId),
+      courseName: course?.name ?? "",
+      batchId: String(student.batchId),
+      batchName: batch?.name ?? "",
+      academicYear: student.academicYear ?? "",
+      className: student.className ?? "",
+      section: student.section ?? "",
+      board: student.board ?? "",
+      boardOther: (student as any).boardOther ?? "",
+      schoolName: student.schoolName ?? "",
+      photoDataUrl: student.photoDataUrl ?? "",
+      dateOfBirth: student.dateOfBirth ?? "",
+      gender: student.gender ?? "",
+      genderOther: (student as any).genderOther ?? "",
+      bloodGroup: student.bloodGroup ?? "",
+      aadhaarCard: (student as any).aadhaarCard ?? "",
+      lastClassPercentage: (student as any).lastClassPercentage ?? "",
+      lastClassMarks: (student as any).lastClassMarks ?? "",
+      parentName: student.parentName ?? "",
+      parentPhone: student.parentPhone ?? "",
+      fatherName: student.fatherName ?? "",
+      fatherOccupation: (student as any).fatherOccupation ?? "",
+      fatherPhone: (student as any).fatherPhone ?? "",
+      fatherWhatsapp: (student as any).fatherWhatsapp ?? "",
+      motherName: student.motherName ?? "",
+      motherOccupation: (student as any).motherOccupation ?? "",
+      motherPhone: (student as any).motherPhone ?? "",
+      motherWhatsapp: (student as any).motherWhatsapp ?? "",
+      emergencyPhone: (student as any).emergencyPhone ?? "",
+      correspondenceAddress: (student as any).correspondenceAddress ?? "",
+      correspondenceDistrict: (student as any).correspondenceDistrict ?? "",
+      correspondenceState: (student as any).correspondenceState ?? "",
+      correspondencePin: (student as any).correspondencePin ?? "",
+      permanentAddress: (student as any).permanentAddress ?? "",
+      permanentDistrict: (student as any).permanentDistrict ?? "",
+      permanentState: (student as any).permanentState ?? "",
+      permanentPin: (student as any).permanentPin ?? "",
+      createdAt: student.createdAt,
+    });
     return;
   }
-
-  const [course, batch] = await Promise.all([
-    Course.findById(student.courseId).select("name"),
-    Batch.findById(student.batchId).select("name"),
-  ]);
-
-  res.json({
-    id: String(student._id),
-    name: student.name,
-    email: student.email ?? "",
-    phone: student.phone ?? "",
-    role: "student",
-    instituteId: String(student.instituteId),
-    enrollmentNo: student.enrollmentNo,
-    courseId: String(student.courseId),
-    courseName: course?.name ?? "",
-    batchId: String(student.batchId),
-    batchName: batch?.name ?? "",
-    academicYear: student.academicYear ?? "",
-    className: student.className ?? "",
-    section: student.section ?? "",
-    board: student.board ?? "",
-    schoolName: student.schoolName ?? "",
-    photoDataUrl: student.photoDataUrl ?? "",
-    fatherName: student.fatherName ?? student.parentName ?? "",
-    motherName: student.motherName ?? "",
-    createdAt: student.createdAt,
-  });
-  return;
-}
 
   const user = await User.findById(req.user!.userId).select("-password");
 
@@ -255,7 +333,6 @@ router.get("/auth/me", authenticate, async (req, res): Promise<void> => {
     createdAt: user.createdAt,
   });
 });
-
 router.patch("/auth/me", authenticate, async (req, res): Promise<void> => {
   try {
     const userId = req.user!.userId;

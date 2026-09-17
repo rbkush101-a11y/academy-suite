@@ -244,4 +244,84 @@ router.get("/report-card", authenticate, authorize("super_admin","institute_admi
   }catch(error:any){res.status(500).json({error:error?.message??"Unable to build report card."});}
 });
 
+// ----------------------------------------------------------------
+// STUDENT MOBILE PORTAL: Get My Exams (Online & Offline)
+// ----------------------------------------------------------------
+router.get("/my-exams", async (req, res) => {
+  try {
+    const studentIdRaw = req.query.studentId;
+
+    if (!studentIdRaw || typeof studentIdRaw !== "string") {
+      return res.status(400).json({ error: "Valid studentId is required" });
+    }
+
+    const studentId = String(studentIdRaw).trim();
+
+    // 1. Student detail aur batchId fetch karein
+    const student = await Student.findById(studentId);
+    if (!student) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    const batchId = (student as any).batchId;
+    if (!batchId) {
+      return res.status(200).json([]);
+    }
+
+    // 2. Batch ke saare Exams aur Student ke Marks parallel fetch karein
+    const [exams, examMarks] = await Promise.all([
+      Exam.find({ batchId }).sort({ startTime: -1 }).lean(),
+      ExamMark.find({ studentId: studentId as any }).lean(),
+    ]);
+
+    // 3. Formatted list banayein
+    const formattedExams = exams.map((exam: any) => {
+      const studentResult: any = examMarks.find(
+        (mark: any) => String(mark.examId) === String(exam._id)
+      );
+
+      const totalMarks = Number(exam.totalMarks || 100);
+      const passingMarks = Number(exam.passingMarks || 33);
+      const marksObtained =
+        studentResult && studentResult.marksObtained != null
+          ? Number(studentResult.marksObtained)
+          : null;
+
+      const grade =
+        studentResult?.grade ||
+        (marksObtained !== null ? calculateGrade(marksObtained, totalMarks) : null);
+
+      let resultStatus = studentResult?.resultStatus || null;
+      if (marksObtained !== null && !resultStatus) {
+        resultStatus = marksObtained >= passingMarks ? "Pass" : "Fail";
+      }
+
+      return {
+        id: String(exam._id),
+        title: exam.title || "Exam",
+        subjectName: exam.subjectName || exam.subject || "Subject",
+        examType: exam.examType || (exam.isOnline ? "online" : "offline"),
+        examDate: exam.examDate || exam.startTime || new Date(),
+        startTime: exam.startTime || null,
+        endTime: exam.endTime || null,
+        durationMinutes: exam.durationMinutes || exam.duration || 60,
+        totalMarks: totalMarks,
+        passingMarks: passingMarks,
+        venue: exam.venue || "Academic Block",
+        instructions: exam.instructions || "",
+        syllabus: exam.syllabus || "Complete syllabus",
+        examUrl: exam.examUrl || exam.link || "",
+        marksObtained: marksObtained,
+        grade: grade,
+        resultStatus: resultStatus,
+      };
+    });
+
+    return res.status(200).json(formattedExams);
+  } catch (error: any) {
+    console.error("Error fetching exams for student:", error);
+    return res.status(500).json({ error: "Internal server error", details: error.message });
+  }
+});
+
 export default router;

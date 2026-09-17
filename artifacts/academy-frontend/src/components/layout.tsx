@@ -32,7 +32,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Students", icon: GraduationCap, href: "/students" },
       { label: "Staff", icon: Users, href: "/staff" },
-      //{ label: "Online Admissions", icon: UserPlus, href: "/admissions" },
+      { label: "Online Admissions", icon: UserPlus, href: "/admissions" },
     ],
   },
   {
@@ -40,10 +40,10 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Courses", icon: GraduationCap, href: "/courses" },
       { label: "Subjects", icon: BookOpen, href: "/subjects" },
-      //{ label: "Topics", icon: Tag, href: "/topics" },
+      { label: "Topics", icon: Tag, href: "/topics" },
       { label: "Batches", icon: Layers, href: "/batches" },
-      //{ label: "PYQ Papers", icon: FileQuestion, href: "/pyq-papers" },
-      //{ label: "Question Bank", icon: Package, href: "/question-bank" },
+      { label: "PYQ Papers", icon: FileQuestion, href: "/pyq-papers" },
+      { label: "Question Bank", icon: Package, href: "/question-bank" },
     ],
   },
   {
@@ -52,23 +52,22 @@ const navGroups: NavGroup[] = [
       { label: "Timetable", icon: Clock, href: "/timetable" },
       { label: "Attendance", icon: CheckSquare, href: "/attendance" },
       { label: "Homework", icon: Pencil, href: "/homework" },
-      //{ label: "Doubts", icon: MessageCircleQuestion, href: "/doubts" },
-      //{ label: "Leave & Holidays", icon: CalendarX, href: "/leaves" },
+      { label: "Doubts", icon: MessageCircleQuestion, href: "/doubts" },
+      { label: "Leave & Holidays", icon: CalendarX, href: "/leaves" },
     ],
   },
   {
     title: "EXAMS & RESULTS",
     items: [
-      //{ label: "Online Exams", icon: Monitor, href: "/exams?type=online" },
+      { label: "Online Exams", icon: Monitor, href: "/exams?type=online" },
       { label: "Offline Exams", icon: FileEdit, href: "/exams?type=offline" },
-      //{ label: "Test Series", icon: Layers, href: "/test-series" },
+      { label: "Test Series", icon: Layers, href: "/test-series" },
       { label: "Report Cards", icon: FileSpreadsheet, href: "/report-card" },
-      //{ label: "Certificates", icon: Award, href: "/certificates" },
-      //{ label: "ID Cards", icon: IdCard, href: "/id-cards" },
-      //{ label: "Proctoring", icon: Video, href: "/proctoring" },
+      { label: "Certificates", icon: Award, href: "/certificates" },
+      { label: "ID Cards", icon: IdCard, href: "/id-cards" },
+      { label: "Proctoring", icon: Video, href: "/proctoring" },
     ],
   },
-  /*
   {
     title: "CONTENT & MEDIA",
     items: [
@@ -78,17 +77,16 @@ const navGroups: NavGroup[] = [
       { label: "Chapter Progress", icon: BookMarked, href: "/chapter-progress" },
     ],
   },
-  */
   {
     title: "FINANCE",
     items: [
       { label: "Fee Collection", icon: IndianRupee, href: "/finance" },
-      /*{ label: "Fee Structures", icon: Grid3x3, href: "/finance/fee-structure" },
+      { label: "Fee Structures", icon: Grid3x3, href: "/finance/fee-structure" },
       { label: "Discounts & Coupons", icon: Ticket, href: "/discounts" },
       { label: "Late Fee Rules", icon: Clock3, href: "/late-fee" },
       { label: "Payment Reminders", icon: Bell, href: "/payment-reminders" },
       { label: "Deletion Audit Log", icon: ShieldCheck, href: "/audit-log" },
-      { label: "Accounting Export", icon: FileSpreadsheet, href: "/accounting-export" },*/
+      { label: "Accounting Export", icon: FileSpreadsheet, href: "/accounting-export" },
       { label: "Expenses", icon: Receipt, href: "/finance/daily-expense" },
       { label: "Expense Heads", icon: Tag, href: "/expense-heads" },
     ],
@@ -97,12 +95,11 @@ const navGroups: NavGroup[] = [
     title: "HR & STAFF",
     items: [
       { label: "Payroll", icon: Banknote, href: "/hr" },
-      //{ label: "Staff Attendance", icon: UserCheck, href: "/staff-attendance" },
-      //{ label: "Biometric", icon: Fingerprint, href: "/biometric" },
-      //{ label: "Faculty Performance", icon: TrendingUp, href: "/faculty-performance" },
+      { label: "Staff Attendance", icon: UserCheck, href: "/staff-attendance" },
+      { label: "Biometric", icon: Fingerprint, href: "/biometric" },
+      { label: "Faculty Performance", icon: TrendingUp, href: "/faculty-performance" },
     ],
   },
-  /*
   {
     title: "CRM & GROWTH",
     items: [
@@ -113,20 +110,18 @@ const navGroups: NavGroup[] = [
       { label: "Alumni Wall", icon: GraduationCap, href: "/alumni" },
     ],
   },
-  */
   {
     title: "COMMUNICATION",
     items: [
-      /*{ label: "Bulk Messaging", icon: Megaphone, href: "/bulk-messaging" },
+      { label: "Bulk Messaging", icon: Megaphone, href: "/bulk-messaging" },
       { label: "Inbox", icon: Inbox, href: "/inbox" },
       { label: "SMS / WhatsApp Hub", icon: MessageSquare, href: "/whatsapp" },
       { label: "Email Campaigns", icon: Mail, href: "/email-campaigns" },
       { label: "Custom Forms", icon: SlidersHorizontal, href: "/custom-forms" },
-      { label: "Custom Columns", icon: Columns3, href: "/custom-columns" },*/
+      { label: "Custom Columns", icon: Columns3, href: "/custom-columns" },
       { label: "PTM Meetings", icon: Users, href: "/ptm" },
     ],
   },
-  /*
   {
     title: "OPERATIONS",
     items: [
@@ -139,26 +134,24 @@ const navGroups: NavGroup[] = [
       { label: "Gamification", icon: Trophy, href: "/gamification" },
     ],
   },
-  */
   {
     title: "SETTINGS",
     items: [
       { label: "General Settings", icon: Settings, href: "/settings" },
-      //{ label: "Branches", icon: Building2, href: "/branches" },
-      //{ label: "Roles & Permissions", icon: Shield, href: "/roles" },
-      //{ label: "Mobile App Branding", icon: Smartphone, href: "/mobile-branding" },
-      //{ label: "Integrations", icon: Puzzle, href: "/integrations" },
-      //{ label: "AI Credits", icon: Cpu, href: "/ai-credits" },
+      { label: "Branches", icon: Building2, href: "/branches" },
+      { label: "Roles & Permissions", icon: Shield, href: "/roles" },
+      { label: "Mobile App Branding", icon: Smartphone, href: "/mobile-branding" },
+      { label: "Integrations", icon: Puzzle, href: "/integrations" },
+      { label: "AI Credits", icon: Cpu, href: "/ai-credits" },
     ],
   },
-  /*
   {
     title: "HELP",
     items: [
       { label: "Training Guide", icon: FileText, href: "/training-guide" },
       { label: "Setup Wizard", icon: Rocket, href: "/setup-wizard" },
     ],
-  },*/
+  },
 ];
 
 const collapsedItems: NavItem[] = [
