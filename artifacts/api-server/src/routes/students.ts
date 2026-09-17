@@ -191,6 +191,7 @@ const STUDENT_EDITABLE_FIELDS: Record<string, { label: string; autoApprove: bool
   gender: { label: "Gender", autoApprove: true },
   genderOther: { label: "Gender (Other)", autoApprove: true },
   aadhaarCard: { label: "Aadhaar Card", autoApprove: false },
+  previousMarksheet: { label: "Previous Marksheet", autoApprove: false },
   parentName: { label: "Guardian Name", autoApprove: false },
   parentPhone: { label: "Guardian Phone", autoApprove: true },
   correspondenceAddress: { label: "Correspondence Address", autoApprove: true },
