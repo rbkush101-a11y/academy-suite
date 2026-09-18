@@ -44,7 +44,7 @@ async function populatedTimetableEntry(id: string) {
 router.get(
   "/timetable",
   authenticate,
-  authorize("super_admin", "institute_admin", "staff"),
+  authorize("super_admin", "institute_admin", "staff", "student"),
   async (req, res): Promise<void> => {
     try {
       const batchId = toText(req.query.batchId);
