@@ -1,4 +1,7 @@
-import { useListStaff, getListStaffQueryKey } from "@workspace/api-client-react";
+import { 
+  useListStaff, getListStaffQueryKey, 
+  useListBatches, useListCourses, useListSubjects
+} from "@workspace/api-client-react";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
@@ -7,16 +10,30 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
-  Search, Plus, Pencil, Trash2, Upload, UserRound, Download, LayoutGrid, List, 
+  Search, Plus, Pencil, Trash2, Upload, UserRound, LayoutGrid, List, 
   Users, CheckCircle2, Calendar, IndianRupee, ChevronDown, Mail, Phone, ArrowLeft, 
   Save, Check, Eye, EyeOff, KeyRound, ShieldCheck, Briefcase, 
-  FileText, DownloadCloud, Lock, FolderOpen, Clock, MapPin, X, FileUp, Sparkles,
-  ClipboardList, AlarmClock, Timer, Info
+  FileText, DownloadCloud, Lock, FolderOpen, MapPin, X, FileUp, Sparkles,
+  ClipboardList, AlarmClock, Timer, Info, Camera
 } from "lucide-react";
 
-// ======================== DATA CONSTANTS ========================
+// ======================== DATA CONSTANTS (Fallbacks) ========================
 const QUALIFICATIONS_LIST = [
   "10th", "12th", "UG", "PG", "PhD", "B.Ed", "Diploma", "Other"
+];
+
+const FALLBACK_COURSES = [
+  "Class 6th", "Class 7th", "Class 8th", "Class 9th", "Class 10th",
+  "Class 11th - Science (PCM)", "Class 11th - Science (PCB)", "Class 11th - Commerce", "Class 11th - Arts",
+  "Class 12th - Science (PCM)", "Class 12th - Science (PCB)", "Class 12th - Commerce", "Class 12th - Arts",
+  "JEE Main / Advanced", "NEET Medical", "Foundation Course", "Crash Course", "Computer / Coding Course"
+];
+
+const FALLBACK_SUBJECTS = [
+  "Mathematics", "Physics", "Chemistry", "Biology", "Science",
+  "English", "Hindi", "Social Studies", "History", "Geography", "Civics",
+  "Accountancy", "Economics", "Business Studies", "Statistics",
+  "Computer Science", "IP", "Python Programming", "Web Development"
 ];
 
 const INDIA_STATES_AND_DISTRICTS: Record<string, string[]> = {
@@ -47,6 +64,12 @@ const INDIA_STATES_AND_DISTRICTS: Record<string, string[]> = {
 
 type StaffDocument = { label: string; name: string; dataUrl: string; mimeType: string; };
 
+type SubjectTaughtRow = {
+  course: string;
+  subject: string;
+  batch: string;
+};
+
 type StaffForm = {
   empId: string; name: string; firstName: string; lastName: string; email: string; phone: string; homePhone: string;
   role: string; customRole: string; staffType: "academic" | "computer";
@@ -54,7 +77,6 @@ type StaffForm = {
   employeeStatus: string; payRateType: string; workTimingFrom: string; workTimingTo: string; contractWorkDetail: string; 
   gender: string; otherGender: string; dateOfBirth: string;
   
-  // ADDRESS FIELDS
   localAddress: string; localState: string; localDistrict: string; localPin: string;
   permanentAddress: string; permanentState: string; permanentDistrict: string; permanentPin: string;
   
@@ -63,7 +85,7 @@ type StaffForm = {
   photoDataUrl: string; documents: StaffDocument[];
   loginEnabled: boolean; username: string; password: string; confirmPassword: string; accessLevel: string;
   
-  // PAYROLL FIELDS
+  subjectsTaught: SubjectTaughtRow[];
   employmentType: "full_time" | "contractual" | "hybrid" | "hourly";
   monthlySalary: string;
   perClassRate: string;
@@ -71,6 +93,7 @@ type StaffForm = {
   hourlyRate: string;
   pfDeduction: string;
   tdsDeduction: string;
+  batches: string[];
 };
 
 const blankForm: StaffForm = {
@@ -84,6 +107,7 @@ const blankForm: StaffForm = {
   photoDataUrl: "", documents: [],
   loginEnabled: false, username: "", password: "", confirmPassword: "", accessLevel: "staff",
   
+  subjectsTaught: [{ course: "", subject: "", batch: "" }],
   employmentType: "full_time",
   monthlySalary: "",
   perClassRate: "",
@@ -91,6 +115,7 @@ const blankForm: StaffForm = {
   hourlyRate: "",
   pfDeduction: "12",
   tdsDeduction: "0",
+  batches: [],
 };
 
 const STAFF_ROLES = [
@@ -108,10 +133,11 @@ const ACCESS_LEVELS = [
   { value: "staff", label: "Staff (Basic Access)" },
 ];
 
-const LEAVE_QUOTAS = [
-  { name: "Casual Leave", total: 10, used: 0, dotColor: "bg-blue-500", valColor: "text-green-600", showBadge: true },
-  { name: "Earned Leave", total: 12.5, used: 0, dotColor: "bg-green-500", valColor: "text-green-600", showBadge: true },
-  { name: "Sick Leave", total: 6.5, used: 3, dotColor: "bg-red-500", valColor: "text-green-600", showBadge: true, progressColor: "bg-red-500" },
+const EMP_TYPES = [
+  { id: 'full_time', label: 'Full-Time', desc: 'Fixed monthly salary, pro-rated by attendance', icon: Briefcase, iconColor: 'text-amber-800', iconBg: 'bg-green-50' },
+  { id: 'contractual', label: 'Contractual', desc: 'Pay per class/lecture taken', icon: ClipboardList, iconColor: 'text-orange-600', iconBg: 'bg-orange-50' },
+  { id: 'hybrid', label: 'Part-Time / Hybrid', desc: 'Base salary + per-class rate', icon: AlarmClock, iconColor: 'text-pink-500', iconBg: 'bg-pink-50' },
+  { id: 'hourly', label: 'Hourly Basis', desc: 'Pay per working hour', icon: Timer, iconColor: 'text-purple-700', iconBg: 'bg-indigo-50' }
 ];
 
 // SYSTEM INTERNAL METADATA KEYS FOR UNSUPPORTED SCHEMA FIELDS
@@ -139,7 +165,7 @@ function Field({ label, value, onChange, type = "text", placeholder = "", requir
       <Label className="text-xs font-semibold text-gray-700">
         {label} {required && <span className="text-red-500">*</span>}
       </Label>
-      <Input type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete} className="text-sm bg-gray-50/50 focus-visible:ring-[#5B7023]" />
+      <Input type={type} value={value || ""} placeholder={placeholder} onChange={(e: any) => onChange(e.target.value)} autoComplete={autoComplete} className="text-sm bg-gray-50/50 focus-visible:ring-[#5B7023]" />
     </div>
   );
 }
@@ -152,7 +178,7 @@ function PayrollInput({ label, value, onChange, prefix, suffix, subtext, require
       </label>
       <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white focus-within:border-indigo-600 focus-within:ring-1 focus-within:ring-indigo-600 transition-all h-[38px]">
         {prefix && <span className="px-3 h-full flex items-center bg-gray-50/80 border-r border-gray-200 text-gray-600 text-sm font-medium">{prefix}</span>}
-        <input type={type} value={value} onChange={e => onChange(e.target.value)} className="w-full px-3 py-2 text-sm outline-none bg-transparent font-medium text-gray-800" />
+        <input type={type} value={value || ""} onChange={e => onChange(e.target.value)} className="w-full px-3 py-2 text-sm outline-none bg-transparent font-medium text-gray-800" />
         {suffix && <span className="px-3 h-full flex items-center bg-gray-50/80 border-l border-gray-200 text-gray-600 text-sm font-medium">{suffix}</span>}
       </div>
       {subtext && <p className="text-[10.5px] text-gray-500 mt-1 leading-tight">{subtext}</p>}
@@ -160,6 +186,7 @@ function PayrollInput({ label, value, onChange, prefix, suffix, subtext, require
   );
 }
 
+// Global SearchableSelect Component
 function SearchableSelect({ options, value, onChange, placeholder = "Select...", disabled = false }: { options: string[]; value: string; onChange: (val: string) => void; placeholder?: string; disabled?: boolean; }) {
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -179,7 +206,7 @@ function SearchableSelect({ options, value, onChange, placeholder = "Select...",
   }, [open]);
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative w-full" ref={containerRef}>
       <button type="button" disabled={disabled} onClick={() => !disabled && setOpen((p) => !p)} className={`w-full h-10 px-3 py-2 text-sm bg-gray-50/50 border border-gray-200 rounded-md shadow-sm flex items-center justify-between text-left focus:outline-none focus:ring-2 focus:ring-[#5B7023] ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}>
         <span className={value ? "text-gray-800 truncate" : "text-gray-500"}>{value || placeholder}</span>
         <ChevronDown size={16} className={`text-gray-400 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
@@ -214,32 +241,7 @@ function InfoItem({ label, value }: { label: string; value: string | React.React
   return (
     <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-100 h-full">
       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">{label}</p>
-      <p className="text-sm font-semibold text-gray-800 break-words">{value || "—"}</p>
-    </div>
-  );
-}
-
-function LeaveQuotaCard({ leave }: { leave: any }) {
-  const percentUsed = leave.total > 0 ? (leave.used / leave.total) * 100 : 0;
-  const available = leave.total - leave.used;
-  return (
-    <div className="border border-gray-200 rounded-xl p-5 bg-white flex flex-col justify-between shadow-sm hover:shadow-md transition">
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <div className={`w-2 h-2 rounded-full ${leave.dotColor}`}></div>
-          <p className="text-sm font-bold text-gray-800">{leave.name}</p>
-        </div>
-        <h2 className={`text-3xl font-bold ${leave.valColor} flex items-baseline gap-1`}>
-          {available} <span className="text-sm text-gray-400 font-medium">/{leave.total}</span>
-        </h2>
-        <p className="text-xs text-gray-500 mt-1">{leave.used} used</p>
-      </div>
-      <div className="mt-4">
-        <div className="w-full bg-[#E8EBF0] h-1.5 rounded-full mb-3 overflow-hidden">
-          {percentUsed > 0 && <div className={`${leave.progressColor || leave.dotColor} h-full rounded-full`} style={{ width: `${percentUsed}%` }}></div>}
-        </div>
-        {leave.showBadge && <span className="text-[9px] font-bold px-2 py-1 bg-[#FFF8E6] text-[#D99A29] rounded inline-block uppercase tracking-wider">PRORATED</span>}
-      </div>
+      <div className="text-sm font-semibold text-gray-800 break-words">{value || "—"}</div>
     </div>
   );
 }
@@ -263,6 +265,37 @@ export default function Staff() {
   const queryClient = useQueryClient();
   const { data: staffData, isLoading } = useListStaff();
   const staff = (staffData as any[]) ?? [];
+
+  // ================= FETCH REAL DATA FOR DROPDOWNS =================
+  const { data: rawBatches } = useListBatches();
+  const { data: rawCourses } = useListCourses();
+  const { data: rawSubjects } = useListSubjects();
+  
+  const availableBatches = useMemo(() => {
+    if (!rawBatches) return [];
+    const list = Array.isArray(rawBatches) ? rawBatches : (rawBatches as any).data || (rawBatches as any).batches || [];
+    return list.map((b: any) => typeof b === "string" ? b : (b.name || b.title || b.batchName || "")).filter(Boolean);
+  }, [rawBatches]);
+
+  const availableCourses = useMemo(() => {
+    if (!rawCourses) return FALLBACK_COURSES;
+    const list = Array.isArray(rawCourses) ? rawCourses : (rawCourses as any).data || (rawCourses as any).courses || [];
+    const mapped = list.map((c: any) => typeof c === "string" ? c : (c.name || c.courseName || c.title || "")).filter(Boolean);
+    return mapped.length > 0 ? mapped : FALLBACK_COURSES;
+  }, [rawCourses]);
+
+  const availableSubjects = useMemo(() => {
+    if (!rawSubjects) return FALLBACK_SUBJECTS;
+    const list = Array.isArray(rawSubjects) ? rawSubjects : (rawSubjects as any).data || (rawSubjects as any).subjects || [];
+    const mapped = list.map((s: any) => typeof s === "string" ? s : (s.name || s.subjectName || s.title || "")).filter(Boolean);
+    return mapped.length > 0 ? mapped : FALLBACK_SUBJECTS;
+  }, [rawSubjects]);
+
+  // Options with "None" appended
+  const courseOptionsWithNone = useMemo(() => ["None", ...availableCourses], [availableCourses]);
+  const subjectOptionsWithNone = useMemo(() => ["None", ...availableSubjects], [availableSubjects]);
+  const batchOptionsWithNone = useMemo(() => ["None", "All Batches", ...availableBatches], [availableBatches]);
+  // =================================================================
 
   const [viewMode, setViewMode] = useState<"list" | "form" | "view">("list");
   const [profileTab, setProfileTab] = useState<"overview" | "attendance" | "payroll" | "payslip">("overview");
@@ -325,7 +358,159 @@ export default function Staff() {
   const aadhaarFileRef = useRef<HTMLInputElement>(null);
   const panFileRef = useRef<HTMLInputElement>(null);
 
+// ================= LIVE CAMERA =================
+const [cameraActive, setCameraActive] = useState(false);
+const videoRef = useRef<HTMLVideoElement | null>(null);
+const streamRef = useRef<MediaStream | null>(null);
+
+const startCamera = async () => {
+  // Pehle purana stream band karo (agar koi ho)
+  if (streamRef.current) {
+    streamRef.current.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }
+
+  try {
+    // 1. Pehle permission + stream lo
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
+    });
+
+    streamRef.current = stream;
+
+    // 2. Tab modal open karo
+    setCameraActive(true);
+  } catch (err: any) {
+    console.error("Camera error:", err);
+    const msg =
+      err?.name === "NotAllowedError"
+        ? "Camera permission denied. Browser address bar mein camera allow karo."
+        : err?.name === "NotFoundError"
+        ? "Koi camera device nahi mila."
+        : "Camera access fail. Sirf HTTPS ya localhost pe chalta hai.";
+    alert(msg);
+    setCameraActive(false);
+  }
+};
+
+const stopCamera = () => {
+  if (streamRef.current) {
+    streamRef.current.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }
+  if (videoRef.current) {
+    try {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    } catch {}
+  }
+  setCameraActive(false);
+};
+
+const capturePhoto = () => {
+  const video = videoRef.current;
+  if (!video || !video.videoWidth) {
+    alert("Camera ready nahi hai. 1 second wait karke phir try karo.");
+    return;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  // Mirror hata ke natural photo
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  setValue("photoDataUrl", dataUrl);
+  stopCamera();
+};
+
+// Modal open hone ke BAAD video pe stream chipkao
+useEffect(() => {
+  if (!cameraActive) return;
+
+  let cancelled = false;
+  let tries = 0;
+
+  const attach = () => {
+    if (cancelled) return;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+
+    if (!video || !stream) {
+      // video abhi DOM mein nahi aaya — thoda wait
+      if (tries < 20) {
+        tries += 1;
+        setTimeout(attach, 50);
+      }
+      return;
+    }
+
+    // Important: pehle clear, phir set
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+
+    const playPromise = video.play();
+    if (playPromise?.catch) {
+      playPromise.catch((e) => {
+        console.warn("video.play() blocked:", e);
+        // user gesture ke baad kabhi-kabhi dubara try
+        setTimeout(() => video.play().catch(() => {}), 100);
+      });
+    }
+  };
+
+  // next paint pe attach
+  requestAnimationFrame(() => attach());
+
+  return () => {
+    cancelled = true;
+  };
+}, [cameraActive]);
+
+// Unmount cleanup
+useEffect(() => {
+  return () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  };
+}, []);
+
   const setValue = (key: keyof StaffForm, value: any) => setForm((old) => ({ ...old, [key]: value }));
+
+  // Subjects Taught Row Helpers
+  const addSubjectRow = () => {
+    setForm(prev => ({
+      ...prev,
+      subjectsTaught: [...prev.subjectsTaught, { course: "", subject: "", batch: "" }]
+    }));
+  };
+
+  const updateSubjectRow = (index: number, field: keyof SubjectTaughtRow, value: string) => {
+    setForm(prev => {
+      const updated = [...prev.subjectsTaught];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, subjectsTaught: updated };
+    });
+  };
+
+  const removeSubjectRow = (index: number) => {
+    setForm(prev => ({
+      ...prev,
+      subjectsTaught: prev.subjectsTaught.filter((_, i) => i !== index)
+    }));
+  };
 
   const statesList = useMemo(() => Object.keys(INDIA_STATES_AND_DISTRICTS), []);
   const localDistrictsList = useMemo(() => form.localState ? INDIA_STATES_AND_DISTRICTS[form.localState] || [] : [], [form.localState]);
@@ -336,7 +521,6 @@ export default function Staff() {
   const aadhaarDoc = form.documents.find(d => d.label === "Aadhaar Card");
   const panDoc = form.documents.find(d => d.label === "PAN Card");
 
-  // User visible files (ignoring hidden metadata attachments)
   const userDocuments = useMemo(() => {
     return form.documents.filter(d => !ALL_SYSTEM_META_KEYS.includes(d.label));
   }, [form.documents]);
@@ -353,7 +537,6 @@ export default function Staff() {
   const totalStaffCount = currentStaffList.length;
   const activeCount = useMemo(() => currentStaffList.filter(m => m.status === "active" || m.isActive === true).length, [currentStaffList]);
   const inactiveCount = totalStaffCount - activeCount;
-  const teachersCount = useMemo(() => currentStaffList.filter(m => (m.positionTitle || m.role || "").toLowerCase().includes("teacher") || (m.positionTitle || m.role || "").toLowerCase().includes("faculty")).length, [currentStaffList]);
   const totalSalarySum = useMemo(() => currentStaffList.reduce((acc, curr) => {
     if (curr.status !== "active" && curr.isActive !== true) return acc;
     const rawSalary = curr.salary ?? 0;
@@ -361,22 +544,50 @@ export default function Staff() {
     return acc + numSalary;
   }, 0), [currentStaffList]);
 
+  // Designation Tabs computed dynamically
+  const designationTabs = useMemo(() => {
+    const rolesSet = new Set<string>();
+    currentStaffList.forEach((m: any) => {
+      const des = m.positionTitle || m.role;
+      if (des) rolesSet.add(des);
+    });
+    return ["All Staff", ...Array.from(rolesSet)];
+  }, [currentStaffList]);
+
+  // ================= ENHANCED SEARCH FILTER =================
   const filteredStaff = useMemo(() => {
     return currentStaffList.filter((m: any) => {
-      const query = search.toLowerCase();
+      const query = search.toLowerCase().trim();
+      
       const fullName = `${m.firstName ?? ""} ${m.lastName ?? ""} ${m.name ?? ""}`.toLowerCase();
-      const matchesSearch = fullName.includes(query) || (m.email ?? "").toLowerCase().includes(query) || (m.phone ?? "").toLowerCase().includes(query) || getDisplayEmpId(m).toLowerCase().includes(query);
+      const email = (m.email ?? "").toLowerCase();
+      const phone = (m.phone ?? "").toLowerCase();
+      const empId = getDisplayEmpId(m).toLowerCase();
+
+      // Collect text from SUBJECTS TAUGHT (Course, Subject, Batch)
+      const subjectsTaughtInfo = Array.isArray(m.subjectsTaught)
+        ? m.subjectsTaught.map((st: any) => `${st.course || ""} ${st.subject || ""} ${st.batch || ""}`).join(" ")
+        : "";
+
+      const legacySubject = (m.subject || "").toLowerCase();
+      const batches = Array.isArray(m.batches) ? m.batches.join(" ").toLowerCase() : "";
+
+      // Combine all fields into searchable text
+      const allSearchableText = `${fullName} ${email} ${phone} ${empId} ${subjectsTaughtInfo} ${legacySubject} ${batches}`.toLowerCase();
+
+      const matchesSearch = query === "" || allSearchableText.includes(query);
       const matchesStatus = statusFilter === "all" ? true : m.status?.toLowerCase() === statusFilter.toLowerCase();
       const matchesDesignation = designationTab === "All Staff" ? true : (m.positionTitle || m.role || "").toLowerCase() === designationTab.toLowerCase();
+
       return matchesSearch && matchesStatus && matchesDesignation;
     });
   }, [currentStaffList, search, statusFilter, designationTab]);
+  // ==========================================================
 
   const openAdd = () => { 
     setEditing(null); 
     setSameAsCorrespondence(false);
     
-    // Find Max existing ID to start correctly (starts at 1)
     let maxNum = 0;
     currentStaffList.forEach((m: any) => {
       const idStr = String(getDisplayEmpId(m) || "");
@@ -406,7 +617,6 @@ export default function Staff() {
     const memberRole = STAFF_ROLES.includes(rawDesignation) ? rawDesignation : "Other";
     const customRoleVal = memberRole === "Other" ? rawDesignation : "";
     
-    // Extract metadata documents for unsupported fields
     const docs = Array.isArray(member.documents) ? member.documents : [];
     const genderDoc = docs.find((d: any) => d.label === META_GENDER_KEY);
     const stateDoc = docs.find((d: any) => d.label === META_STATE_KEY);
@@ -432,18 +642,15 @@ export default function Staff() {
 
     const resolvedEmpId = getDisplayEmpId(member);
 
-    // Extract Local Address safely
     const resolvedState = member.localState || stateDoc?.name || "";
     const resolvedDistrict = member.localDistrict || districtDoc?.name || "";
     const resolvedPin = member.localPin || pinDoc?.name || "";
 
-    // Extract Permanent Address safely
     const resolvedPermAddress = member.permanentAddress || permAddressDoc?.name || "";
     const resolvedPermState = member.permanentState || permStateDoc?.name || "";
     const resolvedPermDistrict = member.permanentDistrict || permDistrictDoc?.name || "";
     const resolvedPermPin = member.permanentPin || permPinDoc?.name || "";
 
-    // Same as correspondence check
     const isSame = 
       resolvedPermAddress === (member.localAddress || "") &&
       resolvedPermState === resolvedState &&
@@ -452,6 +659,15 @@ export default function Staff() {
       !!(resolvedState || resolvedDistrict || member.localAddress);
       
     setSameAsCorrespondence(isSame);
+
+    // Extract subjects taught or convert existing subject string
+    let loadedSubjectsTaught: SubjectTaughtRow[] = Array.isArray(member.subjectsTaught) && member.subjectsTaught.length > 0 
+      ? member.subjectsTaught 
+      : [{ course: "", subject: member.subject || "", batch: "" }];
+
+    // Auto-map legacy salary to correct sub-states on editing
+    const rawSalStr = String(member.monthlySalary ?? member.salary ?? "");
+    const selectedEmpType = member.employmentType || "full_time";
 
     setForm({
       ...blankForm, ...member,
@@ -465,13 +681,11 @@ export default function Staff() {
       lastName: member.lastName ?? (member.name ?? "").split(" ").slice(1).join(" "),
       staffType: member.staffType ?? "academic",
       
-      // RESTORE LOCAL ADDRESS
       localAddress: member.localAddress ?? "",
       localState: resolvedState, 
       localDistrict: resolvedDistrict,
       localPin: resolvedPin,
       
-      // RESTORE PERMANENT ADDRESS
       permanentAddress: resolvedPermAddress,
       permanentState: resolvedPermState,
       permanentDistrict: resolvedPermDistrict,
@@ -483,13 +697,15 @@ export default function Staff() {
       qualification: standardQuals.join(", "), 
       otherQualification: member.otherQualification || qualDoc?.name || customQuals.join(", "),
       
-      employmentType: member.employmentType || "full_time",
-      monthlySalary: String(member.monthlySalary ?? member.salary ?? ""),
-      perClassRate: String(member.perClassRate ?? ""),
-      baseSalary: String(member.baseSalary ?? ""),
-      hourlyRate: String(member.hourlyRate ?? ""),
+      subjectsTaught: loadedSubjectsTaught,
+      employmentType: selectedEmpType,
+      monthlySalary: selectedEmpType === "full_time" ? rawSalStr : "",
+      perClassRate: selectedEmpType === "contractual" ? rawSalStr : (member.perClassRate ? String(member.perClassRate) : ""),
+      baseSalary: selectedEmpType === "hybrid" ? rawSalStr : (member.baseSalary ? String(member.baseSalary) : ""),
+      hourlyRate: selectedEmpType === "hourly" ? rawSalStr : (member.hourlyRate ? String(member.hourlyRate) : ""),
       pfDeduction: String(member.pfDeduction ?? "12"),
       tdsDeduction: String(member.tdsDeduction ?? "0"),
+      batches: Array.isArray(member.batches) ? member.batches : (Array.isArray(member.assignedBatches) ? member.assignedBatches : []),
     });
     setViewMode("form"); window.scrollTo(0, 0);
   };
@@ -497,6 +713,7 @@ export default function Staff() {
   const openView = (member: any) => { setViewing(member); setProfileTab("overview"); setViewMode("view"); window.scrollTo(0, 0); };
 
   const backToList = () => { 
+    stopCamera();
     setViewMode("list"); setEditing(null); setViewing(null); setForm(blankForm); 
     setSameAsCorrespondence(false);
     setMessage(""); setShowPassword(false); setShowConfirmPassword(false); setNewDocLabel(""); 
@@ -618,10 +835,8 @@ export default function Staff() {
     }
     const finalQualification = finalQuals.join(", ");
 
-    // Clean out existing metadata attachments
     let updatedDocuments = form.documents.filter(d => !ALL_SYSTEM_META_KEYS.includes(d.label));
 
-    // Save metadata backups for Gender, Qualification, EmpID, State, District & Pin
     if (form.gender === "other" && form.otherGender.trim()) {
       updatedDocuments.push({ label: META_GENDER_KEY, name: form.otherGender.trim(), dataUrl: "data:text/plain;base64,b3RoZXI=", mimeType: "text/plain" });
     }
@@ -640,8 +855,6 @@ export default function Staff() {
     if (form.localPin.trim()) {
       updatedDocuments.push({ label: META_PIN_KEY, name: form.localPin.trim(), dataUrl: "data:text/plain;base64,b3RoZXI=", mimeType: "text/plain" });
     }
-    
-    // Permanent Address Metadata Backups
     if (form.permanentAddress.trim()) {
       updatedDocuments.push({ label: META_PERM_ADDRESS_KEY, name: form.permanentAddress.trim(), dataUrl: "data:text/plain;base64,b3RoZXI=", mimeType: "text/plain" });
     }
@@ -663,6 +876,17 @@ export default function Staff() {
 
     const { otherGender, otherQualification, ...cleanForm } = form;
 
+    // Combine subjects for legacy string
+    const combinedSubjectsString = form.subjectsTaught
+      .map(s => s.subject)
+      .filter(Boolean)
+      .join(", ") || form.subject;
+
+    // Extract assigned batches from subjectsTaught rows
+    const derivedBatchesFromRows = Array.from(new Set(
+      form.subjectsTaught.map(s => s.batch).filter(b => b && b !== "All Batches")
+    ));
+
     const data: any = {
       ...cleanForm, 
       empId: form.empId,               
@@ -673,7 +897,10 @@ export default function Staff() {
       name: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
       salary: legacySalaryVal, 
       
-      // Addresses
+      subject: combinedSubjectsString,
+      subjectsTaught: form.subjectsTaught,
+      batches: derivedBatchesFromRows.length > 0 ? derivedBatchesFromRows : form.batches,
+
       address: form.localAddress,
       localState: form.localState,
       localDistrict: form.localDistrict,
@@ -718,13 +945,6 @@ export default function Staff() {
     try { return new Date(dateStr).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }); } catch { return dateStr; }
   };
 
-  const EMP_TYPES = [
-    { id: 'full_time', label: 'Full-Time', desc: 'Fixed monthly salary, pro-rated by attendance', icon: Briefcase, iconColor: 'text-amber-800', iconBg: 'bg-green-50' },
-    { id: 'contractual', label: 'Contractual', desc: 'Pay per class/lecture taken', icon: ClipboardList, iconColor: 'text-orange-600', iconBg: 'bg-orange-50' },
-    { id: 'hybrid', label: 'Part-Time / Hybrid', desc: 'Base salary + per-class rate', icon: AlarmClock, iconColor: 'text-pink-500', iconBg: 'bg-pink-50' },
-    { id: 'hourly', label: 'Hourly Basis', desc: 'Pay per working hour', icon: Timer, iconColor: 'text-purple-700', iconBg: 'bg-indigo-50' }
-  ];
-
   return (
     <div className="min-h-screen bg-[#EBEFE6] font-sans text-gray-800">
       
@@ -753,18 +973,59 @@ export default function Staff() {
             {message && <div className="p-4 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm font-medium">{message}</div>}
 
             <div className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm flex flex-col sm:flex-row items-center gap-6">
-              {form.photoDataUrl ? (
-                <img src={form.photoDataUrl} alt="" className="w-24 h-24 rounded-full object-cover border-4 border-[#F0F4E8] shadow-sm" />
-              ) : (
-                <div className="w-24 h-24 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-400"><UserRound size={40} /></div>
-              )}
+              
+              {/* Profile Photo Preview */}
+              <div className="relative group cursor-pointer">
+                <label className="cursor-pointer block">
+                  {form.photoDataUrl ? (
+                    <img
+                      src={form.photoDataUrl}
+                      alt=""
+                      className="w-24 h-24 rounded-full object-cover border-4 border-[#F0F4E8] shadow-sm"
+                    />
+                  ) : (
+                    <div className="w-24 h-24 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-400">
+                      <UserRound size={40} />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <Camera size={24} className="text-white" />
+                  </div>
+                  <div className="absolute bottom-0 right-0 bg-white p-1.5 rounded-full border border-gray-200 shadow-sm text-gray-600 group-hover:text-[#5B7023] transition-colors">
+                    <Camera size={14} />
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => photoChange(e.target.files?.[0])}
+                  />
+                </label>
+              </div>
+
               <div>
                 <h3 className="font-bold text-gray-800 text-base">Profile Photo</h3>
                 <p className="text-sm text-gray-500 mb-3">Allowed: JPEG or PNG under 1.5MB</p>
-                <Label className="cursor-pointer bg-[#F0F4E8] text-[#5B7023] hover:bg-[#5B7023] hover:text-white px-4 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all">
-                  <Upload size={14} /> Choose Image File
-                  <input type="file" accept="image/*" className="hidden" onChange={(e) => photoChange(e.target.files?.[0])} />
-                </Label>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label className="cursor-pointer bg-[#F0F4E8] text-[#5B7023] hover:bg-[#5B7023] hover:text-white px-4 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all h-[36px]">
+                    <Upload size={14} /> Choose Image File
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => photoChange(e.target.files?.[0])}
+                    />
+                  </Label>
+
+                  <Button
+                    type="button"
+                    onClick={startCamera}
+                    className="bg-[#5B7023] hover:bg-[#4a5c1d] text-white rounded-lg px-4 py-2 text-xs flex items-center gap-1.5 font-bold h-[36px] shadow-sm transition-all"
+                  >
+                    <Camera size={14} /> Use Live Camera
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -778,7 +1039,7 @@ export default function Staff() {
                 
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold">Gender</Label>
-                  <Select value={form.gender} onValueChange={(v) => { setValue("gender", v); if(v !== "other") setValue("otherGender", ""); }}>
+                  <Select value={form.gender || ""} onValueChange={(v) => { setValue("gender", v); if(v !== "other") setValue("otherGender", ""); }}>
                     <SelectTrigger className="bg-gray-50/50"><SelectValue placeholder="Select Gender" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="male">Male</SelectItem>
@@ -790,7 +1051,7 @@ export default function Staff() {
                   {form.gender === "other" && (
                     <div className="pt-2">
                       <Label className="text-[11px] font-bold text-[#5B7023]">Specify Gender *</Label>
-                      <Input value={form.otherGender} onChange={(e) => setValue("otherGender", e.target.value)} placeholder="e.g. Transgender, Non-binary" className="text-sm bg-[#F4F7EE] border-[#5B7023] h-9 mt-1" autoFocus />
+                      <Input value={form.otherGender} onChange={(e: any) => setValue("otherGender", e.target.value)} placeholder="e.g. Transgender, Non-binary" className="text-sm bg-[#F4F7EE] border-[#5B7023] h-9 mt-1" autoFocus />
                     </div>
                   )}
                 </div>
@@ -808,12 +1069,13 @@ export default function Staff() {
                 <Field label="Employee ID" value={form.empId} onChange={(v) => setValue("empId", v)} placeholder="EMP-001" required />
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold text-gray-700">Staff Role Designation *</Label>
-                  <SearchableSelect options={STAFF_ROLES} value={form.role} onChange={(v) => setValue("role", v)} />
+                  <SearchableSelect options={STAFF_ROLES} value={form.role} onChange={(v) => setValue("role", v)} placeholder="Select Designation..." />
                 </div>
                 {form.role === "Other" ? (
                   <Field label="Please Specify Custom Role" value={form.customRole} onChange={(v) => setValue("customRole", v)} required />
                 ) : <div className="hidden md:block"></div>}
                 
+                {/* EDUCATIONAL QUALIFICATIONS BLOCK */}
                 <div className="md:col-span-3 bg-gray-50/50 border border-gray-100 p-4 rounded-xl space-y-3">
                   <Label className="text-xs font-semibold text-gray-700">Educational Qualifications (Select multiple if applicable)</Label>
                   <div className="flex flex-wrap gap-2">
@@ -829,7 +1091,7 @@ export default function Staff() {
                   {selectedQualifications.includes("Other") && (
                     <div className="pt-2 max-w-sm">
                       <Label className="text-xs font-semibold text-[#5B7023] mb-1 block">Please specify other qualification *</Label>
-                      <Input value={form.otherQualification} onChange={(e) => setValue("otherQualification", e.target.value)} placeholder="e.g. M.Phil, CA, CS, Certificate..." className="text-sm bg-[#F4F7EE] border-[#5B7023] h-9" />
+                      <Input value={form.otherQualification || ""} onChange={(e: any) => setValue("otherQualification", e.target.value)} placeholder="e.g. M.Phil, CA, CS, Certificate..." className="text-sm bg-[#F4F7EE] border-[#5B7023] h-9" />
                     </div>
                   )}
 
@@ -838,7 +1100,7 @@ export default function Staff() {
                       <Label className="text-xs font-semibold text-gray-700 mb-3 block">Upload Qualification Documents (Optional)</Label>
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                         {selectedQualifications.map((qual) => {
-                          const docLabel = qual === "Other" ? (form.otherQualification.trim() ? `${form.otherQualification.trim()} Certificate` : "Other Qualification Certificate") : `${qual} Certificate`;
+                          const docLabel = qual === "Other" ? (form.otherQualification?.trim() ? `${form.otherQualification.trim()} Certificate` : "Other Qualification Certificate") : `${qual} Certificate`;
                           const existingDoc = form.documents.find(d => d.label === docLabel);
 
                           return (
@@ -868,14 +1130,75 @@ export default function Staff() {
                   )}
                 </div>
 
-                <Field label="Subject Specialization" value={form.subject} onChange={(v) => setValue("subject", v)} placeholder="e.g. Mathematics" />
+                {/* ================= SUBJECTS TAUGHT SECTION WITH "NONE" ================= */}
+                <div className="md:col-span-3 space-y-3 bg-gray-50/50 p-4 rounded-xl border border-gray-200/80">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#1E293B] uppercase tracking-wider">
+                      SUBJECTS TAUGHT
+                    </span>
+                    <button
+                      type="button"
+                      onClick={addSubjectRow}
+                      className="text-xs font-bold text-[#5B7023] hover:underline flex items-center gap-1"
+                    >
+                      <Plus size={14} /> Add Another Subject
+                    </button>
+                  </div>
+
+                  {form.subjectsTaught.map((row, idx) => (
+                    <div key={idx} className="flex flex-col sm:flex-row items-center gap-3 bg-white p-2.5 border border-gray-200 rounded-xl shadow-sm">
+                      {/* Searchable Course / Class */}
+                      <div className="flex-1 w-full min-w-[200px]">
+                        <SearchableSelect
+                          options={courseOptionsWithNone}
+                          value={row.course}
+                          onChange={(val) => updateSubjectRow(idx, "course", val === "None" ? "" : val)}
+                          placeholder="— Select Course / Class —"
+                        />
+                      </div>
+
+                      {/* Searchable Subject */}
+                      <div className="flex-1 w-full min-w-[200px]">
+                        <SearchableSelect
+                          options={subjectOptionsWithNone}
+                          value={row.subject}
+                          onChange={(val) => updateSubjectRow(idx, "subject", val === "None" ? "" : val)}
+                          placeholder="— Choose Subject —"
+                        />
+                      </div>
+
+                      {/* Searchable Batch */}
+                      <div className="flex-1 w-full min-w-[200px]">
+                        <SearchableSelect
+                          options={batchOptionsWithNone}
+                          value={row.batch}
+                          onChange={(val) => updateSubjectRow(idx, "batch", val === "None" ? "" : val)}
+                          placeholder="— Choose Batch (All) —"
+                        />
+                      </div>
+
+                      {/* Remove row button */}
+                      {form.subjectsTaught.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeSubjectRow(idx)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition shrink-0"
+                          title="Remove Row"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
                 <Field label="Prior Experience (Years)" value={form.experience} onChange={(v) => setValue("experience", v)} type="number" />
                 <Field label="Start / Join Date" value={form.joinDate} onChange={(v) => setValue("joinDate", v)} type="date" required />
                 <Field label="Working Shifts From" value={form.workTimingFrom} onChange={(v) => setValue("workTimingFrom", v)} type="time" />
                 <Field label="Working Shifts To" value={form.workTimingTo} onChange={(v) => setValue("workTimingTo", v)} type="time" />
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold">Current System Status</Label>
-                  <Select value={form.status} onValueChange={(v: any) => setValue("status", v)}>
+                  <Select value={form.status || ""} onValueChange={(v: any) => setValue("status", v)}>
                     <SelectTrigger className="bg-gray-50/50"><SelectValue /></SelectTrigger>
                     <SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
                   </Select>
@@ -986,7 +1309,7 @@ export default function Staff() {
 
               <div className="p-6 space-y-8">
 
-                {/* ---------- CORRESPONDENCE ADDRESS ---------- */}
+                {/* CORRESPONDENCE ADDRESS */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
                     <div className="w-6 h-6 rounded-md bg-blue-50 flex items-center justify-center">
@@ -1052,7 +1375,7 @@ export default function Staff() {
                   </div>
                 </div>
 
-                {/* ---------- SAME AS CHECKBOX ---------- */}
+                {/* SAME AS CHECKBOX */}
                 <label className="flex items-center gap-3 cursor-pointer select-none bg-[#F4F7EE]/60 border border-[#D8E1C8] rounded-xl px-4 py-3 w-fit hover:bg-[#F4F7EE] transition">
                   <div className="relative flex items-center justify-center">
                     <input
@@ -1080,7 +1403,7 @@ export default function Staff() {
                   </div>
                 </label>
 
-                {/* ---------- PERMANENT ADDRESS ---------- */}
+                {/* PERMANENT ADDRESS */}
                 <div className={`space-y-4 transition-opacity ${sameAsCorrespondence ? "opacity-55 pointer-events-none" : "opacity-100"}`}>
                   <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
                     <div className="w-6 h-6 rounded-md bg-amber-50 flex items-center justify-center">
@@ -1193,7 +1516,7 @@ export default function Staff() {
 
                 <div className="space-y-1.5 md:col-span-2 bg-gray-50/50 border border-gray-100 p-4 rounded-xl">
                   <Label className="text-xs font-semibold text-gray-700">Blood Group (Optional)</Label>
-                  <Select value={form.bloodGroup} onValueChange={(v) => setValue("bloodGroup", v)}>
+                  <Select value={form.bloodGroup || ""} onValueChange={(v) => setValue("bloodGroup", v)}>
                     <SelectTrigger className="bg-white max-w-sm"><SelectValue placeholder="Select Blood Group" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="A+">A+</SelectItem><SelectItem value="A-">A-</SelectItem>
@@ -1243,7 +1566,7 @@ export default function Staff() {
                   <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold text-gray-700">Document Label / Title</Label>
-                      <Input value={newDocLabel} onChange={(e) => setNewDocLabel(e.target.value)} placeholder="e.g. Degree Certificate, Resume" className="bg-white h-10 text-sm" />
+                      <Input value={newDocLabel} onChange={(e: any) => setNewDocLabel(e.target.value)} placeholder="e.g. Degree Certificate, Resume" className="bg-white h-10 text-sm" />
                     </div>
                     <div>
                       <input type="file" ref={docFileRef} className="hidden" onChange={handleAddDocument} accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" />
@@ -1307,7 +1630,7 @@ export default function Staff() {
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold">Secure Password *</Label>
                       <div className="relative">
-                        <Input type={showPassword ? "text" : "password"} value={form.password} onChange={(e) => setValue("password", e.target.value)} autoComplete="new-password" className="text-sm bg-gray-50/50 pr-10" />
+                        <Input type={showPassword ? "text" : "password"} value={form.password} onChange={(e: any) => setValue("password", e.target.value)} autoComplete="new-password" className="text-sm bg-gray-50/50 pr-10" />
                         <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-400">
                           {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                         </button>
@@ -1316,7 +1639,7 @@ export default function Staff() {
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold">Verify Password *</Label>
                       <div className="relative">
-                        <Input type={showConfirmPassword ? "text" : "password"} value={form.confirmPassword} onChange={(e) => setValue("confirmPassword", e.target.value)} autoComplete="new-password" className="text-sm bg-gray-50/50 pr-10" />
+                        <Input type={showConfirmPassword ? "text" : "password"} value={form.confirmPassword} onChange={(e: any) => setValue("confirmPassword", e.target.value)} autoComplete="new-password" className="text-sm bg-gray-50/50 pr-10" />
                         <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-400">
                           {showConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                         </button>
@@ -1326,7 +1649,7 @@ export default function Staff() {
                     </div>
                     <div className="space-y-1.5 md:col-span-3">
                       <Label className="text-xs font-semibold">Access Level Permission Role</Label>
-                      <Select value={form.accessLevel} onValueChange={(v) => setValue("accessLevel", v)}>
+                      <Select value={form.accessLevel || ""} onValueChange={(v) => setValue("accessLevel", v)}>
                         <SelectTrigger className="text-sm bg-gray-50/50"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {ACCESS_LEVELS.map((level) => (<SelectItem key={level.value} value={level.value}>{level.label}</SelectItem>))}
@@ -1339,6 +1662,73 @@ export default function Staff() {
                 <div className="p-8 text-center bg-gray-50/20"><Lock size={28} className="mx-auto text-gray-300 mb-2" /><p className="text-xs text-gray-400 font-medium">Self service portal deactivated for this user.</p></div>
               )}
             </div>
+            
+            {/* ================= LIVE PHOTO CAPTURE MODAL ================= */}
+            {cameraActive && (
+              <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                  
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center">
+                        <Camera size={16} className="text-blue-600" />
+                      </div>
+                      <h2 className="text-base font-bold text-gray-800">Live Photo Capture</h2>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={stopCamera}
+                      className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  {/* Video Preview */}
+                  <div className="p-5">
+                    <div className="relative w-full aspect-[4/3] bg-black rounded-xl overflow-hidden shadow-inner">
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        // mirror preview (selfie jaisa)
+                        style={{ transform: "scaleX(-1)" }}
+                        className="w-full h-full object-cover"
+                      />
+                      {/* Face guide */}
+                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                        <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-full border-2 border-white/40 border-dashed" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="px-5 pb-5 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={stopCamera}
+                      className="flex-1 h-11 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-bold hover:bg-gray-50 transition flex items-center justify-center gap-2"
+                    >
+                      <X size={16} /> Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={capturePhoto}
+                      className="flex-1 h-11 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md transition flex items-center justify-center gap-2"
+                    >
+                      <Camera size={16} /> Capture
+                    </button>
+                  </div>
+
+                  <p className="text-center text-[11px] text-gray-400 pb-4 px-5">
+                    Camera sirf <span className="font-semibold text-blue-500">https</span> ya{" "}
+                    <span className="font-semibold text-blue-500">localhost</span> pe chalta hai
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </>
 
@@ -1364,7 +1754,7 @@ export default function Staff() {
                         <p className="text-sm text-white/80 flex items-center justify-center sm:justify-start gap-1 mt-1"><Mail size={12} /> {viewing.email || "No email listed"}</p>
                         <div className="flex flex-wrap justify-center sm:justify-start gap-2 mt-3.5">
                           <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-white/20 backdrop-blur-sm flex items-center gap-1">
-                            <span className={`w-1.5 h-1.5 rounded-full ${viewing.status === "active" ? "bg-green-400" : "bg-gray-400"}`}></span>
+                            <span className={`w-1.5 h-1.5 rounded-full ${viewing.status === "active" || viewing.isActive ? "bg-green-400" : "bg-gray-400"}`}></span>
                             {(viewing.status || "active").toUpperCase()}
                           </span>
                           <span className="px-3 py-1 rounded-full text-[10px] font-semibold bg-white/20 backdrop-blur-sm">📋 {getDisplayEmpId(viewing)}</span>
@@ -1374,6 +1764,25 @@ export default function Staff() {
                     <Button onClick={() => openEdit(viewing)} className="bg-white text-[#5B7023] hover:bg-white/95 rounded-xl text-xs h-9 font-bold shadow-md w-full sm:w-auto transition-all shrink-0">
                       <Pencil size={12} className="mr-1.5" /> Modify Profile
                     </Button>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2 mt-6 pt-6 border-t border-white/10">
+                    <div className="text-center">
+                      <h4 className="text-xl sm:text-2xl font-bold">{(viewing.subjectsTaught || []).filter((s: any) => s.course).length || viewing.subject?.split(',').filter(Boolean).length || 0}</h4>
+                      <p className="text-[9px] font-bold text-white/75 uppercase tracking-wider mt-1">Subjects</p>
+                    </div>
+                    <div className="text-center border-l border-white/10">
+                      <h4 className="text-xl sm:text-2xl font-bold">100%</h4>
+                      <p className="text-[9px] font-bold text-white/75 uppercase tracking-wider mt-1">Attendance</p>
+                    </div>
+                    <div className="text-center border-l border-white/10">
+                      <h4 className="text-xl sm:text-2xl font-bold">{viewing.documents?.filter((d: any) => !ALL_SYSTEM_META_KEYS.includes(d.label))?.length || 0}</h4>
+                      <p className="text-[9px] font-bold text-white/75 uppercase tracking-wider mt-1 font-sans">Files</p>
+                    </div>
+                    <div className="text-center border-l border-white/10">
+                      <h4 className="text-xl sm:text-2xl font-bold">{viewing.experience || "0"}+ Yrs</h4>
+                      <p className="text-[9px] font-bold text-white/75 uppercase tracking-wider mt-1">Experience</p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1405,10 +1814,36 @@ export default function Staff() {
                       <InfoItem label="ID Number" value={getDisplayEmpId(viewing)} />
                       <InfoItem label="Joining Details" value={formatDate(viewing.joinDate)} />
                       <div className="md:col-span-2">
-                        <InfoItem label="Educational Qualifications" value={viewing.qualification ? viewing.qualification.split(',').map((q:string) => <span key={q} className="inline-block bg-gray-100 px-2 py-0.5 rounded text-xs font-semibold mr-1.5 mb-1.5">{q.trim()}</span>) : "—"} />
+                        <InfoItem label="Educational Qualifications" value={viewing.qualification ? viewing.qualification.split(',').map((q: string) => <span key={q} className="inline-block bg-gray-100 px-2 py-0.5 rounded text-xs font-semibold mr-1.5 mb-1.5">{q.trim()}</span>) : "—"} />
                       </div>
+
+                      {/* SUBJECTS TAUGHT DETAILS IN PROFILE */}
+                      <div className="md:col-span-2">
+                        <InfoItem 
+                          label="Subjects & Courses Taught" 
+                          value={
+                            Array.isArray(viewing.subjectsTaught) && viewing.subjectsTaught.some((st: any) => st.course)
+                              ? (
+                                <div className="space-y-1.5 mt-1">
+                                  {viewing.subjectsTaught.map((st: any, i: number) => {
+                                    if (!st.course) return null;
+                                    return (
+                                      <div key={i} className="inline-flex flex-wrap items-center gap-1.5 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg text-xs mr-2 mb-1">
+                                        <span className="font-bold text-gray-700">{st.course}</span>
+                                        {st.subject && <span className="text-gray-300">•</span>}
+                                        {st.subject && <span className="font-semibold text-[#5B7023]">{st.subject}</span>}
+                                        {st.batch && <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded text-[10px] font-bold ml-1">{st.batch}</span>}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )
+                              : viewing.subject || "No specialized subject assignments."
+                          } 
+                        />
+                      </div>
+                      
                       <InfoItem label="Prior Tenure" value={viewing.experience ? `${viewing.experience} Years` : "—"} />
-                      <InfoItem label="Course Speciality" value={viewing.subject} />
                       <InfoItem label="Role Designation" value={viewing.positionTitle || viewing.role || "Faculty"} />
                       
                       <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1416,7 +1851,7 @@ export default function Staff() {
                           label="Correspondence Address" 
                           value={
                             [
-                              viewing.localAddress, 
+                              viewing.localAddress || viewing.address, 
                               viewing.localDistrict || viewing.documents?.find((d: any) => d.label === META_DISTRICT_KEY)?.name, 
                               viewing.localState || viewing.documents?.find((d: any) => d.label === META_STATE_KEY)?.name, 
                               (viewing.localPin || viewing.documents?.find((d: any) => d.label === META_PIN_KEY)?.name) ? `PIN: ${viewing.localPin || viewing.documents?.find((d: any) => d.label === META_PIN_KEY)?.name}` : ""
@@ -1438,6 +1873,48 @@ export default function Staff() {
                     </div>
                   </div>
                 </>
+              )}
+
+              {profileTab === "attendance" && (
+                <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm text-center">
+                  <Calendar size={32} className="mx-auto text-gray-300 mb-2" />
+                  <h4 className="text-sm font-bold text-gray-700">Attendance Register</h4>
+                  <p className="text-xs text-gray-400 max-w-xs mx-auto mt-1">This user has maintained a 100% standard attendance during active working days.</p>
+                </div>
+              )}
+
+              {profileTab === "payroll" && (
+                <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-4">
+                  <h4 className="text-sm font-bold text-[#5B7023] flex items-center gap-1.5"><IndianRupee size={16} /> Salary Component</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
+                    <div className="bg-gray-50 p-3 rounded-xl">
+                      <p className="text-[10px] text-gray-400 font-bold uppercase">Basic Gross</p>
+                      <p className="text-lg font-extrabold text-gray-800 mt-1">₹{Number(viewing.salary || 0).toLocaleString("en-IN")}</p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-xl">
+                      <p className="text-[10px] text-gray-400 font-bold uppercase">PF Deduction</p>
+                      <p className="text-lg font-extrabold text-red-600 mt-1">{viewing.pfDeduction || "0"}%</p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-xl">
+                      <p className="text-[10px] text-gray-400 font-bold uppercase">TDS Deducted</p>
+                      <p className="text-lg font-extrabold text-red-500 mt-1">{viewing.tdsDeduction || "0"}%</p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-xl">
+                      <p className="text-[10px] text-gray-400 font-bold uppercase">Estimated Net</p>
+                      <p className="text-lg font-extrabold text-emerald-600 mt-1">
+                        ₹{(Number(viewing.salary || 0) * (1 - (Number(viewing.pfDeduction || 0) + Number(viewing.tdsDeduction || 0)) / 100)).toLocaleString("en-IN")}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {profileTab === "payslip" && (
+                <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm text-center">
+                  <FileText size={32} className="mx-auto text-gray-300 mb-2" />
+                  <h4 className="text-sm font-bold text-gray-700">Digital Payslips</h4>
+                  <p className="text-xs text-gray-400 max-w-xs mx-auto mt-1">Monthly verified payslip items appear automatically once accounting periods close.</p>
+                </div>
               )}
             </div>
             
@@ -1500,10 +1977,32 @@ export default function Staff() {
             </div>
           </div>
 
+          {/* Designation tabs layer */}
+          <div className="flex flex-wrap items-center gap-1.5 pb-2 overflow-x-auto no-scrollbar">
+            {designationTabs.map((tab) => {
+              const count = tab === "All Staff" 
+                ? filteredStaff.length 
+                : currentStaffList.filter(m => (m.positionTitle || m.role || "").toLowerCase() === tab.toLowerCase()).length;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setDesignationTab(tab)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap border ${
+                    designationTab === tab 
+                      ? "bg-[#5B7023] text-white border-[#5B7023] shadow-sm" 
+                      : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  {tab} ({count})
+                </button>
+              );
+            })}
+          </div>
+
           <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center gap-3">
             <div className="relative flex-1 w-full pl-2">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search via name, employee code, mobile..." className="w-full pl-9 pr-4 py-1.5 text-xs sm:text-sm bg-transparent border-none focus:outline-none" />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search via name, employee code, subject, course, batch..." className="w-full pl-9 pr-4 py-1.5 text-xs sm:text-sm bg-transparent border-none focus:outline-none" />
             </div>
             
             <div className="flex flex-wrap items-center gap-2 pr-1 w-full md:w-auto shrink-0 justify-end">

@@ -1,6 +1,5 @@
 import { useListCourses, getListCoursesQueryKey } from "@workspace/api-client-react";
 import { useState } from "react";
-import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -20,7 +19,6 @@ const courseSchema = z.object({
   description: z.string().trim().min(5, "Enter at least 5 characters"),
   duration: z.string().trim().min(2, "Enter duration"),
   fees: z.coerce.number().min(0, "Fees cannot be negative"),
-  courseType: z.enum(["academic", "computer"]),
   status: z.enum(["active", "inactive"]),
 });
 
@@ -44,11 +42,6 @@ async function errorText(response: Response) {
 }
 
 export default function Courses() {
-  const [location] = useLocation();
-  const categoryFromUrl = new URLSearchParams(location.split("?")[1] ?? window.location.search).get("type");
-  const pageType = categoryFromUrl === "academic" || categoryFromUrl === "computer" ? categoryFromUrl : null;
-  const pageTitle = pageType === "academic" ? "Academic Courses" : pageType === "computer" ? "Computer Courses" : "Courses";
-
   const { data: courseList, isLoading } = useListCourses();
   const courses = (courseList ?? []) as any[];
   const [open, setOpen] = useState(false);
@@ -64,7 +57,6 @@ export default function Courses() {
     description: "",
     duration: "6 Months",
     fees: 0,
-    courseType: pageType ?? "academic",
     status: "active",
   };
 
@@ -80,7 +72,7 @@ export default function Courses() {
   const openAdd = () => {
     setMessage("");
     setEditTarget(null);
-    form.reset({ ...defaults, courseType: pageType ?? "academic" });
+    form.reset(defaults);
     setOpen(true);
   };
 
@@ -92,7 +84,6 @@ export default function Courses() {
       description: course.description ?? "",
       duration: course.duration ?? "",
       fees: Number(course.fees ?? 0),
-      courseType: course.courseType ?? "academic",
       status: course.status ?? "active",
     });
     setOpen(true);
@@ -106,7 +97,6 @@ export default function Courses() {
       description: course.description ?? "",
       duration: course.duration ?? "",
       fees: Number(course.fees ?? 0),
-      courseType: course.courseType ?? pageType ?? "academic",
       status: course.status ?? "active",
     });
     setOpen(true);
@@ -121,7 +111,6 @@ export default function Courses() {
       description: values.description.trim(),
       duration: values.duration.trim(),
       fees: Number(values.fees),
-      courseType: values.courseType,
       status: values.status,
     };
 
@@ -176,22 +165,13 @@ export default function Courses() {
     }
   };
 
-  const visibleCourses = courses.filter((course) => {
-    if (!pageType) return true;
-    return (course.courseType ?? "academic") === pageType;
-  });
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{pageTitle}</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Courses</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {pageType === "computer"
-              ? "Computer courses added here will automatically appear in Computer Enquiry."
-              : pageType === "academic"
-                ? "Manage academic courses."
-                : "Manage all academic and computer courses."}
+            Manage all your courses.
           </p>
         </div>
         <Button onClick={openAdd}>
@@ -206,55 +186,73 @@ export default function Courses() {
       ) : null}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-[520px]"
+        <DialogContent
+          className="sm:max-w-[520px]"
           onPointerDownOutside={(event) => event.preventDefault()}
           onInteractOutside={(event) => event.preventDefault()}
-          onEscapeKeyDown={(event) => event.preventDefault()}>
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>{editTarget ? "Edit Course" : "Add New Course"}</DialogTitle>
           </DialogHeader>
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              {!pageType ? (
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Course Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter course name" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea placeholder="Enter course details" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
-                  name="courseType"
+                  name="duration"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Course Type</FormLabel>
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <FormControl><SelectTrigger><SelectValue placeholder="Select course type" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          <SelectItem value="academic">Academic Course</SelectItem>
-                          <SelectItem value="computer">Computer Course</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <FormLabel>Duration</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-              ) : (
-                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-medium">
-                  Course Type: {pageType === "academic" ? "Academic Course" : "Computer Course"}
-                </div>
-              )}
-
-              <FormField control={form.control} name="name" render={({ field }) => (
-                <FormItem><FormLabel>Course Name</FormLabel><FormControl><Input placeholder="Enter course name" {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-
-              <FormField control={form.control} name="description" render={({ field }) => (
-                <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea placeholder="Enter course details" {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="duration" render={({ field }) => (
-                  <FormItem><FormLabel>Duration</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={form.control} name="fees" render={({ field }) => (
-                  <FormItem><FormLabel>Fees (₹)</FormLabel><FormControl><Input type="number" min="0" {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
+                <FormField
+                  control={form.control}
+                  name="fees"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Fees (₹)</FormLabel>
+                      <FormControl>
+                        <Input type="number" min="0" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
 
               <FormField
@@ -264,7 +262,11 @@ export default function Courses() {
                   <FormItem>
                     <FormLabel>Status</FormLabel>
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
                       <SelectContent>
                         <SelectItem value="active">Active</SelectItem>
                         <SelectItem value="inactive">Inactive</SelectItem>
@@ -289,7 +291,7 @@ export default function Courses() {
         <div className="py-12 text-center">Loading courses...</div>
       ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {visibleCourses.map((course) => (
+          {courses.map((course) => (
             <Card key={course.id} className="overflow-hidden transition-colors hover:border-primary/50">
               <CardHeader className="border-b bg-slate-50 pb-4 dark:bg-slate-900">
                 <div className="flex items-start justify-between">
@@ -307,27 +309,57 @@ export default function Courses() {
                     >
                       <Copy className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit Course" onClick={() => openEdit(course)}><Pencil className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" title="Delete Course" onClick={() => handleDelete(course)} disabled={deletingId === course.id}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title="Edit Course"
+                      onClick={() => openEdit(course)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive"
+                      title="Delete Course"
+                      onClick={() => handleDelete(course)}
+                      disabled={deletingId === course.id}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </div>
                 <CardDescription className="mt-2 line-clamp-2">{course.description}</CardDescription>
               </CardHeader>
 
               <CardContent className="space-y-3 pt-4">
-                <Badge variant="outline" className="w-full justify-center">
-                  {(course.courseType ?? "academic") === "computer" ? "Computer Course" : "Academic Course"}
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Clock className="h-4 w-4" />
+                    Duration
+                  </div>
+                  <div className="font-medium">{course.duration}</div>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <IndianRupee className="h-4 w-4" />
+                    Fees
+                  </div>
+                  <div className="font-mono text-base font-medium text-primary">
+                    ₹{Number(course.fees ?? 0).toLocaleString()}
+                  </div>
+                </div>
+                <Badge variant={course.status === "active" ? "default" : "secondary"} className="w-full justify-center">
+                  {course.status}
                 </Badge>
-                <div className="flex items-center justify-between text-sm"><div className="flex items-center gap-2 text-muted-foreground"><Clock className="h-4 w-4" />Duration</div><div className="font-medium">{course.duration}</div></div>
-                <div className="flex items-center justify-between text-sm"><div className="flex items-center gap-2 text-muted-foreground"><IndianRupee className="h-4 w-4" />Fees</div><div className="font-mono text-base font-medium text-primary">₹{Number(course.fees ?? 0).toLocaleString()}</div></div>
-                <Badge variant={course.status === "active" ? "default" : "secondary"} className="w-full justify-center">{course.status}</Badge>
               </CardContent>
             </Card>
           ))}
 
-          {visibleCourses.length === 0 ? (
+          {courses.length === 0 ? (
             <div className="col-span-full py-12 text-center text-muted-foreground">
-              {pageType === "computer" ? "No computer courses created yet." : pageType === "academic" ? "No academic courses created yet." : "No courses created yet."}
+              No courses created yet.
             </div>
           ) : null}
         </div>
