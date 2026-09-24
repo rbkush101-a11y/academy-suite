@@ -24,6 +24,7 @@ import Batches from "@/pages/batches";
 import Staff from "@/pages/staff";
 import Branches from "@/pages/branches";
 import Subjects from "@/pages/subjects";
+import Topic from "@/pages/Topic";
 import Attendance from "@/pages/attendance";
 import AttendanceReport from "@/pages/AttendanceReport";
 import Finance from "@/pages/finance";
@@ -179,6 +180,14 @@ function Router() {
       <Route path="/subjects">
         <ProtectedRoute
           component={Subjects}
+          roles={["super_admin", "institute_admin", "staff", "teacher"]}
+        />
+      </Route>
+
+      {/* Added Topic Route */}
+      <Route path="/topics">
+        <ProtectedRoute
+          component={Topic}
           roles={["super_admin", "institute_admin", "staff", "teacher"]}
         />
       </Route>
