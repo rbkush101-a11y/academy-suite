@@ -151,11 +151,13 @@ const META_PERM_ADDRESS_KEY = "__SYSTEM_PERM_ADDRESS_SPECIFICATION__";
 const META_PERM_STATE_KEY = "__SYSTEM_PERM_STATE_SPECIFICATION__";
 const META_PERM_DISTRICT_KEY = "__SYSTEM_PERM_DISTRICT_SPECIFICATION__";
 const META_PERM_PIN_KEY = "__SYSTEM_PERM_PIN_SPECIFICATION__";
+const META_SUBJECTS_TAUGHT_KEY = "__SYSTEM_SUBJECTS_TAUGHT__"; // FIX: SUBJECTS PERSISTENCE KEY
 
 const ALL_SYSTEM_META_KEYS = [
   META_GENDER_KEY, META_QUALIFICATION_KEY, META_EMPID_KEY, 
   META_STATE_KEY, META_DISTRICT_KEY, META_PIN_KEY,
-  META_PERM_ADDRESS_KEY, META_PERM_STATE_KEY, META_PERM_DISTRICT_KEY, META_PERM_PIN_KEY
+  META_PERM_ADDRESS_KEY, META_PERM_STATE_KEY, META_PERM_DISTRICT_KEY, META_PERM_PIN_KEY,
+  META_SUBJECTS_TAUGHT_KEY
 ];
 
 // ======================== HELPERS ========================
@@ -358,134 +360,118 @@ export default function Staff() {
   const aadhaarFileRef = useRef<HTMLInputElement>(null);
   const panFileRef = useRef<HTMLInputElement>(null);
 
-// ================= LIVE CAMERA =================
-const [cameraActive, setCameraActive] = useState(false);
-const videoRef = useRef<HTMLVideoElement | null>(null);
-const streamRef = useRef<MediaStream | null>(null);
+  // ================= LIVE CAMERA (FIXED BLACK SCREEN) =================
+  const [cameraActive, setCameraActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-const startCamera = async () => {
-  // Pehle purana stream band karo (agar koi ho)
-  if (streamRef.current) {
-    streamRef.current.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-  }
-
-  try {
-    // 1. Pehle permission + stream lo
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: "user",
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      },
-      audio: false,
-    });
-
-    streamRef.current = stream;
-
-    // 2. Tab modal open karo
-    setCameraActive(true);
-  } catch (err: any) {
-    console.error("Camera error:", err);
-    const msg =
-      err?.name === "NotAllowedError"
-        ? "Camera permission denied. Browser address bar mein camera allow karo."
-        : err?.name === "NotFoundError"
-        ? "Koi camera device nahi mila."
-        : "Camera access fail. Sirf HTTPS ya localhost pe chalta hai.";
-    alert(msg);
-    setCameraActive(false);
-  }
-};
-
-const stopCamera = () => {
-  if (streamRef.current) {
-    streamRef.current.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-  }
-  if (videoRef.current) {
-    try {
-      videoRef.current.pause();
-      videoRef.current.srcObject = null;
-    } catch {}
-  }
-  setCameraActive(false);
-};
-
-const capturePhoto = () => {
-  const video = videoRef.current;
-  if (!video || !video.videoWidth) {
-    alert("Camera ready nahi hai. 1 second wait karke phir try karo.");
-    return;
-  }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  // Mirror hata ke natural photo
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-  setValue("photoDataUrl", dataUrl);
-  stopCamera();
-};
-
-// Modal open hone ke BAAD video pe stream chipkao
-useEffect(() => {
-  if (!cameraActive) return;
-
-  let cancelled = false;
-  let tries = 0;
-
-  const attach = () => {
-    if (cancelled) return;
-    const video = videoRef.current;
-    const stream = streamRef.current;
-
-    if (!video || !stream) {
-      // video abhi DOM mein nahi aaya — thoda wait
-      if (tries < 20) {
-        tries += 1;
-        setTimeout(attach, 50);
-      }
-      return;
-    }
-
-    // Important: pehle clear, phir set
-    if (video.srcObject !== stream) {
-      video.srcObject = stream;
-    }
-
-    const playPromise = video.play();
-    if (playPromise?.catch) {
-      playPromise.catch((e) => {
-        console.warn("video.play() blocked:", e);
-        // user gesture ke baad kabhi-kabhi dubara try
-        setTimeout(() => video.play().catch(() => {}), 100);
-      });
-    }
-  };
-
-  // next paint pe attach
-  requestAnimationFrame(() => attach());
-
-  return () => {
-    cancelled = true;
-  };
-}, [cameraActive]);
-
-// Unmount cleanup
-useEffect(() => {
-  return () => {
+  const startCamera = async () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+
+      streamRef.current = stream;
+      setCameraActive(true);
+    } catch (err: any) {
+      console.error("Camera error:", err);
+      const msg = err?.name === "NotAllowedError"
+        ? "Camera permission denied. Browser address bar mein camera allow karo."
+        : err?.name === "NotFoundError"
+        ? "Koi camera device nahi mila."
+        : "Camera access fail. Sirf HTTPS ya localhost pe chalta hai.";
+      alert(msg);
+      setCameraActive(false);
+    }
   };
-}, []);
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      try {
+        videoRef.current.pause();
+        videoRef.current.srcObject = null;
+      } catch {}
+    }
+    setCameraActive(false);
+  };
+
+  const capturePhoto = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) {
+      alert("Camera ready nahi hai. 1 second wait karke phir try karo.");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Mirror image theek karne ke liye seedha draw (HTML preview mirrored h bas)
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    setValue("photoDataUrl", dataUrl);
+    stopCamera();
+  };
+
+  useEffect(() => {
+    if (!cameraActive) return;
+
+    let cancelled = false;
+    let tries = 0;
+
+    const attach = () => {
+      if (cancelled) return;
+      const video = videoRef.current;
+      const stream = streamRef.current;
+
+      if (!video || !stream) {
+        if (tries < 20) {
+          tries += 1;
+          setTimeout(attach, 50);
+        }
+        return;
+      }
+
+      if (video.srcObject !== stream) {
+        video.srcObject = stream;
+      }
+
+      const playPromise = video.play();
+      if (playPromise?.catch) {
+        playPromise.catch((e) => {
+          console.warn("video.play() blocked:", e);
+          setTimeout(() => video.play().catch(() => {}), 100);
+        });
+      }
+    };
+
+    requestAnimationFrame(() => attach());
+
+    return () => { cancelled = true; };
+  }, [cameraActive]);
+
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, []);
+  // ====================================================================
 
   const setValue = (key: keyof StaffForm, value: any) => setForm((old) => ({ ...old, [key]: value }));
 
@@ -660,12 +646,44 @@ useEffect(() => {
       
     setSameAsCorrespondence(isSame);
 
-    // Extract subjects taught or convert existing subject string
-    let loadedSubjectsTaught: SubjectTaughtRow[] = Array.isArray(member.subjectsTaught) && member.subjectsTaught.length > 0 
-      ? member.subjectsTaught 
-      : [{ course: "", subject: member.subject || "", batch: "" }];
+    // ================== FIXED: ROBUST SUBJECTS TAUGHT LOAD ==================
+    let loadedSubjectsTaught: SubjectTaughtRow[] = [];
+    if (Array.isArray(member.subjectsTaught) && member.subjectsTaught.length > 0) {
+      loadedSubjectsTaught = member.subjectsTaught.map((s: any) => ({
+        course: s?.course || "",
+        subject: s?.subject || "",
+        batch: s?.batch || "",
+      }));
+    }
+    if (loadedSubjectsTaught.length === 0) {
+      const subjectsMeta = docs.find((d: any) => d.label === META_SUBJECTS_TAUGHT_KEY);
+      if (subjectsMeta?.name) {
+        try {
+          const parsed = JSON.parse(subjectsMeta.name);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            loadedSubjectsTaught = parsed.map((s: any) => ({
+              course: s?.course || "",
+              subject: s?.subject || "",
+              batch: s?.batch || "",
+            }));
+          }
+        } catch {}
+      }
+    }
+    if (loadedSubjectsTaught.length === 0) {
+      const legacySubjects = (member.subject || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+      const legacyBatches: string[] = Array.isArray(member.batches) ? member.batches : Array.isArray(member.assignedBatches) ? member.assignedBatches : [];
+      if (legacySubjects.length > 0) {
+        loadedSubjectsTaught = legacySubjects.map((subj: string, i: number) => ({
+          course: "", subject: subj, batch: legacyBatches[i] || legacyBatches[0] || "",
+        }));
+      }
+    }
+    if (loadedSubjectsTaught.length === 0) {
+      loadedSubjectsTaught = [{ course: "", subject: "", batch: "" }];
+    }
+    // ========================================================================
 
-    // Auto-map legacy salary to correct sub-states on editing
     const rawSalStr = String(member.monthlySalary ?? member.salary ?? "");
     const selectedEmpType = member.employmentType || "full_time";
 
@@ -697,7 +715,9 @@ useEffect(() => {
       qualification: standardQuals.join(", "), 
       otherQualification: member.otherQualification || qualDoc?.name || customQuals.join(", "),
       
-      subjectsTaught: loadedSubjectsTaught,
+      subjectsTaught: loadedSubjectsTaught, // Must be after ...member
+      batches: Array.isArray(member.batches) ? member.batches : Array.isArray(member.assignedBatches) ? member.assignedBatches : [],
+      
       employmentType: selectedEmpType,
       monthlySalary: selectedEmpType === "full_time" ? rawSalStr : "",
       perClassRate: selectedEmpType === "contractual" ? rawSalStr : (member.perClassRate ? String(member.perClassRate) : ""),
@@ -705,7 +725,6 @@ useEffect(() => {
       hourlyRate: selectedEmpType === "hourly" ? rawSalStr : (member.hourlyRate ? String(member.hourlyRate) : ""),
       pfDeduction: String(member.pfDeduction ?? "12"),
       tdsDeduction: String(member.tdsDeduction ?? "0"),
-      batches: Array.isArray(member.batches) ? member.batches : (Array.isArray(member.assignedBatches) ? member.assignedBatches : []),
     });
     setViewMode("form"); window.scrollTo(0, 0);
   };
@@ -876,16 +895,29 @@ useEffect(() => {
 
     const { otherGender, otherQualification, ...cleanForm } = form;
 
-    // Combine subjects for legacy string
-    const combinedSubjectsString = form.subjectsTaught
-      .map(s => s.subject)
-      .filter(Boolean)
-      .join(", ") || form.subject;
+    // ================== FIXED: ROBUST SUBJECTS TAUGHT SAVE ==================
+    const cleanedSubjectsTaught = (form.subjectsTaught || [])
+      .map(r => ({
+        course: (r.course || "").trim(),
+        subject: (r.subject || "").trim(),
+        batch: (r.batch || "").trim() === "None" ? "" : (r.batch || "").trim(),
+      }))
+      .filter(r => r.course || r.subject || r.batch);
+      
+    const subjectsToSave = cleanedSubjectsTaught.length > 0 ? cleanedSubjectsTaught : [];
+    const combinedSubjectsString = subjectsToSave.map(s => s.subject).filter(Boolean).join(", ") || form.subject || "";
+    const derivedBatchesFromRows = Array.from(new Set(subjectsToSave.map(s => s.batch).filter(b => b && b !== "All Batches" && b !== "None")));
 
-    // Extract assigned batches from subjectsTaught rows
-    const derivedBatchesFromRows = Array.from(new Set(
-      form.subjectsTaught.map(s => s.batch).filter(b => b && b !== "All Batches")
-    ));
+    updatedDocuments = updatedDocuments.filter(d => d.label !== META_SUBJECTS_TAUGHT_KEY);
+    if (subjectsToSave.length > 0) {
+      updatedDocuments.push({
+        label: META_SUBJECTS_TAUGHT_KEY,
+        name: JSON.stringify(subjectsToSave),
+        dataUrl: "data:text/plain;base64," + btoa(unescape(encodeURIComponent(JSON.stringify(subjectsToSave)))),
+        mimeType: "text/plain",
+      });
+    }
+    // ========================================================================
 
     const data: any = {
       ...cleanForm, 
@@ -897,9 +929,10 @@ useEffect(() => {
       name: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
       salary: legacySalaryVal, 
       
+      // Override explicitly
       subject: combinedSubjectsString,
-      subjectsTaught: form.subjectsTaught,
-      batches: derivedBatchesFromRows.length > 0 ? derivedBatchesFromRows : form.batches,
+      subjectsTaught: subjectsToSave,
+      batches: derivedBatchesFromRows.length > 0 ? derivedBatchesFromRows : form.batches || [],
 
       address: form.localAddress,
       localState: form.localState,
@@ -1130,7 +1163,7 @@ useEffect(() => {
                   )}
                 </div>
 
-                {/* ================= SUBJECTS TAUGHT SECTION WITH "NONE" ================= */}
+                {/* ================= SUBJECTS TAUGHT SECTION ================= */}
                 <div className="md:col-span-3 space-y-3 bg-gray-50/50 p-4 rounded-xl border border-gray-200/80">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-[#1E293B] uppercase tracking-wider">
@@ -1687,19 +1720,18 @@ useEffect(() => {
 
                   {/* Video Preview */}
                   <div className="p-5">
-                    <div className="relative w-full aspect-[4/3] bg-black rounded-xl overflow-hidden shadow-inner">
+                    <div className="relative w-full aspect-[4/3] bg-gray-900 rounded-xl overflow-hidden shadow-inner">
                       <video
                         ref={videoRef}
                         autoPlay
                         playsInline
                         muted
-                        // mirror preview (selfie jaisa)
                         style={{ transform: "scaleX(-1)" }}
                         className="w-full h-full object-cover"
                       />
-                      {/* Face guide */}
+                      {/* Face guide ring */}
                       <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                        <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-full border-2 border-white/40 border-dashed" />
+                        <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-full border-2 border-white/30 border-dashed" />
                       </div>
                     </div>
                   </div>
@@ -1722,6 +1754,7 @@ useEffect(() => {
                     </button>
                   </div>
 
+                  {/* Note */}
                   <p className="text-center text-[11px] text-gray-400 pb-4 px-5">
                     Camera sirf <span className="font-semibold text-blue-500">https</span> ya{" "}
                     <span className="font-semibold text-blue-500">localhost</span> pe chalta hai
@@ -1768,7 +1801,7 @@ useEffect(() => {
 
                   <div className="grid grid-cols-4 gap-2 mt-6 pt-6 border-t border-white/10">
                     <div className="text-center">
-                      <h4 className="text-xl sm:text-2xl font-bold">{(viewing.subjectsTaught || []).filter((s: any) => s.course).length || viewing.subject?.split(',').filter(Boolean).length || 0}</h4>
+                      <h4 className="text-xl sm:text-2xl font-bold">{(viewing.subjectsTaught || []).filter((s: any) => s.course || s.subject).length || viewing.subject?.split(',').filter(Boolean).length || 0}</h4>
                       <p className="text-[9px] font-bold text-white/75 uppercase tracking-wider mt-1">Subjects</p>
                     </div>
                     <div className="text-center border-l border-white/10">
@@ -1822,15 +1855,15 @@ useEffect(() => {
                         <InfoItem 
                           label="Subjects & Courses Taught" 
                           value={
-                            Array.isArray(viewing.subjectsTaught) && viewing.subjectsTaught.some((st: any) => st.course)
+                            Array.isArray(viewing.subjectsTaught) && viewing.subjectsTaught.some((st: any) => st.course || st.subject)
                               ? (
                                 <div className="space-y-1.5 mt-1">
                                   {viewing.subjectsTaught.map((st: any, i: number) => {
-                                    if (!st.course) return null;
+                                    if (!st.course && !st.subject) return null;
                                     return (
                                       <div key={i} className="inline-flex flex-wrap items-center gap-1.5 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg text-xs mr-2 mb-1">
-                                        <span className="font-bold text-gray-700">{st.course}</span>
-                                        {st.subject && <span className="text-gray-300">•</span>}
+                                        {st.course && <span className="font-bold text-gray-700">{st.course}</span>}
+                                        {st.course && st.subject && <span className="text-gray-300">•</span>}
                                         {st.subject && <span className="font-semibold text-[#5B7023]">{st.subject}</span>}
                                         {st.batch && <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded text-[10px] font-bold ml-1">{st.batch}</span>}
                                       </div>
