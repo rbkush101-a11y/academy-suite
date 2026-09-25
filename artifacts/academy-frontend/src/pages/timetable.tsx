@@ -211,34 +211,303 @@ function buildMatrixHours(entries: any[], fallbackStart = 16, fallbackEnd = 20):
     : Array.from({ length: fallbackEnd - fallbackStart + 1 }, (_, i) => fallbackStart + i);
 }
 
-function resolveId(raw: any): string {
-  if (raw == null) return "";
-  if (typeof raw === "object") return String(raw._id ?? raw.id ?? "");
-  return String(raw);
+function normalizeMatch(value: any) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }
 
-function resolveTeacherName(entry: any, staffList: any[], subjectList: any[] = []) {
-  if (entry?.teacherName && String(entry.teacherName).trim()) {
-    return String(entry.teacherName).trim();
+function resolveId(raw: any): string {
+  if (raw === undefined || raw === null || raw === "") return "";
+
+  if (typeof raw === "string" || typeof raw === "number") {
+    return String(raw).trim();
   }
-  if (typeof entry?.teacherId === "object" && entry?.teacherId?.name) {
-    return String(entry.teacherId.name).trim();
+
+  if (typeof raw === "object") {
+    const ids = [
+      raw._id,
+      raw.id,
+      raw.userId,
+      raw.staffId,
+      raw.teacherId,
+      raw.facultyId,
+      raw.employeeId,
+      raw.empId,
+      raw.user?._id,
+      raw.user?.id,
+      raw.staff?._id,
+      raw.staff?.id,
+      raw.teacher?._id,
+      raw.teacher?.id,
+      raw.employee?._id,
+      raw.employee?.id,
+    ];
+
+    const found = ids.find(
+      (id) => id !== undefined && id !== null && String(id).trim() !== ""
+    );
+
+    return found === undefined ? "" : String(found).trim();
   }
-  const tId = resolveId(entry?.teacherId);
-  if (tId) {
-    const t = staffList.find((s) => String(s.id ?? s._id ?? "") === tId);
-    if (t?.name) return t.name;
+
+  return "";
+}
+
+function getStaffName(staff: any): string {
+  if (!staff) return "";
+
+  if (typeof staff === "string" || typeof staff === "number") {
+    return String(staff).trim();
   }
-  const sId = resolveId(entry?.subjectId);
-  if (sId) {
-    const subj = subjectList.find((s) => String(s.id ?? s._id ?? "") === sId);
-    if (subj?.teacherName) return subj.teacherName;
-    const subjTId = resolveId(subj?.teacherId);
-    if (subjTId) {
-      const t = staffList.find((s) => String(s.id ?? s._id ?? "") === subjTId);
-      if (t?.name) return t.name;
+
+  const directNames = [
+    staff.name,
+    staff.teacherName,
+    staff.staffName,
+    staff.facultyName,
+    staff.employeeName,
+    staff.fullName,
+    staff.full_name,
+    staff.displayName,
+    staff.display_name,
+    staff.teacher_name,
+    staff.staff_name,
+    staff.employee_name,
+  ];
+
+  for (const value of directNames) {
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim();
     }
   }
+
+  const firstName = staff.firstName ?? staff.first_name ?? staff.givenName ?? staff.given_name ?? "";
+  const lastName = staff.lastName ?? staff.last_name ?? staff.familyName ?? staff.family_name ?? "";
+
+  if (firstName || lastName) {
+    return `${firstName} ${lastName}`.trim();
+  }
+
+  for (const nested of [staff.user, staff.teacher, staff.staff, staff.employee, staff.profile]) {
+    if (nested && typeof nested === "object") {
+      const name = getStaffName(nested);
+      if (name) return name;
+    }
+  }
+
+  if (staff.email) return String(staff.email).split("@")[0];
+  if (staff.user?.email) return String(staff.user.email).split("@")[0];
+
+  return "";
+}
+
+function findById(list: any[], id: any) {
+  const target = resolveId(id);
+  if (!target) return undefined;
+
+  return list.find((item: any) => resolveId(item) === target);
+}
+
+function getAssignmentValue(value: any): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "object") {
+    return String(
+      value.name ??
+        value.title ??
+        value.label ??
+        value.subject ??
+        value.course ??
+        value.batch ??
+        ""
+    ).trim();
+  }
+  return String(value).trim();
+}
+
+function resolveTeacherName(
+  entry: any,
+  staffList: any[],
+  subjectList: any[] = [],
+  batchList: any[] = [],
+  courseList: any[] = []
+): string {
+  if (!entry) return "";
+
+  // 1. If backend already returned teacher name, always use it.
+  const directNames = [
+    entry.teacherName,
+    entry.staffName,
+    entry.facultyName,
+    entry.instructorName,
+    entry.userName,
+    entry.teacher_name,
+    entry.staff_name,
+    entry.faculty_name,
+    entry.instructor_name,
+  ];
+
+  for (const value of directNames) {
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim();
+    }
+  }
+
+  // 2. Populated teacher/staff object.
+  for (const candidate of [
+    entry.teacher,
+    entry.staff,
+    entry.faculty,
+    entry.instructor,
+    entry.employee,
+  ]) {
+    if (candidate && typeof candidate === "object") {
+      const name = getStaffName(candidate);
+      if (name) return name;
+    }
+  }
+
+  // 3. Match teacherId/staffId/facultyId against Staff list.
+  const teacherIds = new Set<string>();
+  [
+    entry.teacherId,
+    entry.staffId,
+    entry.facultyId,
+    entry.instructorId,
+    entry.employeeId,
+    entry.teacher,
+    entry.staff,
+    entry.faculty,
+    entry.instructor,
+    entry.employee,
+  ].forEach((value) => {
+    const id = resolveId(value);
+    if (id) teacherIds.add(id);
+  });
+
+  if (teacherIds.size > 0) {
+    const teacher = staffList.find((member: any) => {
+      const ids = [
+        resolveId(member),
+        resolveId(member.user),
+        resolveId(member.teacher),
+        resolveId(member.staff),
+        resolveId(member.employee),
+      ].filter(Boolean);
+
+      return ids.some((id) => teacherIds.has(id));
+    });
+
+    const teacherName = getStaffName(teacher);
+    if (teacherName) return teacherName;
+  }
+
+  // 4. IMPORTANT FALLBACK:
+  // Staff page stores assignment as:
+  // { course: "...", subject: "...", batch: "..." }
+  // So resolve the teacher using Subject + Course + Batch.
+  const subjectObj = findById(subjectList, entry.subjectId);
+  const batchObj = findById(batchList, entry.batchId);
+
+  const courseId =
+    entry.courseId ??
+    batchObj?.courseId ??
+    subjectObj?.courseId ??
+    "";
+
+  const courseObj = findById(courseList, courseId);
+
+  const subjectName = normalizeMatch(
+    entry.subjectName ??
+      subjectObj?.name ??
+      subjectObj?.subject
+  );
+
+  const batchName = normalizeMatch(
+    entry.batchName ??
+      batchObj?.name ??
+      batchObj?.batch
+  );
+
+  const courseName = normalizeMatch(
+    entry.courseName ??
+      courseObj?.name ??
+      courseObj?.course
+  );
+
+  if (subjectName) {
+    const matchedTeachers = staffList
+      .filter((member: any) => Array.isArray(member?.subjectsTaught))
+      .filter((member: any) =>
+        member.subjectsTaught.some((assignment: any) => {
+          const assignedSubject = normalizeMatch(
+            getAssignmentValue(assignment?.subject)
+          );
+          const assignedCourse = normalizeMatch(
+            getAssignmentValue(assignment?.course)
+          );
+          const assignedBatch = normalizeMatch(
+            getAssignmentValue(assignment?.batch)
+          );
+
+          if (!assignedSubject || assignedSubject !== subjectName) {
+            return false;
+          }
+
+          // If Staff has a course/batch, require it to match.
+          // Empty old assignments remain backward compatible.
+          const courseMatches =
+            !assignedCourse ||
+            !courseName ||
+            assignedCourse === courseName;
+
+          const batchMatches =
+            !assignedBatch ||
+            !batchName ||
+            assignedBatch === batchName;
+
+          return courseMatches && batchMatches;
+        })
+      )
+      .map((member: any) => getStaffName(member))
+      .filter(Boolean);
+
+    const uniqueTeachers = Array.from(new Set(matchedTeachers));
+
+    if (uniqueTeachers.length > 0) {
+      return uniqueTeachers.join(", ");
+    }
+  }
+
+  // 5. Older Subject records may contain teacherName/teacherId.
+  if (subjectObj?.teacherName) {
+    return String(subjectObj.teacherName).trim();
+  }
+
+  const oldSubjectTeacherId = resolveId(subjectObj?.teacherId);
+  if (oldSubjectTeacherId) {
+    const oldTeacher = staffList.find(
+      (member: any) => resolveId(member) === oldSubjectTeacherId
+    );
+    const oldTeacherName = getStaffName(oldTeacher);
+    if (oldTeacherName) return oldTeacherName;
+  }
+
+  // 6. Last compatibility fallback: a non-Mongo string may itself be the name.
+  for (const value of [entry.teacherId, entry.staffId, entry.facultyId]) {
+    if (typeof value === "string") {
+      const text = value.trim();
+      if (
+        text &&
+        !/^[0-9a-fA-F]{24}$/.test(text) &&
+        !/^[0-9a-fA-F-]{36}$/.test(text)
+      ) {
+        return text;
+      }
+    }
+  }
+
   return "";
 }
 
@@ -875,7 +1144,8 @@ export default function Timetable() {
         ? values.otherClassType.trim()
         : values.classType;
 
-    const selTeacherObj = staffList.find((s) => String(s.id ?? s._id) === String(values.teacherId));
+    const selTeacherObj = staffList.find((s) => resolveId(s) === String(values.teacherId));
+    const computedTeacherName = getStaffName(selTeacherObj);
     const selSubjectObj = subjectList.find((s) => String(s.id ?? s._id) === String(values.subjectId));
     const selBatchObj = batchList.find((b) => String(b.id ?? b._id) === String(values.batchId));
 
@@ -885,7 +1155,11 @@ export default function Timetable() {
       subjectId: values.subjectId,
       subjectName: selSubjectObj?.name || undefined,
       teacherId: values.teacherId,
-      teacherName: selTeacherObj?.name || undefined,
+      teacherName: computedTeacherName || undefined,
+      staffId: values.teacherId,
+      facultyId: values.teacherId,
+      staffName: computedTeacherName || undefined,
+      facultyName: computedTeacherName || undefined,
       startTime: values.startTime,
       endTime: values.endTime,
       room: values.room || undefined,
@@ -982,15 +1256,22 @@ export default function Timetable() {
     if (selectedTeacher !== "all") {
       const entryTeacherId = resolveId(entry.teacherId);
       if (entryTeacherId && entryTeacherId === selectedTeacher) return true;
-      const teacher = staffList.find((t) => String(t.id ?? t._id) === selectedTeacher);
-      if (teacher && entry.teacherName === teacher.name) return true;
+      const teacher = staffList.find((t) => resolveId(t) === selectedTeacher);
+      const resolvedName = resolveTeacherName(
+        entry,
+        staffList,
+        subjectList,
+        batchList,
+        allCourseList
+      );
+      if (teacher && resolvedName === getStaffName(teacher)) return true;
       return false;
     }
     return true;
   });
 
   const selectedBatchFilterObj = batchList.find((b) => b.id === selectedBatch);
-  const selectedTeacherFilterObj = staffList.find((t) => t.id === selectedTeacher);
+  const selectedTeacherFilterObj = staffList.find((t) => resolveId(t) === selectedTeacher);
 
   const handlePrint = () => {
     const batchTitle = selectedBatchFilterObj?.name || "All Batches";
@@ -1015,7 +1296,7 @@ export default function Timetable() {
         const classesHtml = dayEntries
           .map((entry: any) => {
             const batchName = resolveBatchName(entry, batchList);
-            const teacher = resolveTeacherName(entry, staffList, subjectList);
+            const teacher = resolveTeacherName(entry, staffList, subjectList, batchList, allCourseList);
             const meta = [
               teacher ? `(${teacher})` : "",
               batchName ? `Batch: ${batchName}` : "",
@@ -1065,24 +1346,27 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
 
   /* ───── ACCURATE TEACHER AVAILABILITY SCAN W/ STAFF SHIFT HOURS ───── */
   const availTeacherObj = staffList.find(
-    (t) => String(t.id ?? t._id) === String(availTeacher)
+    (t) => resolveId(t) === String(availTeacher)
   );
 
   const teacherDayClasses = availTeacher
     ? (allEntries || []).filter((e: any) => {
         if (e.day !== availDay) return false;
         const eTeacherId = resolveId(e.teacherId);
-        if (
-          eTeacherId &&
-          (eTeacherId === String(availTeacherObj?.id) ||
-            eTeacherId === String(availTeacherObj?._id))
-        ) {
+        if (eTeacherId && eTeacherId === resolveId(availTeacherObj)) {
           return true;
         }
-        if (availTeacherObj?.name && e.teacherName === availTeacherObj.name) {
-          return true;
-        }
-        return false;
+
+        const resolvedName = resolveTeacherName(
+          e,
+          staffList,
+          subjectList,
+          batchList,
+          allCourseList
+        );
+
+        return !!availTeacherObj?.name &&
+          normalizeMatch(resolvedName) === normalizeMatch(getStaffName(availTeacherObj));
       })
     : [];
 
@@ -1203,9 +1487,9 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
                               placeholder="Select teacher"
                               rounded="lg"
                               options={staffList.map((t) => ({
-                                label: t.name,
-                                value: t.id,
-                              }))}
+                                label: getStaffName(t),
+                                value: resolveId(t),
+                              })).filter((option) => option.value)}
                               onChange={(v) => {
                                 field.onChange(v);
                                 form.setValue("subjectId", "", { shouldValidate: true });
@@ -1494,7 +1778,9 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
                 placeholder="— All Teachers —"
                 options={[
                   { label: "— All Teachers —", value: "all" },
-                  ...staffList.map((t) => ({ label: t.name, value: t.id })),
+                  ...staffList
+                    .map((t) => ({ label: getStaffName(t), value: resolveId(t) }))
+                    .filter((option) => option.value),
                 ]}
                 onChange={setSelectedTeacher}
               />
@@ -1525,7 +1811,7 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
           </div>
 
           <div className="overflow-x-auto">
-            <div className="min-w-[800px]">
+            <div className="min-w-[1100px]">
               <div className="grid grid-cols-8 border-b border-slate-200 bg-slate-50 text-center font-bold text-xs text-slate-600">
                 <div className="py-3 border-r border-slate-200 text-slate-400">TIME</div>
                 {days.map((day) => {
@@ -1562,7 +1848,7 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
 
                   return (
                     <div key={hour} className="grid grid-cols-8">
-                      <div className="p-2 border-r border-slate-200 text-xs text-slate-500 font-semibold text-center bg-slate-50/30 min-h-[72px] flex items-center justify-center">
+                      <div className="p-2 border-r border-slate-200 text-xs text-slate-500 font-semibold text-center bg-slate-50/30 min-h-[96px] flex items-center justify-center">
                         {hourLabel}
                       </div>
 
@@ -1576,7 +1862,7 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
                           <div
                             key={day}
                             onDoubleClick={() => handleCellDoubleClick(day, hour)}
-                            className="group border-r border-slate-100 p-1 relative bg-white hover:bg-slate-50 transition-colors cursor-pointer min-h-[72px]"
+                            className="group border-r border-slate-100 p-1 relative bg-white hover:bg-slate-50 transition-colors cursor-pointer min-h-[96px] overflow-visible"
                           >
                             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-0 pointer-events-none">
                               <div className="bg-indigo-100/60 text-indigo-400 rounded-full p-1.5">
@@ -1586,7 +1872,7 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
 
                             <div className="relative z-10 h-full flex flex-col gap-1">
                               {slotEntries.map((entry: any) => {
-                                const teacherName = resolveTeacherName(entry, staffList, subjectList);
+                                const teacherName = resolveTeacherName(entry, staffList, subjectList, batchList, allCourseList);
                                 const batchName = resolveBatchName(entry, batchList);
                                 const blockColor = entry.color || "#6366f1";
 
@@ -1597,14 +1883,14 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
                                       e.stopPropagation();
                                       openEdit(entry);
                                     }}
-                                    className="group/entry relative p-2 rounded-r-lg text-xs space-y-0.5 shadow-sm cursor-default border-l-4"
+                                    className="group/entry relative p-2 rounded-r-lg text-xs space-y-1 shadow-sm cursor-default border-l-4 min-h-[88px] overflow-visible"
                                     style={{
                                       borderLeftColor: blockColor,
                                       backgroundColor: `${blockColor}18`,
                                     }}
                                   >
                                     <div
-                                      className="font-bold pr-12 truncate"
+                                      className="font-bold pr-1 leading-snug break-words whitespace-normal"
                                       style={{ color: blockColor }}
                                     >
                                       {entry.subjectName}
@@ -1613,12 +1899,12 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
                                       {entry.startTime}–{entry.endTime}
                                     </div>
                                     {teacherName ? (
-                                      <div className="text-[11px] text-slate-500 font-semibold truncate">
+                                      <div className="text-[11px] text-slate-700 font-semibold leading-snug break-words whitespace-normal">
                                         {teacherName}
                                       </div>
                                     ) : null}
                                     {(batchName || entry.room) && (
-                                      <div className="text-[10px] text-slate-400 truncate">
+                                      <div className="text-[10px] text-slate-500 leading-snug break-words whitespace-normal">
                                         {batchName}
                                         {entry.room
                                           ? `${batchName ? " · " : ""}📍${entry.room}`
@@ -1686,7 +1972,7 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
                 value={availTeacher}
                 placeholder="Select teacher..."
                 rounded="lg"
-                options={staffList.map((t) => ({ label: t.name, value: t.id }))}
+                options={staffList.map((t) => ({ label: getStaffName(t), value: resolveId(t) })).filter((option) => option.value)}
                 onChange={(val) => {
                   setAvailTeacher(val);
                   setAvailChecked(true);
@@ -1852,8 +2138,8 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
                 </SelectTrigger>
                 <SelectContent>
                   {staffList.map((s: any) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
+                    <SelectItem key={s.id} value={resolveId(s)}>
+                      {getStaffName(s)}
                     </SelectItem>
                   ))}
                 </SelectContent>
