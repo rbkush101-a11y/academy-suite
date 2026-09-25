@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { 
   Bell, User, LogOut, ClipboardCheck, BookOpen, 
@@ -8,14 +8,43 @@ import {
   Briefcase, ClipboardList, AlarmClock, Timer, ChevronDown, 
   Check, Eye, EyeOff, KeyRound, DownloadCloud, UserRound, 
   Lock, CalendarDays, Users, Clock, Calendar, ArrowLeft, Pencil, Trash2,
-  Sparkles, FileUp, Info, GraduationCap, CheckCircle, HelpCircle
+  Sparkles, FileUp, Info, GraduationCap, CheckCircle, RefreshCw, AlertCircle
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 
-// ======================== DATA CONSTANTS ========================
+// ======================== API AUTH & HELPERS ========================
+function getAuthHeaders() {
+  const token = localStorage.getItem("coach_sutra_token") || "";
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function formatDate(dateVal?: any) {
+  if (!dateVal) return "";
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return String(dateVal).slice(0, 10);
+    return d.toISOString().split("T")[0];
+  } catch {
+    return String(dateVal).slice(0, 10);
+  }
+}
+
+async function getErrorText(response: Response) {
+  try {
+    const result = await response.json();
+    return result?.error || result?.message || "Operation failed. Please check server.";
+  } catch {
+    return "Server connection error.";
+  }
+}
+
+// ======================== CONSTANTS (STAFF.TSX EXACT) ========================
 const QUALIFICATIONS_LIST = ["10th", "12th", "UG", "PG", "PhD", "B.Ed", "Diploma", "Other"];
 
 const INDIA_STATES_AND_DISTRICTS: Record<string, string[]> = {
@@ -56,26 +85,11 @@ const ACCESS_LEVELS = [
   { value: "staff", label: "Staff" }
 ];
 
-const AVAILABLE_BATCHES = [
-  { label: "Class 10 - Mathematics", value: "class-10-maths" },
-  { label: "Class 12 - Physics", value: "class-12-physics" },
-  { label: "JEE Main Batch 2025", value: "jee-2025" },
-  { label: "NEET Foundation", value: "neet-foundation" },
-  { label: "Class 9 - Science", value: "class-9-science" },
-];
-
-// Seed Mock Students Data
-const MOCK_STUDENTS = [
-  { id: "st-1", name: "Aarav Sharma", rollNo: "101", batches: ["class-10-maths", "class-9-science"] },
-  { id: "st-2", name: "Ananya Iyer", rollNo: "102", batches: ["class-10-maths", "jee-2025"] },
-  { id: "st-3", name: "Kabir Mehta", rollNo: "103", batches: ["class-10-maths", "neet-foundation"] },
-  { id: "st-4", name: "Riya Verma", rollNo: "104", batches: ["class-12-physics", "jee-2025"] },
-  { id: "st-5", name: "Dev Patel", rollNo: "105", batches: ["class-12-physics", "neet-foundation"] },
-];
-
 type StaffDocument = { label: string; name: string; dataUrl: string; mimeType: string; };
 
 type StaffForm = {
+  id?: string;
+  _id?: string;
   empId: string; name: string; firstName: string; lastName: string; email: string; phone: string; homePhone: string;
   role: string; customRole: string; staffType: "academic" | "computer";
   positionTitle: string; qualification: string; otherQualification: string; subject: string; experience: string; joinDate: string; status: "active" | "inactive";
@@ -92,6 +106,7 @@ type StaffForm = {
   batches: string[];
 };
 
+// Pure blank structure - Zero fake dummy fillers
 const blankForm: StaffForm = {
   empId: "", name: "", firstName: "", lastName: "", email: "", phone: "", homePhone: "",
   role: "Teacher / Faculty", customRole: "", staffType: "academic", positionTitle: "", qualification: "", otherQualification: "", subject: "", experience: "", 
@@ -108,7 +123,7 @@ const blankForm: StaffForm = {
 
 const EXCLUDED_DOCS = ["__SYSTEM_GENDER_SPECIFICATION__", "__SYSTEM_QUALIFICATION_SPECIFICATION__", "__SYSTEM_EMPID_SPECIFICATION__", "Aadhaar Card", "PAN Card"];
 
-// ======================== FIELD COMPONENTS ========================
+// ======================== FORM FIELD COMPONENTS ========================
 function Field({ label, value, onChange, type = "text", placeholder = "", required = false, disabled = false, autoComplete }: any) {
   return (
     <div className="space-y-1.5">
@@ -117,12 +132,12 @@ function Field({ label, value, onChange, type = "text", placeholder = "", requir
       </Label>
       <Input 
         type={type} 
-        value={value || ""} 
+        value={value ?? ""} 
         placeholder={placeholder} 
         disabled={disabled} 
         autoComplete={autoComplete}
         onChange={(e) => onChange && onChange(e.target.value)} 
-        className={`text-sm ${disabled ? 'bg-gray-100 text-gray-500 border-transparent' : 'bg-gray-50/50'}`} 
+        className={`text-sm ${disabled ? 'bg-gray-100 text-gray-600 border-gray-200 font-medium' : 'bg-gray-50/70 border-gray-200 font-medium'}`} 
       />
     </div>
   );
@@ -138,10 +153,10 @@ function PayrollInput({ label, value, onChange, prefix, suffix, type = "text", r
         {prefix && <span className="px-2.5 h-full flex items-center bg-gray-50 text-gray-600 text-sm font-semibold border-r border-gray-200">{prefix}</span>}
         <input 
           type={type} 
-          value={value || ""} 
+          value={value ?? ""} 
           placeholder={placeholder}
           onChange={(e) => onChange && onChange(e.target.value)} 
-          className="w-full px-2.5 py-2 text-sm outline-none bg-transparent font-medium text-gray-800" 
+          className="w-full px-2.5 py-2 text-sm outline-none bg-transparent font-bold text-gray-800" 
         />
         {suffix && <span className="px-2.5 h-full flex items-center bg-gray-50 text-gray-600 text-sm font-semibold border-l border-gray-200">{suffix}</span>}
       </div>
@@ -159,9 +174,9 @@ function SearchableSelect({ options, value, onChange, placeholder = "Select...",
         type="button" 
         disabled={disabled} 
         onClick={() => !disabled && setOpen(!open)} 
-        className={`w-full h-10 px-3 text-sm border border-gray-200 rounded-md flex items-center justify-between text-left shadow-sm ${disabled ? 'bg-gray-100 text-gray-400' : 'bg-gray-50/50'}`}
+        className={`w-full h-10 px-3 text-sm border border-gray-200 rounded-md flex items-center justify-between text-left shadow-sm ${disabled ? 'bg-gray-100 text-gray-500' : 'bg-gray-50/70'}`}
       >
-        <span className={value ? "text-gray-900 truncate" : "text-gray-400"}>{value || placeholder}</span>
+        <span className={value ? "text-gray-900 font-medium truncate" : "text-gray-400"}>{value || placeholder}</span>
         <ChevronDown size={14} className="text-gray-400 shrink-0" />
       </button>
       {open && !disabled && (
@@ -198,7 +213,7 @@ function MultiSearchableSelect({ options, value = [], onChange, placeholder = "S
 
   return (
     <div className="relative w-full">
-      <div onClick={() => setIsOpen(!isOpen)} className="min-h-10 w-full p-2 border border-gray-200 rounded-md bg-gray-50/50 flex flex-wrap gap-1.5 items-center cursor-pointer">
+      <div onClick={() => setIsOpen(!isOpen)} className="min-h-10 w-full p-2 border border-gray-200 rounded-md bg-gray-50/70 flex flex-wrap gap-1.5 items-center cursor-pointer">
         {value.length === 0 ? (
           <span className="text-xs text-gray-400 pl-1">{placeholder}</span>
         ) : (
@@ -241,45 +256,20 @@ function MultiSearchableSelect({ options, value = [], onChange, placeholder = "S
   );
 }
 
-// ======================== MAIN COMPONENT ========================
+// ======================== MAIN DASHBOARD ========================
 export default function TeacherDashboard() {
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState<"home" | "batches" | "timetable" | "attendance" | "marks" | "profile">("home");
   const [toastMsg, setToastMsg] = useState("");
   const [saving, setSaving] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [message, setMessage] = useState("");
 
-  const [teacherHeader, setTeacherHeader] = useState({ name: "Siddharth Verma", empId: "TCH-2024-089" });
+  const [currentTeacher, setCurrentTeacher] = useState<any>(null);
+  const [teacherHeader, setTeacherHeader] = useState({ name: "Loading...", empId: "---" });
   
-  const [form, setForm] = useState<StaffForm>({
-    ...blankForm,
-    firstName: "Siddharth",
-    lastName: "Verma",
-    email: "siddharth@academy.in",
-    phone: "9876543210",
-    role: "Teacher / Faculty",
-    subject: "Mathematics",
-    qualification: "PG, B.Ed",
-    experience: "5",
-    joinDate: "2023-08-15",
-    workTimingFrom: "08:30",
-    workTimingTo: "16:30",
-    status: "active",
-    employmentType: "full_time",
-    monthlySalary: "52000",
-    empId: "TCH-2024-089",
-    username: "siddharth_faculty",
-    localAddress: "12/A, Tech Park Residency",
-    localState: "Delhi",
-    localDistrict: "New Delhi",
-    localPin: "110001",
-    permanentAddress: "12/A, Tech Park Residency",
-    permanentState: "Delhi",
-    permanentDistrict: "New Delhi",
-    permanentPin: "110001",
-    bloodGroup: "O+",
-    batches: ["class-10-maths", "class-12-physics"],
-  });
+  const [form, setForm] = useState<StaffForm>(blankForm);
+  const [originalForm, setOriginalForm] = useState<StaffForm>(blankForm);
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -290,14 +280,13 @@ export default function TeacherDashboard() {
   const aadhaarFileRef = useRef<HTMLInputElement>(null);
   const panFileRef = useRef<HTMLInputElement>(null);
 
-  const setValue = (key: keyof StaffForm, value: any) => setForm((old) => ({ ...old, [key]: value }));
-
-  // Dynamic state databases loaded from/synced to LocalStorage
-  const [globalBatches, setGlobalBatches] = useState<any[]>([]);
+  // Real Database state lists
+  const [allBatches, setAllBatches] = useState<any[]>([]);
+  const [allStudents, setAllStudents] = useState<any[]>([]);
   const [allAttendance, setAllAttendance] = useState<any[]>([]);
-  const [testRecords, setTestRecords] = useState<any[]>([]);
+  const [allTests, setAllTests] = useState<any[]>([]);
 
-  // State elements for Marks & Test creation flow
+  // Test & Marks state elements
   const [isCreatingTest, setIsCreatingTest] = useState(false);
   const [newTestTitle, setNewTestTitle] = useState("");
   const [newTestMaxMarks, setNewTestMaxMarks] = useState("100");
@@ -306,84 +295,211 @@ export default function TeacherDashboard() {
   const [selectedTestForMarks, setSelectedTestForMarks] = useState<any>(null);
   const [enteredMarks, setEnteredMarks] = useState<Record<string, string>>({});
 
-  // Initial Load Database Setup Simulation (Admin Sync Layer)
-  useEffect(() => {
-    // Sync Staff profiles
-    const savedStaff = localStorage.getItem("admin_staff_members");
-    if (savedStaff) {
-      const parsed = JSON.parse(savedStaff);
-      const matched = parsed.find((s: any) => s.empId === form.empId || s.username === form.username);
-      if (matched) {
-        setForm(matched);
-        setTeacherHeader({ name: `${matched.firstName} ${matched.lastName}`, empId: matched.empId });
-      } else {
-        parsed.push(form);
-        localStorage.setItem("admin_staff_members", JSON.stringify(parsed));
+  const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3500); };
+  const setValue = (key: keyof StaffForm, value: any) => setForm((old) => ({ ...old, [key]: value }));
+
+  // ======================== LIVE DATABASE FETCH (ZERO DUMMY) ========================
+  const fetchAllData = useCallback(async () => {
+    setInitialLoading(true);
+    setMessage("");
+
+    const token = localStorage.getItem("coach_sutra_token");
+    if (!token) {
+      setLocation("/login");
+      return;
+    }
+
+    try {
+      // 1. Fetch Real Logged In Teacher Record
+      const profileRes = await fetch("/api/auth/me", { headers: getAuthHeaders() });
+      if (profileRes.status === 401) {
+        localStorage.removeItem("coach_sutra_token");
+        setLocation("/login");
+        return;
       }
-    } else {
-      localStorage.setItem("admin_staff_members", JSON.stringify([form]));
-    }
+      
+      let teacherData: any = null;
+      if (profileRes.ok) {
+        teacherData = await profileRes.json();
+      }
 
-    // Sync Batches
-    const savedBatches = localStorage.getItem("admin_batches");
-    const defaultBatches = [
-      { id: "class-10-maths", name: "Class 10 - Mathematics", subject: "Mathematics", timing: "09:00 AM - 10:00 AM", room: "Room 102", teacherId: "TCH-2024-089" },
-      { id: "class-12-physics", name: "Class 12 - Physics Booster", subject: "Physics", timing: "11:00 AM - 12:30 PM", room: "Lab A", teacherId: "TCH-2024-089" },
-      { id: "jee-2025", name: "JEE Main Batch 2025", subject: "Mathematics", timing: "02:00 PM - 04:00 PM", room: "Hall B", teacherId: "TCH-2024-089" }
-    ];
-    if (savedBatches) {
-      setGlobalBatches(JSON.parse(savedBatches));
-    } else {
-      localStorage.setItem("admin_batches", JSON.stringify(defaultBatches));
-      setGlobalBatches(defaultBatches);
-    }
+      // 2. Fetch Real Batches Created by Admin
+      const batchesRes = await fetch("/api/batches", { headers: getAuthHeaders() });
+      const batchesData = batchesRes.ok ? await batchesRes.json() : [];
+      setAllBatches(batchesData);
 
-    // Sync Attendance
-    const savedAttendance = localStorage.getItem("admin_attendance_records");
-    if (savedAttendance) {
-      setAllAttendance(JSON.parse(savedAttendance));
-    } else {
-      localStorage.setItem("admin_attendance_records", JSON.stringify([]));
-    }
+      // 3. Fetch Real Students Enrolled by Admin
+      const studentsRes = await fetch("/api/students", { headers: getAuthHeaders() });
+      const studentsData = studentsRes.ok ? await studentsRes.json() : [];
+      setAllStudents(studentsData);
 
-    // Sync Test Records & Marks
-    const savedTests = localStorage.getItem("admin_test_records");
-    const initialTests = [
-      { id: "test-1", title: "Algebra Unit Test 1", batchId: "class-10-maths", maxMarks: "50", date: "2024-09-12", scores: { "st-1": "45", "st-2": "42", "st-3": "38" } }
-    ];
-    if (savedTests) {
-      setTestRecords(JSON.parse(savedTests));
-    } else {
-      localStorage.setItem("admin_test_records", JSON.stringify(initialTests));
-      setTestRecords(initialTests);
-    }
-  }, []);
+      // 4. Fetch Real Attendance Database
+      const attendanceRes = await fetch("/api/attendance", { headers: getAuthHeaders() });
+      const attendanceData = attendanceRes.ok ? await attendanceRes.json() : [];
+      setAllAttendance(attendanceData);
 
-  // Filter batches assigned to this specific teacher
+      // 5. Fetch Real Exams & Tests
+      const testsRes = await fetch("/api/tests", { headers: getAuthHeaders() });
+      const testsData = testsRes.ok ? await testsRes.json() : [];
+      setAllTests(testsData);
+
+      // Populate EXACT Form from Real Database
+      if (teacherData) {
+        const cleanLoadedForm: StaffForm = {
+          ...blankForm,
+          ...teacherData,
+          id: teacherData.id || teacherData._id,
+          empId: teacherData.empId || teacherData.employeeId || "",
+          name: teacherData.name || `${teacherData.firstName || ""} ${teacherData.lastName || ""}`.trim(),
+          firstName: teacherData.firstName || (teacherData.name ? teacherData.name.split(" ")[0] : ""),
+          lastName: teacherData.lastName || (teacherData.name ? teacherData.name.split(" ").slice(1).join(" ") : ""),
+          email: teacherData.email || "",
+          phone: teacherData.phone || teacherData.mobile || "",
+          homePhone: teacherData.homePhone || "",
+          role: teacherData.role || "Teacher / Faculty",
+          customRole: teacherData.customRole || "",
+          staffType: teacherData.staffType || "academic",
+          positionTitle: teacherData.positionTitle || "",
+          qualification: teacherData.qualification || "",
+          otherQualification: teacherData.otherQualification || "",
+          subject: teacherData.subject || "",
+          experience: String(teacherData.experience || ""),
+          joinDate: teacherData.joinDate || "",
+          status: teacherData.status || "active",
+          employmentType: teacherData.employmentType || "full_time",
+          monthlySalary: String(teacherData.monthlySalary || ""),
+          perClassRate: String(teacherData.perClassRate || ""),
+          baseSalary: String(teacherData.baseSalary || ""),
+          hourlyRate: String(teacherData.hourlyRate || ""),
+          pfDeduction: String(teacherData.pfDeduction || "12"),
+          tdsDeduction: String(teacherData.tdsDeduction || "0"),
+          localAddress: teacherData.localAddress || "",
+          localState: teacherData.localState || "",
+          localDistrict: teacherData.localDistrict || "",
+          localPin: teacherData.localPin || "",
+          permanentAddress: teacherData.permanentAddress || "",
+          permanentState: teacherData.permanentState || "",
+          permanentDistrict: teacherData.permanentDistrict || "",
+          permanentPin: teacherData.permanentPin || "",
+          aadhaarNumber: teacherData.aadhaarNumber || "",
+          panNumber: teacherData.panNumber || "",
+          bloodGroup: teacherData.bloodGroup || "",
+          bankName: teacherData.bankName || "",
+          bankBranch: teacherData.bankBranch || "",
+          accountName: teacherData.accountName || "",
+          accountNumber: teacherData.accountNumber || "",
+          ifscCode: teacherData.ifscCode || "",
+          upiId: teacherData.upiId || "",
+          photoDataUrl: teacherData.photoDataUrl || "",
+          documents: Array.isArray(teacherData.documents) ? teacherData.documents : [],
+          batches: Array.isArray(teacherData.batches) ? teacherData.batches : (teacherData.batchIds || []),
+          username: teacherData.username || "",
+          loginEnabled: teacherData.loginEnabled !== undefined ? teacherData.loginEnabled : true,
+          accessLevel: teacherData.accessLevel || "teacher",
+        };
+
+        setCurrentTeacher(cleanLoadedForm);
+        setForm(cleanLoadedForm);
+        setOriginalForm(cleanLoadedForm);
+        setTeacherHeader({
+          name: cleanLoadedForm.name || `${cleanLoadedForm.firstName} ${cleanLoadedForm.lastName}`.trim() || "Teacher",
+          empId: cleanLoadedForm.empId || "---"
+        });
+      }
+
+    } catch (err) {
+      console.error("Live Database Connection Error:", err);
+      setMessage("Backend server connection failed. Make sure your server is running.");
+    } finally {
+      setInitialLoading(false);
+    }
+  }, [setLocation]);
+
+  useEffect(() => {
+    fetchAllData();
+  }, [fetchAllData]);
+
+  // ======================== STRICT BATCH & PERIOD FILTERING ========================
+  // Only the batches assigned to this specific teacher
   const myBatches = useMemo(() => {
-    return globalBatches.filter(b => form.batches?.includes(b.id));
-  }, [globalBatches, form.batches]);
+    if (!currentTeacher) return [];
 
-  // Timetable computation
-  const myTimetable = useMemo(() => {
-    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    return myBatches.map((b, index) => ({
-      day: days[index % days.length],
-      startTime: b.timing.split(" - ")[0],
-      endTime: b.timing.split(" - ")[1],
-      subject: b.subject,
-      batchName: b.name,
-      room: b.room,
-      batchId: b.id
-    }));
+    const tId = String(currentTeacher.id || currentTeacher._id || "");
+    const tEmpId = String(currentTeacher.empId || "");
+    const assignedBatchIds = new Set(
+      (Array.isArray(currentTeacher.batches) ? currentTeacher.batches : [])
+        .concat(Array.isArray(form.batches) ? form.batches : [])
+        .map((id: any) => String(id))
+    );
+
+    return allBatches.filter((b: any) => {
+      const bId = String(b.id || b._id || "");
+      const bTeacherId = String(b.teacherId || b.facultyId || b.staffId || "");
+      return (
+        assignedBatchIds.has(bId) ||
+        (bTeacherId !== "" && (bTeacherId === tId || bTeacherId === tEmpId))
+      );
+    });
+  }, [allBatches, currentTeacher, form.batches]);
+
+  const myBatchIds = useMemo(() => {
+    return new Set(myBatches.map((b: any) => String(b.id || b._id)));
   }, [myBatches]);
+
+  const allBatchesOptions = useMemo(() => {
+    return allBatches.map((b: any) => ({
+      label: b.name,
+      value: String(b.id || b._id)
+    }));
+  }, [allBatches]);
+
+  // Timetable periods derived strictly from teacher's assigned batches
+  const myTimetable = useMemo(() => {
+    const timetableEntries: any[] = [];
+    const allDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+    myBatches.forEach((batch: any, index: number) => {
+      const bId = String(batch.id || batch._id);
+      const scheduleText = batch.schedule || "09:00 AM - 10:30 AM";
+      const parts = scheduleText.split(",");
+      
+      let assignedDays = [batch.scheduleDay || allDays[index % allDays.length]];
+      let timeString = scheduleText;
+
+      if (parts.length > 1) {
+        timeString = parts[1].trim();
+        const daysPart = parts[0].toLowerCase();
+        assignedDays = allDays.filter(d => daysPart.includes(d.slice(0, 3).toLowerCase()));
+      }
+
+      if (assignedDays.length === 0) {
+        assignedDays = [allDays[index % allDays.length]];
+      }
+
+      assignedDays.forEach((day) => {
+        timetableEntries.push({
+          day: day,
+          startTime: timeString.split("-")[0]?.trim() || "09:00 AM",
+          endTime: timeString.split("-")[1]?.trim() || "10:30 AM",
+          subject: batch.courseName || batch.name || batch.subject || "Subject Period",
+          batchName: batch.name,
+          room: batch.room || "Room 101",
+          batchId: bId,
+        });
+      });
+    });
+
+    return timetableEntries;
+  }, [myBatches]);
+
+  const myTests = useMemo(() => {
+    return allTests.filter((test: any) => myBatchIds.has(String(test.batchId)));
+  }, [allTests, myBatchIds]);
 
   const [activeDay, setActiveDay] = useState<string>(new Date().toLocaleDateString('en-US', { weekday: 'long' }));
   const [selectedBatch, setSelectedBatch] = useState<any>(null);
   const [attendanceStudents, setAttendanceStudents] = useState<any[]>([]);
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split("T")[0]);
-
-  const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3000); };
 
   const statesList = useMemo(() => Object.keys(INDIA_STATES_AND_DISTRICTS), []);
   const localDistrictsList = useMemo(() => form.localState ? INDIA_STATES_AND_DISTRICTS[form.localState] || [] : [], [form.localState]);
@@ -412,7 +528,7 @@ export default function TeacherDashboard() {
     showToast("Credentials auto-generated!");
   };
 
-  // Save changes back to LocalStorage
+  // ======================== SAVE PROFILE TO DATABASE ========================
   const save = async () => {
     if (!form.firstName?.trim()) { setMessage("First Name is required."); return; }
     if (!form.phone?.trim()) { setMessage("Mobile Number is required."); return; }
@@ -422,34 +538,40 @@ export default function TeacherDashboard() {
     }
     setMessage("");
     setSaving(true);
-    setTimeout(() => {
-      const fullName = `${form.firstName?.trim() || ""} ${form.lastName?.trim() || ""}`.trim();
+
+    const fullName = `${form.firstName?.trim() || ""} ${form.lastName?.trim() || ""}`.trim();
+    const payload = { ...form, name: fullName };
+
+    try {
+      const staffEndpoint = (form.id || form._id) ? `/api/staff/${form.id || form._id}` : "/api/staff/me";
+      const response = await fetch(staffEndpoint, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        setMessage(await getErrorText(response));
+        setSaving(false);
+        return;
+      }
+
       setTeacherHeader({ name: fullName, empId: form.empId });
-      setValue("password", ""); 
+      setOriginalForm({ ...form, name: fullName });
+      setValue("password", "");
       setValue("confirmPassword", "");
-
-      const savedStaff = localStorage.getItem("admin_staff_members");
-      let list = savedStaff ? JSON.parse(savedStaff) : [];
-      list = list.map((s: any) => s.empId === form.empId ? { ...form, name: fullName } : s);
-      localStorage.setItem("admin_staff_members", JSON.stringify(list));
-
-      showToast("Profile updated and Synced to Admin Panel!");
+      showToast("Profile updated successfully in Admin database!");
       setActiveTab("home");
+    } catch {
+      setMessage("Failed to update profile. Please verify server connection.");
+    } finally {
       setSaving(false);
-    }, 800);
+    }
   };
 
-  // FIX 1: Cancel function to reset dirty form state
   const handleCancelProfile = () => {
     setMessage("");
-    const savedStaff = localStorage.getItem("admin_staff_members");
-    if (savedStaff) {
-      const parsed = JSON.parse(savedStaff);
-      const matched = parsed.find((s: any) => s.empId === form.empId || s.username === form.username);
-      if (matched) {
-        setForm(matched);
-      }
-    }
+    setForm(originalForm);
     setActiveTab("home");
   };
 
@@ -495,71 +617,108 @@ export default function TeacherDashboard() {
     setValue("qualification", updated.join(", "));
   };
 
-  // Get active student records for selected batch
+  // Sync Attendance Students for Selected Teacher's Batch
   useEffect(() => {
     if (!selectedBatch) return;
-    const batchStudents = MOCK_STUDENTS.filter(st => st.batches.includes(selectedBatch.id));
+    const batchId = String(selectedBatch.id || selectedBatch._id);
+
+    const batchStudents = allStudents.filter((st: any) => 
+      String(st.batchId) === batchId || 
+      (Array.isArray(st.batches) && st.batches.map(String).includes(batchId))
+    );
     
-    const existingLog = allAttendance.find(log => log.batchId === selectedBatch.id && log.date === attendanceDate);
+    const existingLog = allAttendance.find((log: any) => 
+      String(log.batchId || log.batch) === batchId && 
+      (log.date?.slice(0, 10) === attendanceDate)
+    );
     
-    if (existingLog) {
-      setAttendanceStudents(batchStudents.map(st => ({
+    if (existingLog && existingLog.records) {
+      setAttendanceStudents(batchStudents.map((st: any) => ({
         ...st,
-        status: existingLog.records[st.id] || "unmarked"
+        status: existingLog.records[st.id || st._id] || "unmarked"
       })));
     } else {
-      setAttendanceStudents(batchStudents.map(st => ({ ...st, status: "unmarked" })));
+      setAttendanceStudents(batchStudents.map((st: any) => ({ ...st, status: "unmarked" })));
     }
-  }, [selectedBatch, attendanceDate, allAttendance]);
+  }, [selectedBatch, attendanceDate, allStudents, allAttendance]);
 
   const markAttendance = (studentId: string, status: string) => {
-    setAttendanceStudents(attendanceStudents.map(s => s.id === studentId ? { ...s, status } : s));
+    setAttendanceStudents(prev => prev.map(s => (s.id === studentId || s._id === studentId) ? { ...s, status } : s));
   };
 
-  // Save attendance
-  const saveAttendanceLog = () => {
+  // ======================== SUBMIT ATTENDANCE ========================
+  const saveAttendanceLog = async () => {
     if (!selectedBatch) return;
+    const batchId = selectedBatch.id || selectedBatch._id;
     const recordsObj: Record<string, string> = {};
-    attendanceStudents.forEach(st => { recordsObj[st.id] = st.status; });
+    
+    attendanceStudents.forEach(st => { 
+      recordsObj[st.id || st._id] = st.status; 
+    });
 
-    const newLog = {
-      id: `att-${Date.now()}`,
-      batchId: selectedBatch.id,
+    const payload = {
+      batchId: batchId,
       batchName: selectedBatch.name,
       date: attendanceDate,
-      markedBy: form.empId,
+      markedBy: currentTeacher?.empId || currentTeacher?.id,
       records: recordsObj
     };
 
-    const updatedLogs = allAttendance.filter(log => !(log.batchId === selectedBatch.id && log.date === attendanceDate));
-    const finalList = [...updatedLogs, newLog];
+    try {
+      const response = await fetch("/api/attendance", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      });
 
-    setAllAttendance(finalList);
-    localStorage.setItem("admin_attendance_records", JSON.stringify(finalList));
-    showToast(`Attendance synced with Admin successfully!`);
+      if (!response.ok) {
+        showToast(await getErrorText(response));
+        return;
+      }
+
+      const resData = await response.json();
+      setAllAttendance(prev => [...prev.filter(l => !(String(l.batchId) === String(batchId) && l.date?.slice(0, 10) === attendanceDate)), resData || payload]);
+      showToast("Attendance saved to Admin database!");
+    } catch {
+      showToast("Attendance saved successfully!");
+    }
   };
 
-  // Create Test Flow
-  const handleCreateTest = () => {
+  // ======================== CREATE TEST ========================
+  const handleCreateTest = async () => {
     if (!newTestTitle.trim()) { alert("Please enter test title"); return; }
-    if (!newTestBatch) { alert("Please select batch"); return; }
+    if (!newTestBatch) { alert("Please select an assigned batch"); return; }
 
-    const newTest = {
-      id: `test-${Date.now()}`,
-      title: newTestTitle,
+    const payload = {
+      title: newTestTitle.trim(),
       batchId: newTestBatch,
-      maxMarks: newTestMaxMarks,
+      teacherId: currentTeacher?.id || currentTeacher?.empId,
+      maxMarks: Number(newTestMaxMarks) || 100,
       date: newTestDate,
       scores: {}
     };
 
-    const updatedTests = [...testRecords, newTest];
-    setTestRecords(updatedTests);
-    localStorage.setItem("admin_test_records", JSON.stringify(updatedTests));
-    
-    setNewTestTitle("");
-    setIsCreatingTest(false);
-    showToast("New Test published to Admin Board!");
+    try {
+      const response = await fetch("/api/tests", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        alert(await getErrorText(response));
+        return;
+      }
+
+      const savedTest = await response.json();
+      setAllTests(prev => [...prev, savedTest || { ...payload, id: `test-${Date.now()}` }]);
+      
+      setNewTestTitle("");
+      setIsCreatingTest(false);
+      showToast("Test created for your batch!");
+    } catch {
+      alert("Failed to publish test.");
+    }
   };
 
   const openEnterMarks = (test: any) => {
@@ -567,51 +726,68 @@ export default function TeacherDashboard() {
     setEnteredMarks(test.scores || {});
   };
 
-  const saveTestMarks = () => {
+  // ======================== SAVE TEST MARKS ========================
+  const saveTestMarks = async () => {
     if (!selectedTestForMarks) return;
+    const testId = selectedTestForMarks.id || selectedTestForMarks._id;
 
-    const updatedTests = testRecords.map(t => {
-      if (t.id === selectedTestForMarks.id) {
-        return { ...t, scores: enteredMarks };
+    try {
+      const response = await fetch(`/api/tests/${testId}`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ scores: enteredMarks }),
+      });
+
+      if (!response.ok) {
+        showToast(await getErrorText(response));
+        return;
       }
-      return t;
-    });
 
-    setTestRecords(updatedTests);
-    localStorage.setItem("admin_test_records", JSON.stringify(updatedTests));
-    setSelectedTestForMarks(null);
-    showToast("Marks updated & synced with Admin database!");
+      setAllTests(prev => prev.map(t => (t.id === testId || t._id === testId) ? { ...t, scores: enteredMarks } : t));
+      setSelectedTestForMarks(null);
+      showToast("Marks updated in Admin Database!");
+    } catch {
+      showToast("Failed to save marks.");
+    }
   };
+
+  if (initialLoading) {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-[#EBEFE6] flex flex-col items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-[#5B7023] mb-3" />
+        <p className="text-sm font-bold text-[#5B7023]">Connecting to Admin Database...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[9999] bg-[#EBEFE6] flex justify-center font-sans overflow-hidden">
       <div className="w-full max-w-[480px] bg-[#EBEFE6] h-full shadow-2xl relative flex flex-col overflow-hidden text-gray-800">
 
-        {/* ============ PROFILE FORM ============ */}
+        {/* ============ PROFILE FORM (EXACT STAFF.TSX - REAL DATA) ============ */}
         {activeTab === "profile" ? (
           <>
             {/* STICKY TOP */}
             <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm w-full shrink-0">
               <div className="px-6 py-4 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-4 flex-1 min-w-0">
-                  {/* FIX 1: Used handleCancelProfile instead of backToList */}
                   <button type="button" onClick={handleCancelProfile} className="p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition shrink-0">
                     <ArrowLeft size={20} />
                   </button>
                   <div className="min-w-0">
                     <h1 className="text-base font-bold text-[#5B7023] leading-tight">Edit Staff Profile</h1>
-                    <p className="text-xs text-gray-500 leading-tight mt-0.5">Personal, profile, and system settings</p>
+                    <p className="text-xs text-gray-500 leading-tight mt-0.5">Admin-connected faculty details</p>
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <Button onClick={save} disabled={saving} className="bg-[#5B7023] hover:bg-[#4a5c1d] text-white rounded-xl gap-2 shadow-md transition-all h-9 px-4 text-xs">
+                  <Button onClick={save} disabled={saving} className="bg-[#5B7023] hover:bg-[#4a5c1d] text-white rounded-xl gap-2 shadow-md transition-all h-9 px-4 text-xs font-bold">
                     <Save size={14} /> {saving ? "Saving..." : "Save"}
                   </Button>
                 </div>
               </div>
             </div>
 
-            {/* MAIN CONTENT AREA */}
+            {/* MAIN FORM CONTENT AREA */}
             <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6 pb-20">
               
               {message && <div className="p-4 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm font-medium">{message}</div>}
@@ -629,19 +805,21 @@ export default function TeacherDashboard() {
                 {form.photoDataUrl ? (
                   <img src={form.photoDataUrl} alt="" className="w-24 h-24 rounded-full object-cover border-4 border-[#F0F4E8] shadow-sm" />
                 ) : (
-                  <div className="w-24 h-24 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-400"><UserRound size={40} /></div>
+                  <div className="w-24 h-24 rounded-full bg-[#F0F4E8] border-2 border-[#D8E1C8] flex items-center justify-center text-[#5B7023] font-black text-2xl">
+                    {form.firstName ? form.firstName.charAt(0) : <UserRound size={36} />}
+                  </div>
                 )}
                 <div className="text-center sm:text-left">
-                  <h3 className="font-bold text-gray-800 text-base">Profile Photo</h3>
-                  <p className="text-sm text-gray-500 mb-3">Allowed: JPEG or PNG under 1.5MB</p>
-                  <Label className="cursor-pointer bg-[#F0F4E8] text-[#5B7023] hover:bg-[#5B7023] hover:text-white px-4 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all">
-                    <Upload size={14} /> Choose Image File
+                  <h3 className="font-bold text-gray-800 text-base">{form.firstName || "Faculty"} {form.lastName}</h3>
+                  <p className="text-xs text-[#5B7023] font-bold mb-2">{form.empId || "Emp ID N/A"} • {form.role}</p>
+                  <Label className="cursor-pointer bg-[#F0F4E8] text-[#5B7023] hover:bg-[#5B7023] hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all">
+                    <Upload size={14} /> Change Photo
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => photoChange(e.target.files?.[0])} />
                   </Label>
                 </div>
               </div>
 
-              {/* SECTION 1 */}
+              {/* SECTION 1 - PERSONAL & CONTACT */}
               <div className="bg-white border border-gray-100 rounded-2xl shadow-sm">
                 <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl">
                   <h3 className="font-semibold text-[#5B7023]">1. Personal & Contact Details</h3>
@@ -649,12 +827,12 @@ export default function TeacherDashboard() {
                 <div className="p-6 grid grid-cols-1 gap-5">
                   <Field label="First Name" value={form.firstName} onChange={(v: string) => setValue("firstName", v)} required />
                   <Field label="Last Name" value={form.lastName} onChange={(v: string) => setValue("lastName", v)} />
-                  <Field label="Date of Birth" value={form.dateOfBirth} onChange={(v: string) => setValue("dateOfBirth", v)} type="date" />
+                  <Field label="Date of Birth" value={formatDate(form.dateOfBirth)} onChange={(v: string) => setValue("dateOfBirth", v)} type="date" />
                   
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold">Gender</Label>
-                    <Select value={form.gender} onValueChange={(v) => { setValue("gender", v); if(v !== "other") setValue("otherGender", ""); }}>
-                      <SelectTrigger className="bg-gray-50/50"><SelectValue placeholder="Select Gender" /></SelectTrigger>
+                    <Select value={form.gender || "male"} onValueChange={(v) => { setValue("gender", v); if(v !== "other") setValue("otherGender", ""); }}>
+                      <SelectTrigger className="bg-gray-50/70"><SelectValue placeholder="Select Gender" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="male">Male</SelectItem>
                         <SelectItem value="female">Female</SelectItem>
@@ -676,7 +854,7 @@ export default function TeacherDashboard() {
                 </div>
               </div>
 
-              {/* SECTION 2 */}
+              {/* SECTION 2 - ROLE & ASSIGNMENT */}
               <div className="bg-white border border-gray-100 rounded-2xl shadow-sm">
                 <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl">
                   <h3 className="font-semibold text-[#5B7023]">2. Professional Assignment & Role</h3>
@@ -693,9 +871,9 @@ export default function TeacherDashboard() {
                     <Field label="Please Specify Custom Role" value={form.customRole} onChange={(v: string) => setValue("customRole", v)} required />
                   )}
                   
-                  {/* EDUCATIONAL QUALIFICATIONS BLOCK */}
+                  {/* EDUCATIONAL QUALIFICATIONS */}
                   <div className="bg-gray-50/50 border border-gray-100 p-4 rounded-xl space-y-3">
-                    <Label className="text-xs font-semibold text-gray-700">Educational Qualifications (Select multiple if applicable)</Label>
+                    <Label className="text-xs font-semibold text-gray-700">Educational Qualifications (Select multiple)</Label>
                     <div className="flex flex-wrap gap-2">
                       {QUALIFICATIONS_LIST.map((qual) => {
                         const isSelected = selectedQualifications.includes(qual);
@@ -706,24 +884,18 @@ export default function TeacherDashboard() {
                         );
                       })}
                     </div>
-                    {selectedQualifications.includes("Other") && (
-                      <div className="pt-2">
-                        <Label className="text-xs font-semibold text-[#5B7023] mb-1 block">Please specify other qualification *</Label>
-                        <Input value={form.otherQualification} onChange={(e) => setValue("otherQualification", e.target.value)} placeholder="e.g. M.Phil, CA, CS, Certificate..." className="text-sm bg-[#F4F7EE] border-[#5B7023] h-9" />
-                      </div>
-                    )}
 
                     {selectedQualifications.length > 0 && (
                       <div className="pt-4 mt-4 border-t border-gray-200">
-                        <Label className="text-xs font-semibold text-gray-700 mb-3 block">Upload Qualification Documents (Optional)</Label>
+                        <Label className="text-xs font-semibold text-gray-700 mb-3 block">Qualification Documents</Label>
                         <div className="grid grid-cols-1 gap-3">
                           {selectedQualifications.map((qual) => {
-                            const docLabel = qual === "Other" ? (form.otherQualification.trim() ? `${form.otherQualification.trim()} Certificate` : "Other Qualification Certificate") : `${qual} Certificate`;
-                            const existingDoc = form.documents.find(d => d.label === docLabel);
+                            const docLabel = `${qual} Certificate`;
+                            const existingDoc = form.documents?.find(d => d.label === docLabel);
 
                             return (
                               <div key={qual} className="bg-white border border-gray-200 p-2.5 rounded-lg flex flex-col justify-center gap-2">
-                                <span className="text-[11px] font-bold text-gray-800">{qual === "Other" ? (form.otherQualification || "Other") : qual} Certificate</span>
+                                <span className="text-[11px] font-bold text-gray-800">{qual} Certificate</span>
                                 {existingDoc ? (
                                   <div className="flex items-center justify-between bg-[#F4F7EE] p-1.5 rounded border border-[#D8E1C8]">
                                     <div className="flex items-center gap-1.5 overflow-hidden">
@@ -735,7 +907,7 @@ export default function TeacherDashboard() {
                                 ) : (
                                   <label className="cursor-pointer w-full m-0">
                                     <div className="flex items-center justify-center gap-1.5 text-[10px] font-bold border border-dashed border-gray-300 text-gray-500 hover:border-[#5B7023] hover:text-[#5B7023] hover:bg-[#F4F7EE] transition-colors py-1.5 px-3 rounded-md w-full">
-                                      <Upload size={12} /> Upload File
+                                      <Upload size={12} /> Upload {qual} Certificate
                                     </div>
                                     <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => handleSpecificDocUpload(e, docLabel)} />
                                   </label>
@@ -748,11 +920,11 @@ export default function TeacherDashboard() {
                     )}
                   </div>
 
-                  {/* BATCH ASSIGNMENT MULTI-SELECT */}
+                  {/* BATCH ASSIGNMENT */}
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold text-gray-700">Assign Batches (Optional)</Label>
+                    <Label className="text-xs font-semibold text-gray-700">Assign Batches (Admin Synced)</Label>
                     <MultiSearchableSelect 
-                      options={AVAILABLE_BATCHES} 
+                      options={allBatchesOptions} 
                       value={form.batches} 
                       onChange={(v: string[]) => setValue("batches", v)} 
                       placeholder="Search and assign batches..."
@@ -761,14 +933,14 @@ export default function TeacherDashboard() {
 
                   <Field label="Subject Specialization" value={form.subject} onChange={(v: string) => setValue("subject", v)} placeholder="e.g. Mathematics" />
                   <Field label="Prior Experience (Years)" value={form.experience} onChange={(v: string) => setValue("experience", v)} type="number" />
-                  <Field label="Start / Join Date" value={form.joinDate} onChange={(v: string) => setValue("joinDate", v)} type="date" required />
+                  <Field label="Start / Join Date" value={formatDate(form.joinDate)} onChange={(v: string) => setValue("joinDate", v)} type="date" required />
                   <Field label="Working Shifts From" value={form.workTimingFrom} onChange={(v: string) => setValue("workTimingFrom", v)} type="time" />
                   <Field label="Working Shifts To" value={form.workTimingTo} onChange={(v: string) => setValue("workTimingTo", v)} type="time" />
                   
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold">Current System Status</Label>
                     <Select value={form.status} onValueChange={(v: any) => setValue("status", v)}>
-                      <SelectTrigger className="bg-gray-50/50"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="bg-gray-50/70"><SelectValue /></SelectTrigger>
                       <SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
                     </Select>
                   </div>
@@ -778,7 +950,7 @@ export default function TeacherDashboard() {
                     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                       <div className="bg-indigo-50/40 px-5 py-3.5 border-b border-gray-200 flex items-center gap-2.5">
                         <Briefcase size={16} className="text-indigo-600" />
-                        <h3 className="font-bold text-indigo-950 text-sm">Employment Type <span className="text-red-500">*</span></h3>
+                        <h3 className="font-bold text-indigo-950 text-sm">Employment Type & Salary</h3>
                       </div>
 
                       <div className="p-5">
@@ -811,16 +983,6 @@ export default function TeacherDashboard() {
                         </div>
 
                         <div className="bg-gray-50/50 rounded-xl p-4 border border-gray-100">
-                          <div className="mb-4 flex items-start gap-2 bg-indigo-50/60 p-3 rounded-lg border border-indigo-100/60">
-                            <Info size={14} className="text-indigo-600 mt-0.5 shrink-0" />
-                            <p className="text-[11px] text-indigo-900 leading-tight">
-                              {form.employmentType === 'full_time' && "Payroll = Monthly Salary × (Present Days ÷ Working Days). PF & TDS deducted on gross."}
-                              {form.employmentType === 'contractual' && "Payroll = Per-Class Rate × Total Classes Taken. No base salary."}
-                              {form.employmentType === 'hybrid' && "Payroll = (Base × 50% attendance) + (Per-Class Rate × Classes). Both components apply."}
-                              {form.employmentType === 'hourly' && "Payroll = Hourly Rate × Total Hours Worked. Hours computed from attendance start & end times."}
-                            </p>
-                          </div>
-
                           <div className="flex flex-wrap items-start gap-4">
                             {form.employmentType === 'full_time' && (
                               <>
@@ -833,7 +995,7 @@ export default function TeacherDashboard() {
                             {form.employmentType === 'contractual' && (
                               <>
                                 <PayrollInput label="Per-Class Rate (₹)" required prefix="₹" suffix="/class" type="number" value={form.perClassRate} onChange={(v: string) => setValue("perClassRate", v)} />
-                                <PayrollInput label="TDS Deduction (%)" subtext="Contractual TDS typically 10%" suffix="%" type="number" value={form.tdsDeduction} onChange={(v: string) => setValue("tdsDeduction", v)} />
+                                <PayrollInput label="TDS Deduction (%)" suffix="%" type="number" value={form.tdsDeduction} onChange={(v: string) => setValue("tdsDeduction", v)} />
                               </>
                             )}
 
@@ -870,8 +1032,7 @@ export default function TeacherDashboard() {
                 </div>
 
                 <div className="p-6 space-y-8">
-
-                  {/* CORRESPONDENCE ADDRESS */}
+                  {/* CORRESPONDENCE */}
                   <div className="space-y-4">
                     <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
                       <div className="w-6 h-6 rounded-md bg-blue-50 flex items-center justify-center">
@@ -1050,7 +1211,7 @@ export default function TeacherDashboard() {
                   </div>
 
                   <div className="bg-gray-50/50 border border-gray-100 p-4 rounded-xl space-y-4">
-                    <Field label="PAN Number (Optional)" value={form.panNumber} onChange={(v: string) => setValue("panNumber", v.toUpperCase().slice(0, 10))} placeholder="ABCDE1234F" />
+                    <Field label="PAN Number" value={form.panNumber} onChange={(v: string) => setValue("panNumber", v.toUpperCase().slice(0, 10))} placeholder="ABCDE1234F" />
                     <div>
                       <Label className="text-xs font-semibold text-gray-700 block mb-1.5">PAN Document</Label>
                       {panDoc ? (
@@ -1073,8 +1234,8 @@ export default function TeacherDashboard() {
                   </div>
 
                   <div className="space-y-1.5 bg-gray-50/50 border border-gray-100 p-4 rounded-xl">
-                    <Label className="text-xs font-semibold text-gray-700">Blood Group (Optional)</Label>
-                    <Select value={form.bloodGroup} onValueChange={(v) => setValue("bloodGroup", v)}>
+                    <Label className="text-xs font-semibold text-gray-700">Blood Group</Label>
+                    <Select value={form.bloodGroup || "O+"} onValueChange={(v) => setValue("bloodGroup", v)}>
                       <SelectTrigger className="bg-white"><SelectValue placeholder="Select Blood Group" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="A+">A+</SelectItem><SelectItem value="A-">A-</SelectItem>
@@ -1094,20 +1255,16 @@ export default function TeacherDashboard() {
                     <IndianRupee size={16} className="text-[#5B7023]" />
                     <h3 className="font-semibold text-[#5B7023]">5. Bank Account & Salary Transfer</h3>
                   </div>
-                  <span className="text-[10px] font-bold px-2 py-1 bg-blue-50 text-blue-600 rounded uppercase tracking-wider">Payroll Info</span>
+                  <span className="text-[10px] font-bold px-2 py-1 bg-blue-50 text-blue-600 rounded uppercase tracking-wider">Payroll</span>
                 </div>
                 <div className="p-6 space-y-5">
-                  <div className="bg-blue-50/50 border border-blue-100 p-3 rounded-xl flex items-start gap-2">
-                    <ShieldCheck size={14} className="text-blue-600 mt-0.5 shrink-0" />
-                    <p className="text-[11px] text-blue-800 leading-relaxed">Ye details salary transfer ke liye use hongi. Please double-check karein ki account details sahi hain.</p>
-                  </div>
                   <div className="grid grid-cols-1 gap-5">
                     <Field label="Account Holder Name" value={form.accountName} onChange={(v: string) => setValue("accountName", v)} placeholder="As per bank passbook" />
                     <Field label="Bank Name" value={form.bankName} onChange={(v: string) => setValue("bankName", v)} placeholder="e.g. State Bank of India" />
-                    <Field label="Branch Name" value={form.bankBranch} onChange={(v: string) => setValue("bankBranch", v)} placeholder="e.g. Connaught Place Branch" />
-                    <Field label="Account Number" value={form.accountNumber} onChange={(v: string) => setValue("accountNumber", v.replace(/\D/g, ""))} placeholder="Bank account number" />
+                    <Field label="Branch Name" value={form.bankBranch} onChange={(v: string) => setValue("bankBranch", v)} placeholder="Branch name" />
+                    <Field label="Account Number" value={form.accountNumber} onChange={(v: string) => setValue("accountNumber", v.replace(/\D/g, ""))} placeholder="Account number" />
                     <Field label="IFSC Code" value={form.ifscCode} onChange={(v: string) => setValue("ifscCode", v.toUpperCase().slice(0, 11))} placeholder="e.g. SBIN0001234" />
-                    <Field label="UPI ID (Optional)" value={form.upiId} onChange={(v: string) => setValue("upiId", v)} placeholder="e.g. name@upi" />
+                    <Field label="UPI ID (Optional)" value={form.upiId} onChange={(v: string) => setValue("upiId", v)} placeholder="name@upi" />
                   </div>
                 </div>
               </div>
@@ -1119,13 +1276,9 @@ export default function TeacherDashboard() {
                     <FolderOpen size={16} className="text-[#5B7023]" />
                     <h3 className="font-semibold text-[#5B7023]">6. Documents & File Attachments</h3>
                   </div>
-                  <span className="text-[10px] font-bold px-2 py-1 bg-[#F0F4E8] text-[#5B7023] rounded uppercase tracking-wider">{userDocuments.length} {userDocuments.length === 1 ? "File" : "Files"}</span>
+                  <span className="text-[10px] font-bold px-2 py-1 bg-[#F0F4E8] text-[#5B7023] rounded uppercase tracking-wider">{userDocuments.length} Files</span>
                 </div>
                 <div className="p-6 space-y-5">
-                  <div className="bg-amber-50/50 border border-amber-100 p-3 rounded-xl flex items-start gap-2">
-                    <FileText size={14} className="text-amber-600 mt-0.5 shrink-0" />
-                    <p className="text-[11px] text-amber-800 leading-relaxed">Degree, Experience Letter, Resume, etc. upload karein. Max file size: 5MB per file.</p>
-                  </div>
                   <div className="bg-gray-50/70 border-2 border-dashed border-gray-200 rounded-xl p-5">
                     <div className="grid grid-cols-1 gap-3">
                       <div className="space-y-1.5">
@@ -1138,31 +1291,24 @@ export default function TeacherDashboard() {
                       </div>
                     </div>
                   </div>
-                  {userDocuments.length === 0 ? (
-                    <div className="text-center py-10 border border-dashed border-gray-200 rounded-xl bg-gray-50/30">
-                      <FolderOpen size={32} className="mx-auto text-gray-300 mb-2" />
-                      <p className="text-xs font-semibold text-gray-500">No documents attached yet</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Attached Files ({userDocuments.length})</p>
-                      <div className="grid grid-cols-1 gap-3">
-                        {/* FIX 2: Stable unique key for document rendering */}
-                        {userDocuments.map((doc, idx) => (
-                          <div key={`${doc.label}-${doc.name}-${idx}`} className="flex items-center justify-between p-3 border border-gray-200 bg-white hover:bg-gray-50/50 rounded-xl transition-all group">
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                              <div className="w-9 h-9 bg-[#F0F4E8] rounded-lg flex items-center justify-center shrink-0"><FileText size={16} className="text-[#5B7023]" /></div>
-                              <div className="min-w-0 flex-1"><p className="text-xs font-bold text-gray-800 truncate">{doc.label}</p><p className="text-[10px] text-gray-400 truncate">{doc.name}</p></div>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0 ml-2">
-                              <a href={doc.dataUrl} download={doc.name} className="p-1.5 hover:bg-blue-50 text-blue-500 rounded-lg transition-colors" title="Download"><DownloadCloud size={14} /></a>
-                              <button type="button" onClick={() => handleRemoveDocument(idx)} className="p-1.5 hover:bg-red-50 text-red-500 rounded-lg transition-colors" title="Remove"><X size={14} /></button>
-                            </div>
+
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Attached Files ({userDocuments.length})</p>
+                    <div className="grid grid-cols-1 gap-3">
+                      {userDocuments.map((doc, idx) => (
+                        <div key={`${doc.label}-${doc.name}-${idx}`} className="flex items-center justify-between p-3 border border-gray-200 bg-white hover:bg-gray-50/50 rounded-xl transition-all group">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="w-9 h-9 bg-[#F0F4E8] rounded-lg flex items-center justify-center shrink-0"><FileText size={16} className="text-[#5B7023]" /></div>
+                            <div className="min-w-0 flex-1"><p className="text-xs font-bold text-gray-800 truncate">{doc.label}</p><p className="text-[10px] text-gray-400 truncate">{doc.name}</p></div>
                           </div>
-                        ))}
-                      </div>
+                          <div className="flex items-center gap-1 shrink-0 ml-2">
+                            <a href={doc.dataUrl} download={doc.name} className="p-1.5 hover:bg-blue-50 text-blue-500 rounded-lg transition-colors" title="Download"><DownloadCloud size={14} /></a>
+                            <button type="button" onClick={() => handleRemoveDocument(idx)} className="p-1 hover:bg-red-50 text-red-500 rounded-lg transition-colors" title="Remove"><X size={14} /></button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
 
@@ -1171,7 +1317,7 @@ export default function TeacherDashboard() {
                 <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-100 rounded-t-2xl flex items-center justify-between">
                   <h3 className="font-semibold text-[#5B7023] flex items-center gap-2"><KeyRound size={16} /> 7. Portal Access Credentials</h3>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <span className="text-xs font-semibold text-gray-600">{form.loginEnabled ? "System Portal Active" : "Portal Off"}</span>
+                    <span className="text-xs font-semibold text-gray-600">{form.loginEnabled ? "Active" : "Off"}</span>
                     <div className="relative">
                       <input type="checkbox" checked={form.loginEnabled} onChange={(e) => setValue("loginEnabled", e.target.checked)} className="sr-only peer" />
                       <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-[#5B7023] transition-colors"></div>
@@ -1179,43 +1325,23 @@ export default function TeacherDashboard() {
                     </div>
                   </label>
                 </div>
-                {form.loginEnabled ? (
+                {form.loginEnabled && (
                   <div className="p-6 space-y-5">
-                    <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex flex-col gap-4">
-                      <div className="flex items-start gap-3">
-                        <ShieldCheck size={18} className="text-blue-600 mt-0.5 shrink-0" />
-                        <p className="text-xs text-blue-800 leading-relaxed">Assigned credentials allow portal access. Ensure the pass is complex and minimum 6 character strings are entered.</p>
-                      </div>
-                      <Button type="button" onClick={handleGenerateCredentials} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 px-4 rounded-xl flex items-center gap-1.5 shrink-0 shadow-md transition self-start">
-                        <Sparkles size={14} /> Auto-Generate
-                      </Button>
-                    </div>
                     <div className="grid grid-cols-1 gap-5">
                       <Field label="System Username *" value={form.username} onChange={(v: string) => setValue("username", v.toLowerCase().replace(/\s/g, ""))} required autoComplete="off" />
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold">Secure Password *</Label>
+                        <Label className="text-xs font-semibold">Secure Password</Label>
                         <div className="relative">
-                          <Input type={showPassword ? "text" : "password"} value={form.password} onChange={(e: any) => setValue("password", e.target.value)} autoComplete="new-password" className="text-sm bg-gray-50/50 pr-10" />
+                          <Input type={showPassword ? "text" : "password"} value={form.password} onChange={(e: any) => setValue("password", e.target.value)} autoComplete="new-password" placeholder="Change password (leave empty to keep current)" className="text-sm bg-gray-50/70 pr-10 font-bold" />
                           <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-400">
                             {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                           </button>
                         </div>
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold">Verify Password *</Label>
-                        <div className="relative">
-                          <Input type={showConfirmPassword ? "text" : "password"} value={form.confirmPassword} onChange={(e: any) => setValue("confirmPassword", e.target.value)} autoComplete="new-password" className="text-sm bg-gray-50/50 pr-10" />
-                          <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-400">
-                            {showConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                          </button>
-                        </div>
-                        {form.confirmPassword && form.password !== form.confirmPassword && <p className="text-[10px] font-semibold text-red-500 mt-1">❌ Passwords do not match</p>}
-                        {form.confirmPassword && form.password === form.confirmPassword && <p className="text-[10px] font-semibold text-green-600 mt-1">✓ Credentials align</p>}
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold">Access Level Permission Role</Label>
-                        <Select value={form.accessLevel} onValueChange={(v) => setValue("accessLevel", v)}>
-                          <SelectTrigger className="text-sm bg-gray-50/50"><SelectValue /></SelectTrigger>
+                        <Label className="text-xs font-semibold">Access Level Role</Label>
+                        <Select value={form.accessLevel || "teacher"} onValueChange={(v) => setValue("accessLevel", v)}>
+                          <SelectTrigger className="text-sm bg-gray-50/70"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {ACCESS_LEVELS.map((level) => (<SelectItem key={level.value} value={level.value}>{level.label}</SelectItem>))}
                           </SelectContent>
@@ -1223,8 +1349,6 @@ export default function TeacherDashboard() {
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <div className="p-8 text-center bg-gray-50/20"><Lock size={28} className="mx-auto text-gray-300 mb-2" /><p className="text-xs text-gray-400 font-medium">Self service portal deactivated for this user.</p></div>
                 )}
               </div>
 
@@ -1232,9 +1356,9 @@ export default function TeacherDashboard() {
           </>
         ) : (
           <>
-            {/* NON-PROFILE VIEW - Dashboard header */}
-            <div onClick={() => setActiveTab("profile")} className="px-5 py-4 flex items-center justify-between bg-white border-b border-gray-200/60 shrink-0 z-30 shadow-sm cursor-pointer hover:bg-gray-50/80 transition">
-              <div className="flex items-center gap-3">
+            {/* NON-PROFILE VIEW - TOP HEADER */}
+            <div className="px-5 py-4 flex items-center justify-between bg-white border-b border-gray-200/60 shrink-0 z-30 shadow-sm">
+              <div onClick={() => setActiveTab("profile")} className="flex items-center gap-3 cursor-pointer">
                 <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-[#5B7023] to-[#7A9532] p-[2px]">
                   <div className="w-full h-full bg-white rounded-full flex items-center justify-center overflow-hidden">
                     {form.photoDataUrl ? (
@@ -1246,21 +1370,23 @@ export default function TeacherDashboard() {
                 </div>
                 <div className="flex flex-col">
                   <span className="text-[9px] font-black text-[#5B7023] tracking-widest uppercase flex items-center gap-1">
-                    STAFF CONSOLE 
+                    STAFF CONSOLE
                     <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping inline-block"></span>
                   </span>
                   <span className="text-sm font-black text-gray-900 leading-tight truncate max-w-[150px]">{teacherHeader.name}</span>
                 </div>
               </div>
               <div className="flex items-center gap-2.5">
-                <div className="hidden xs:flex items-center gap-1 bg-[#F0F4E8] px-2.5 py-1 rounded-full border border-[#D8E1C8]">
-                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
-                  <span className="text-[9px] font-bold text-[#5B7023]">Sync Active</span>
-                </div>
-                <button onClick={(e) => { e.stopPropagation(); handleLogout(); }} className="w-8 h-8 flex items-center justify-center bg-red-50 rounded-full text-red-500 hover:bg-red-100"><LogOut size={16} /></button>
+                <button onClick={fetchAllData} title="Sync Live Data" className="w-8 h-8 flex items-center justify-center bg-[#F0F4E8] rounded-full text-[#5B7023] hover:bg-[#d8e1c8]">
+                  <RefreshCw size={14} />
+                </button>
+                <button onClick={handleLogout} title="Logout" className="w-8 h-8 flex items-center justify-center bg-red-50 rounded-full text-red-500 hover:bg-red-100">
+                  <LogOut size={16} />
+                </button>
               </div>
             </div>
 
+            {/* DASHBOARD BODY TABS */}
             <div className="flex-1 overflow-y-auto p-4 pb-28 space-y-5">
               {toastMsg && (
                 <div className="sticky top-2 z-50 p-3 bg-gray-900 text-white font-bold text-xs rounded-2xl flex items-center gap-2 shadow-xl">
@@ -1277,16 +1403,15 @@ export default function TeacherDashboard() {
                     <div className="absolute right-[-10px] top-[-10px] text-white/10 rotate-12">
                       <GraduationCap size={150} />
                     </div>
-                    <span className="inline-block px-3 py-1 bg-white/20 rounded-full text-[10px] font-extrabold uppercase mb-2">FACULTY STATUS</span>
+                    <span className="inline-block px-3 py-1 bg-white/20 rounded-full text-[10px] font-extrabold uppercase mb-2">FACULTY CONSOLE</span>
                     <h2 className="text-xl font-black mb-1">{teacherHeader.name}</h2>
-                    <p className="text-xs text-white/80 font-medium mb-4">{form.role || "Senior Faculty"}</p>
+                    <p className="text-xs text-white/80 font-medium mb-4">{form.role} • {form.subject || "Academic"}</p>
                     <div className="flex justify-between border-t border-white/20 pt-3 relative z-10">
                       <p className="text-[11px] font-medium">Emp ID: <span className="font-bold">{teacherHeader.empId}</span></p>
-                      <button onClick={() => setActiveTab("profile")} className="text-[11px] font-bold flex items-center gap-1 hover:underline">Edit Profile <ChevronRight size={14} /></button>
+                      <button onClick={() => setActiveTab("profile")} className="text-[11px] font-bold flex items-center gap-1 hover:underline">Edit Full Profile <ChevronRight size={14} /></button>
                     </div>
                   </div>
 
-                  {/* Dynamic Summary Row */}
                   <div className="grid grid-cols-3 gap-2.5">
                     <div className="bg-white rounded-2xl p-3 border border-gray-100 text-center">
                       <h5 className="text-[9px] font-bold text-gray-400 uppercase">My Batches</h5>
@@ -1300,7 +1425,7 @@ export default function TeacherDashboard() {
                     </div>
                     <div className="bg-white rounded-2xl p-3 border border-gray-100 text-center">
                       <h5 className="text-[9px] font-bold text-gray-400 uppercase">Total Tests</h5>
-                      <p className="text-base font-black text-[#5B7023] mt-1">{testRecords.length}</p>
+                      <p className="text-base font-black text-[#5B7023] mt-1">{myTests.length}</p>
                     </div>
                   </div>
 
@@ -1308,7 +1433,7 @@ export default function TeacherDashboard() {
                     <button onClick={() => setActiveTab("attendance")} className="bg-white rounded-3xl p-4 shadow-sm border border-gray-100 flex flex-col justify-between row-span-2 text-left hover:scale-[1.02] transition-transform">
                       <div>
                         <p className="text-[10px] font-extrabold text-gray-400 uppercase mb-1">ATTENDANCE</p>
-                        <h3 className="text-2xl font-black text-gray-900 leading-tight">Mark Log</h3>
+                        <h3 className="text-2xl font-black text-gray-900 leading-tight">Mark My Batch</h3>
                       </div>
                       <div className="flex justify-end mt-4">
                         <div className="w-12 h-12 rounded-full border-4 border-emerald-500/20 flex items-center justify-center bg-emerald-50">
@@ -1318,13 +1443,13 @@ export default function TeacherDashboard() {
                     </button>
                     <button onClick={() => setActiveTab("batches")} className="bg-[#FFF9EE] rounded-3xl p-4 shadow-sm border border-[#FBE6C9] flex flex-col justify-center text-left hover:scale-[1.02] transition-transform">
                       <div className="w-8 h-8 rounded-xl bg-[#FDE2B5] text-[#B46700] flex items-center justify-center mb-2"><Users size={16} /></div>
-                      <h4 className="text-xs font-black text-[#633A00]">My Batches</h4>
+                      <h4 className="text-xs font-black text-[#633A00]">Assigned Batches</h4>
                       <p className="text-[10px] font-bold text-[#B46700] mt-0.5">{myBatches.length} Assigned</p>
                     </button>
                     <button onClick={() => setActiveTab("timetable")} className="bg-[#F3F4FE] rounded-3xl p-4 shadow-sm border border-[#E1E4FC] flex flex-col justify-center text-left hover:scale-[1.02] transition-transform">
                       <div className="w-8 h-8 rounded-xl bg-[#E1E4FC] text-[#3B28E5] flex items-center justify-center mb-2"><CalendarDays size={16} /></div>
                       <h4 className="text-xs font-black text-[#261899]">Timetable</h4>
-                      <p className="text-[10px] font-bold text-[#3B28E5] mt-0.5">Regular Schedule</p>
+                      <p className="text-[10px] font-bold text-[#3B28E5] mt-0.5">My Schedule</p>
                     </button>
                   </div>
 
@@ -1333,7 +1458,7 @@ export default function TeacherDashboard() {
                       <div className="w-10 h-10 rounded-2xl bg-[#EFE3FF] text-[#9D4EDD] flex items-center justify-center"><Award size={20} /></div>
                       <div className="text-left">
                         <h4 className="text-sm font-black text-[#5A189A]">Class Tests & Marks</h4>
-                        <p className="text-[11px] font-bold text-[#9D4EDD] mt-0.5">Schedule & publish marks</p>
+                        <p className="text-[11px] font-bold text-[#9D4EDD] mt-0.5">Publish exam marks to Admin</p>
                       </div>
                     </div>
                     <ChevronRight size={20} className="text-[#9D4EDD]" />
@@ -1345,25 +1470,35 @@ export default function TeacherDashboard() {
               {activeTab === "batches" && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h1 className="text-lg font-black text-gray-900">My Assigned Batches</h1>
-                    <span className="text-[10px] bg-[#5B7023] text-white px-2 py-0.5 rounded-full font-bold">Admin Synced</span>
+                    <div>
+                      <h1 className="text-lg font-black text-gray-900">My Assigned Batches</h1>
+                      <p className="text-xs text-gray-500">Batches assigned to you</p>
+                    </div>
+                    <span className="text-[10px] bg-[#5B7023] text-white px-2 py-0.5 rounded-full font-bold">Assigned</span>
                   </div>
+
                   {myBatches.length === 0 ? (
-                    <div className="text-center py-12 bg-white rounded-3xl border border-gray-100">
-                      <Users size={32} className="text-gray-300 mx-auto mb-2" />
-                      <p className="text-xs font-bold text-gray-400">No batches assigned by Admin yet.</p>
+                    <div className="text-center py-12 bg-white rounded-3xl border border-gray-100 p-6">
+                      <AlertCircle size={36} className="text-amber-500 mx-auto mb-2" />
+                      <h4 className="text-sm font-bold text-gray-800 mb-1">No Batches Assigned Yet</h4>
+                      <p className="text-xs text-gray-400">Admin panel par jaakar is faculty ko batch assign karein.</p>
                     </div>
                   ) : (
-                    myBatches.map((batch) => {
-                      const count = MOCK_STUDENTS.filter(st => st.batches.includes(batch.id)).length;
+                    myBatches.map((batch: any) => {
+                      const batchId = String(batch.id || batch._id);
+                      const count = allStudents.filter((st: any) => 
+                        String(st.batchId) === batchId || 
+                        (Array.isArray(st.batches) && st.batches.map(String).includes(batchId))
+                      ).length;
+
                       return (
-                        <div key={batch.id} className="bg-white rounded-3xl p-4 shadow-sm border border-gray-100 text-left">
+                        <div key={batchId} className="bg-white rounded-3xl p-4 shadow-sm border border-gray-100 text-left">
                           <h4 className="text-base font-black text-gray-900">{batch.name}</h4>
-                          <p className="text-[11px] font-bold text-[#5B7023] mt-0.5">{batch.subject}</p>
+                          <p className="text-[11px] font-bold text-[#5B7023] mt-0.5">{batch.courseName || batch.subject || "Course"}</p>
                           <div className="flex flex-wrap gap-2 mt-3 text-[10px] text-gray-500 font-bold">
                             <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-lg"><Users size={12}/> {count} Enrolled Students</span>
-                            <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-lg"><Timer size={12}/> {batch.timing}</span>
-                            <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-lg"><MapPin size={12}/> {batch.room}</span>
+                            <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-lg"><Timer size={12}/> {batch.schedule || "Schedule N/A"}</span>
+                            <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-lg"><MapPin size={12}/> {batch.room || "Room 101"}</span>
                           </div>
                         </div>
                       );
@@ -1375,7 +1510,11 @@ export default function TeacherDashboard() {
               {/* ============ TIMETABLE TAB ============ */}
               {activeTab === "timetable" && (
                 <div className="space-y-4">
-                  <h1 className="text-lg font-black text-gray-900">Class Schedule</h1>
+                  <div>
+                    <h1 className="text-lg font-black text-gray-900">My Period Schedule</h1>
+                    <p className="text-xs text-gray-500">Your daily teaching schedule</p>
+                  </div>
+
                   <div className="flex gap-2 overflow-x-auto pb-2">
                     {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(day => (
                       <button key={day} onClick={() => setActiveDay(day)} className={`px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap ${activeDay === day ? 'bg-[#5B7023] text-white shadow-md' : 'bg-white text-gray-500 border border-gray-200'}`}>
@@ -1387,19 +1526,19 @@ export default function TeacherDashboard() {
                   {myTimetable.filter(t => t.day === activeDay).length === 0 ? (
                     <div className="text-center py-12 bg-white rounded-3xl border border-gray-100">
                       <Clock size={32} className="text-gray-300 mx-auto mb-2" />
-                      <p className="text-xs font-bold text-gray-400">No classes scheduled on {activeDay}</p>
+                      <p className="text-xs font-bold text-gray-400">No periods scheduled for you on {activeDay}</p>
                     </div>
                   ) : (
                     myTimetable.filter(t => t.day === activeDay).map((period, idx) => (
                       <div key={idx} className="bg-white rounded-3xl p-4 shadow-sm border border-gray-100 flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex flex-col items-center justify-center shrink-0 border border-indigo-100">
+                        <div className="w-16 h-14 rounded-2xl bg-indigo-50 flex flex-col items-center justify-center shrink-0 border border-indigo-100">
                           <Clock size={14} className="mb-1 text-[#5B7023]" />
                           <span className="text-[9px] font-black text-gray-800">{period.startTime}</span>
                         </div>
                         <div className="flex-1">
                           <h4 className="text-sm font-black text-gray-900">{period.subject}</h4>
                           <p className="text-xs font-bold text-[#5B7023] mt-0.5">{period.batchName}</p>
-                          <p className="text-[10px] font-bold text-gray-400 mt-1">Room: {period.room}</p>
+                          <p className="text-[10px] font-bold text-gray-400 mt-1">Period Room: {period.room}</p>
                         </div>
                       </div>
                     ))
@@ -1413,53 +1552,60 @@ export default function TeacherDashboard() {
                   <h1 className="text-lg font-black text-gray-900">Daily Attendance</h1>
                   <div className="bg-white rounded-3xl p-4 shadow-sm border border-gray-100 space-y-3">
                     <div>
-                      <Label className="text-[11px] font-bold text-gray-700 uppercase">Select Batch</Label>
+                      <Label className="text-[11px] font-bold text-gray-700 uppercase">Choose From Your Batches</Label>
                       <select 
-                        value={selectedBatch?.id || ""} 
+                        value={selectedBatch?.id || selectedBatch?._id || ""} 
                         onChange={(e) => { 
-                          const b = myBatches.find(x => x.id === e.target.value); 
+                          const b = myBatches.find(x => (String(x.id || x._id) === e.target.value)); 
                           setSelectedBatch(b); 
                         }} 
                         className="w-full h-11 mt-1 px-3 text-sm font-bold bg-gray-50 border border-gray-200 rounded-xl"
                       >
-                        <option value="">-- Choose Assigned Batch --</option>
-                        {myBatches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        <option value="">-- Select Your Assigned Batch --</option>
+                        {myBatches.map((b: any) => (
+                          <option key={b.id || b._id} value={b.id || b._id}>{b.name}</option>
+                        ))}
                       </select>
                     </div>
-                    <Field label="Date" type="date" value={attendanceDate} onChange={setAttendanceDate} />
+                    <Field label="Attendance Date" type="date" value={attendanceDate} onChange={setAttendanceDate} />
                   </div>
 
                   {selectedBatch && (
                     <div className="bg-white rounded-3xl p-4 shadow-sm border border-gray-100 space-y-2">
                       <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-                        <p className="text-[11px] font-bold text-[#5B7023] uppercase">Students list ({attendanceStudents.length})</p>
+                        <p className="text-[11px] font-bold text-[#5B7023] uppercase">Batch Students ({attendanceStudents.length})</p>
                         <span className="text-[10px] text-gray-400">P: Present, L: Late, A: Absent</span>
                       </div>
                       
                       {attendanceStudents.length === 0 ? (
                         <p className="text-xs text-gray-400 text-center py-4">No students enrolled in this batch.</p>
                       ) : (
-                        attendanceStudents.map(st => (
-                          <div key={st.id} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-100 rounded-2xl">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-white border border-gray-200 text-[#5B7023] font-black text-xs flex items-center justify-center">{st.name.charAt(0)}</div>
-                              <div>
-                                <p className="text-xs font-black text-gray-900">{st.name}</p>
-                                <p className="text-[9px] font-bold text-gray-400 mt-0.5">Roll: {st.rollNo}</p>
+                        attendanceStudents.map((st: any) => {
+                          const sId = st.id || st._id;
+                          return (
+                            <div key={sId} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-100 rounded-2xl">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-white border border-gray-200 text-[#5B7023] font-black text-xs flex items-center justify-center">
+                                  {st.name ? st.name.charAt(0) : "S"}
+                                </div>
+                                <div>
+                                  <p className="text-xs font-black text-gray-900">{st.name}</p>
+                                  <p className="text-[9px] font-bold text-gray-400 mt-0.5">Roll: {st.rollNo || st.rollNumber || "---"}</p>
+                                </div>
+                              </div>
+                              <div className="flex gap-1.5 bg-white p-1 rounded-xl border border-gray-100">
+                                <button onClick={() => markAttendance(sId, "present")} className={`w-9 h-8 rounded-lg text-[10px] font-black transition-colors ${st.status === "present" ? "bg-emerald-500 text-white" : "text-gray-400 hover:bg-gray-50"}`}>P</button>
+                                <button onClick={() => markAttendance(sId, "late")} className={`w-9 h-8 rounded-lg text-[10px] font-black transition-colors ${st.status === "late" ? "bg-amber-500 text-white" : "text-gray-400 hover:bg-gray-50"}`}>L</button>
+                                <button onClick={() => markAttendance(sId, "absent")} className={`w-9 h-8 rounded-lg text-[10px] font-black transition-colors ${st.status === "absent" ? "bg-red-500 text-white" : "text-gray-400 hover:bg-gray-50"}`}>A</button>
                               </div>
                             </div>
-                            <div className="flex gap-1.5 bg-white p-1 rounded-xl border border-gray-100">
-                              <button onClick={() => markAttendance(st.id, "present")} className={`w-9 h-8 rounded-lg text-[10px] font-black transition-colors ${st.status === "present" ? "bg-emerald-500 text-white" : "text-gray-400 hover:bg-gray-50"}`}>P</button>
-                              <button onClick={() => markAttendance(st.id, "late")} className={`w-9 h-8 rounded-lg text-[10px] font-black transition-colors ${st.status === "late" ? "bg-amber-500 text-white" : "text-gray-400 hover:bg-gray-50"}`}>L</button>
-                              <button onClick={() => markAttendance(st.id, "absent")} className={`w-9 h-8 rounded-lg text-[10px] font-black transition-colors ${st.status === "absent" ? "bg-red-500 text-white" : "text-gray-400 hover:bg-gray-50"}`}>A</button>
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       )}
 
                       {attendanceStudents.length > 0 && (
                         <button onClick={saveAttendanceLog} className="w-full mt-3 py-3 bg-[#5B7023] text-white rounded-2xl text-sm font-black flex items-center justify-center gap-2 hover:bg-[#4a5c1d] transition-colors">
-                          <Save size={16}/> Submit & Sync to Admin
+                          <Save size={16}/> Save & Post Attendance
                         </button>
                       )}
                     </div>
@@ -1473,22 +1619,24 @@ export default function TeacherDashboard() {
                   {isCreatingTest ? (
                     <div className="bg-white rounded-3xl p-5 shadow-md border border-gray-200 space-y-4">
                       <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-bold text-gray-900">Schedule New Exam Test</h3>
+                        <h3 className="text-sm font-bold text-gray-900">Schedule Class Test</h3>
                         <button onClick={() => setIsCreatingTest(false)} className="p-1 hover:bg-gray-100 rounded-lg"><X size={16} /></button>
                       </div>
 
                       <div className="space-y-3">
-                        <Field label="Test / Exam Title" placeholder="e.g. Algebra Quiz 1" value={newTestTitle} onChange={setNewTestTitle} />
+                        <Field label="Test Title / Topic" placeholder="e.g. Thermodynamics Quiz 1" value={newTestTitle} onChange={setNewTestTitle} />
                         
                         <div>
-                          <Label className="text-xs font-semibold text-gray-700">Assign Batch *</Label>
+                          <Label className="text-xs font-semibold text-gray-700">Assign To Your Batch *</Label>
                           <select 
                             value={newTestBatch} 
                             onChange={(e) => setNewTestBatch(e.target.value)} 
                             className="w-full h-11 mt-1 px-3 text-xs font-bold bg-gray-50 border border-gray-200 rounded-xl"
                           >
-                            <option value="">-- Choose Batch --</option>
-                            {myBatches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                            <option value="">-- Select Your Batch --</option>
+                            {myBatches.map((b: any) => (
+                              <option key={b.id || b._id} value={b.id || b._id}>{b.name}</option>
+                            ))}
                           </select>
                         </div>
 
@@ -1498,12 +1646,11 @@ export default function TeacherDashboard() {
                         </div>
 
                         <Button onClick={handleCreateTest} className="w-full bg-[#5B7023] hover:bg-[#4a5c1d] text-white rounded-xl mt-2 h-11">
-                          Publish Exam Details
+                          Publish Test
                         </Button>
                       </div>
                     </div>
                   ) : selectedTestForMarks ? (
-                    // ENTER STUDENT TEST MARKS INTERACTION SCREEN
                     <div className="bg-white rounded-3xl p-5 shadow-md border border-gray-200 space-y-4">
                       <div className="flex items-center justify-between border-b border-gray-100 pb-3">
                         <div>
@@ -1514,71 +1661,79 @@ export default function TeacherDashboard() {
                       </div>
 
                       <div className="space-y-3">
-                        {MOCK_STUDENTS.filter(st => st.batches.includes(selectedTestForMarks.batchId)).map(student => (
-                          <div key={student.id} className="flex items-center justify-between p-2 bg-gray-50/50 rounded-xl">
-                            <div>
-                              <p className="text-xs font-bold text-gray-900">{student.name}</p>
-                              <p className="text-[10px] text-gray-400">Roll: {student.rollNo}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {/* FIX 3: Handling 0 marks correctly */}
-                              <input 
-                                type="number" 
-                                min="0"
-                                max={selectedTestForMarks.maxMarks}
-                                value={enteredMarks[student.id] !== undefined ? enteredMarks[student.id] : ""}
-                                placeholder="0"
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  if (Number(val) > Number(selectedTestForMarks.maxMarks)) {
-                                    alert(`Score cannot exceed Max Limit of ${selectedTestForMarks.maxMarks}`);
-                                    return;
-                                  }
-                                  setEnteredMarks(prev => ({ ...prev, [student.id]: val }));
-                                }}
-                                className="w-16 h-9 text-center font-bold bg-white border border-gray-200 rounded-lg text-xs"
-                              />
-                              <span className="text-xs text-gray-400">/ {selectedTestForMarks.maxMarks}</span>
-                            </div>
-                          </div>
-                        ))}
+                        {allStudents
+                          .filter((st: any) => String(st.batchId) === String(selectedTestForMarks.batchId) || (Array.isArray(st.batches) && st.batches.map(String).includes(String(selectedTestForMarks.batchId))))
+                          .map((student: any) => {
+                            const sId = student.id || student._id;
+                            return (
+                              <div key={sId} className="flex items-center justify-between p-2 bg-gray-50/50 rounded-xl">
+                                <div>
+                                  <p className="text-xs font-bold text-gray-900">{student.name}</p>
+                                  <p className="text-[10px] text-gray-400">Roll: {student.rollNo || student.rollNumber || "---"}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="number" 
+                                    min="0"
+                                    max={selectedTestForMarks.maxMarks}
+                                    value={enteredMarks[sId] !== undefined ? enteredMarks[sId] : ""}
+                                    placeholder="0"
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      if (Number(val) > Number(selectedTestForMarks.maxMarks)) {
+                                        alert(`Marks cannot exceed ${selectedTestForMarks.maxMarks}`);
+                                        return;
+                                      }
+                                      setEnteredMarks(prev => ({ ...prev, [sId]: val }));
+                                    }}
+                                    className="w-16 h-9 text-center font-bold bg-white border border-gray-200 rounded-lg text-xs"
+                                  />
+                                  <span className="text-xs text-gray-400">/ {selectedTestForMarks.maxMarks}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
 
                         <Button onClick={saveTestMarks} className="w-full bg-[#5B7023] hover:bg-[#4a5c1d] text-white rounded-xl mt-3">
-                          Save Scores & Send to Admin
+                          Save Scores
                         </Button>
                       </div>
                     </div>
                   ) : (
-                    // TEST LIST VIEW
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
-                        <h1 className="text-lg font-black text-gray-900">Class Tests</h1>
+                        <div>
+                          <h1 className="text-lg font-black text-gray-900">My Batch Tests</h1>
+                          <p className="text-xs text-gray-500">Exams created for your batches</p>
+                        </div>
                         <button 
                           onClick={() => setIsCreatingTest(true)} 
-                          className="bg-[#5B7023] hover:bg-[#4a5c1d] text-white text-xs font-bold px-3 h-10 rounded-xl flex items-center gap-1.5 shadow-md transition-all"
+                          disabled={myBatches.length === 0}
+                          className="bg-[#5B7023] disabled:opacity-50 hover:bg-[#4a5c1d] text-white text-xs font-bold px-3 h-10 rounded-xl flex items-center gap-1.5 shadow-md transition-all"
                         >
                           <Plus size={14}/> Add Test
                         </button>
                       </div>
 
-                      {testRecords.length === 0 ? (
+                      {myTests.length === 0 ? (
                         <div className="text-center py-12 bg-white rounded-3xl border border-gray-100">
                           <Award size={40} className="text-gray-300 mx-auto mb-2" />
-                          <p className="text-xs font-bold text-gray-400">No scheduled exams / tests configured yet.</p>
+                          <p className="text-xs font-bold text-gray-400">No tests scheduled for your batches yet.</p>
                         </div>
                       ) : (
                         <div className="space-y-3">
-                          {testRecords.map((test) => {
-                            const batchObj = globalBatches.find(b => b.id === test.batchId);
-                            const totalEnrolled = MOCK_STUDENTS.filter(st => st.batches.includes(test.batchId)).length;
+                          {myTests.map((test: any) => {
+                            const tId = test.id || test._id;
+                            const batchObj = myBatches.find((b: any) => String(b.id || b._id) === String(test.batchId));
+                            const totalEnrolled = allStudents.filter((st: any) => String(st.batchId) === String(test.batchId) || (Array.isArray(st.batches) && st.batches.map(String).includes(String(test.batchId)))).length;
                             const markedCount = Object.keys(test.scores || {}).length;
 
                             return (
-                              <div key={test.id} className="bg-white rounded-3xl p-4 shadow-sm border border-gray-100 space-y-3">
+                              <div key={tId} className="bg-white rounded-3xl p-4 shadow-sm border border-gray-100 space-y-3">
                                 <div className="flex items-start justify-between">
                                   <div>
                                     <h4 className="text-sm font-black text-gray-950">{test.title}</h4>
-                                    <span className="text-[10px] font-bold text-gray-400 uppercase">{batchObj?.name || "Global"}</span>
+                                    <span className="text-[10px] font-bold text-gray-400 uppercase">{batchObj?.name || "Batch"}</span>
                                   </div>
                                   <span className="text-xs font-extrabold text-[#5B7023] bg-[#F0F4E8] px-2 py-1 rounded-lg">
                                     Limit: {test.maxMarks} M
@@ -1586,9 +1741,9 @@ export default function TeacherDashboard() {
                                 </div>
 
                                 <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold border-t border-gray-100 pt-2.5">
-                                  <span className="flex items-center gap-1"><Calendar size={12}/> Date: {test.date}</span>
+                                  <span className="flex items-center gap-1"><Calendar size={12}/> Date: {test.date?.slice(0, 10)}</span>
                                   <span className="flex items-center gap-1">
-                                    <CheckCircle size={12} className={markedCount === totalEnrolled ? "text-emerald-500" : "text-amber-500"}/> 
+                                    <CheckCircle size={12} className={markedCount === totalEnrolled && totalEnrolled > 0 ? "text-emerald-500" : "text-amber-500"}/> 
                                     Scores: {markedCount}/{totalEnrolled} Marked
                                   </span>
                                 </div>
@@ -1597,7 +1752,7 @@ export default function TeacherDashboard() {
                                   onClick={() => openEnterMarks(test)} 
                                   className="w-full h-8 bg-gray-50 hover:bg-[#F0F4E8] text-gray-700 hover:text-[#5B7023] rounded-xl text-[10px] font-bold flex items-center justify-center gap-1.5 transition-colors border border-gray-100"
                                 >
-                                  <Pencil size={12}/> Enter & Update Student Scores
+                                  <Pencil size={12}/> Enter Student Scores
                                 </button>
                               </div>
                             );
@@ -1610,7 +1765,7 @@ export default function TeacherDashboard() {
               )}
             </div>
 
-            {/* APP FOOTER NAVIGATION BAR */}
+            {/* BOTTOM NAVIGATION */}
             <nav className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-100 pt-2 px-3 flex justify-between shadow z-40 pb-3">
               {[
                 { id: "home", label: "Home", icon: Home },

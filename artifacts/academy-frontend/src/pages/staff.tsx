@@ -14,7 +14,7 @@ import {
   Users, CheckCircle2, Calendar, IndianRupee, ChevronDown, Mail, Phone, ArrowLeft, 
   Save, Check, Eye, EyeOff, KeyRound, ShieldCheck, Briefcase, 
   FileText, DownloadCloud, Lock, FolderOpen, MapPin, X, FileUp, Sparkles,
-  ClipboardList, AlarmClock, Timer, Info, Camera
+  ClipboardList, AlarmClock, Timer, Info, Camera, MoreVertical
 } from "lucide-react";
 
 // ======================== DATA CONSTANTS (Fallbacks) ========================
@@ -307,6 +307,133 @@ export default function Staff() {
   const [viewType, setViewType] = useState<"grid" | "list">("grid");
 
   const [viewing, setViewing] = useState<any>(null);
+
+  const viewDocInputRef = useRef<HTMLInputElement>(null);
+
+  const getInitials = (member: any) => {
+    const name = member?.name || `${member?.firstName || ""} ${member?.lastName || ""}`.trim() || "Staff Member";
+    return name.split(/\s+/).filter(Boolean).slice(0, 2).map((n: string) => n[0]).join("").toUpperCase() || "ST";
+  };
+
+  const subjectCount = (member: any) => {
+    const rows = Array.isArray(member?.subjectsTaught) ? member.subjectsTaught.filter((x: any) => x?.course || x?.subject) : [];
+    if (rows.length) return rows.length;
+    return String(member?.subject || "").split(",").map((x: string) => x.trim()).filter(Boolean).length;
+  };
+
+  const assignedBatchNames = (member: any): string[] => {
+    const rows = Array.isArray(member?.subjectsTaught) ? member.subjectsTaught : [];
+    const fromRows = rows.map((x: any) => x?.batch).filter(Boolean);
+    const fromBatches = Array.isArray(member?.batches)
+      ? member.batches.map((x: any) => typeof x === "string" ? x : x?.name || x?.batchName || x?.title).filter(Boolean)
+      : [];
+    return Array.from(new Set([...fromRows, ...fromBatches].map(String)));
+  };
+
+  const attendancePercent = (member: any) => Number(member?.attendancePercentage ?? member?.attendancePercent ?? member?.attendance ?? 0) || 0;
+  const attendanceStats = (member: any) => ({
+    present: Number(member?.presentDays ?? member?.attendancePresent ?? member?.attendanceStats?.present ?? 0) || 0,
+    absent: Number(member?.absentDays ?? member?.attendanceAbsent ?? member?.attendanceStats?.absent ?? 0) || 0,
+  });
+
+  // Attendance records are read from whichever common field the API provides.
+  // No attendance dates are invented when the backend has not supplied them.
+  const attendanceRecords = (member: any): Record<string, string> => {
+    const raw = member?.attendanceRecords ?? member?.attendanceHistory ?? member?.attendanceLog ?? member?.attendanceDetails ?? [];
+    const records: Record<string, string> = {};
+    if (Array.isArray(raw)) {
+      raw.forEach((item: any) => {
+        const date = item?.date ?? item?.attendanceDate ?? item?.day;
+        const status = String(item?.status ?? item?.attendanceStatus ?? "").toLowerCase();
+        if (date && status) records[String(date).slice(0, 10)] = status;
+      });
+    } else if (raw && typeof raw === "object") {
+      Object.entries(raw).forEach(([date, value]: [string, any]) => {
+        const status = typeof value === "string" ? value : value?.status ?? value?.attendanceStatus ?? "";
+        if (status) records[String(date).slice(0, 10)] = String(status).toLowerCase();
+      });
+    }
+    return records;
+  };
+
+  const attendanceCalendar = (member: any, year = new Date().getFullYear(), month = new Date().getMonth()) => {
+    const first = new Date(year, month, 1);
+    const days = new Date(year, month + 1, 0).getDate();
+    const records = attendanceRecords(member);
+    const cells: Array<{ day: number | null; date?: string; status?: string }> = [];
+    const mondayOffset = (first.getDay() + 6) % 7;
+    for (let i = 0; i < mondayOffset; i++) cells.push({ day: null });
+    for (let day = 1; day <= days; day++) {
+      const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      cells.push({ day, date, status: records[date] });
+    }
+    while (cells.length % 7) cells.push({ day: null });
+    return { year, month, cells, records };
+  };
+
+  const attendanceStatusClass = (status?: string) => {
+    const s = String(status || "").toLowerCase();
+    if (s.includes("present") || s === "p") return "bg-[#D5F7E5] text-[#008F63]";
+    if (s.includes("absent") || s === "a") return "bg-[#FFE0E0] text-[#C62828]";
+    if (s.includes("late") || s === "l") return "bg-[#FFF0C7] text-[#A56A00]";
+    return "";
+  };
+
+  const attendanceStatusLabel = (status?: string) => {
+    const s = String(status || "").toLowerCase();
+    if (s.includes("present") || s === "p") return "Present";
+    if (s.includes("absent") || s === "a") return "Absent";
+    if (s.includes("late") || s === "l") return "Late";
+    return "";
+  };
+  const payslipCount = (member: any) => Array.isArray(member?.payslips) ? member.payslips.length : Number(member?.payslipCount ?? 0) || 0;
+  const estimatedNet = (member: any) => {
+    const salary = Number(member?.salary || member?.monthlySalary || 0) || 0;
+    const pf = Number(member?.pfDeduction || 0) || 0;
+    const tds = Number(member?.tdsDeduction || 0) || 0;
+    return Math.max(0, salary * (1 - (pf + tds) / 100));
+  };
+  const formatEmploymentType = (value: any) => {
+    if (!value) return "Full time";
+    return String(value).replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+  };
+  const leaveQuota = (member: any) => {
+    const q = member?.leaveQuota || {};
+    const make = (key: string, label: string, fallback: number, dot: string) => ({
+      label,
+      total: Number(q?.[key]?.total ?? q?.[key] ?? fallback) || 0,
+      used: Number(q?.[key]?.used ?? 0) || 0,
+      dot,
+    });
+    return [
+      make("casual", "Casual Leave", 12, "bg-blue-500"),
+      make("earned", "Earned Leave", 15, "bg-emerald-500"),
+      make("lossOfPay", "Loss of Pay", 0, "bg-slate-500"),
+      make("maternity", "Maternity Leave", 180, "bg-pink-500"),
+      make("sick", "Sick Leave", 8, "bg-red-500"),
+      make("unpaid", "Unpaid Leave", 10, "bg-blue-600"),
+    ];
+  };
+  const viewDocuments = (member: any) => Array.isArray(member?.documents)
+    ? member.documents.filter((d: any) => !ALL_SYSTEM_META_KEYS.includes(d.label))
+    : [];
+  const payslipList = (member: any) => {
+    if (Array.isArray(member?.payslips) && member.payslips.length) return member.payslips;
+    const amount = Number(member?.salary || member?.monthlySalary || 0) || 0;
+    return [{ month: "Current Month", amount }];
+  };
+  const handleViewDocumentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !viewing) return;
+    if (file.size > 5_000_000) { alert("Documents must be less than 5MB"); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const docObj: StaffDocument = { label: file.name.split(".")[0], name: file.name, dataUrl: String(reader.result || ""), mimeType: file.type };
+      setViewing((prev: any) => ({ ...prev, documents: [...(Array.isArray(prev?.documents) ? prev.documents : []), docObj] }));
+      e.target.value = "";
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -979,7 +1106,7 @@ export default function Staff() {
   };
 
   return (
-    <div className="min-h-screen bg-[#EBEFE6] font-sans text-gray-800">
+    <div className="min-h-screen w-full bg-[#E9EEF5] font-sans text-gray-800">
       
       {viewMode === "form" ? (
         /* ================== FORM VIEW ================== */
@@ -1767,392 +1894,559 @@ export default function Staff() {
 
       ) : viewMode === "view" && viewing ? (
         /* =========================== PROFILE VIEW =========================== */
-        <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6">
-              <div className="bg-gradient-to-br from-[#5B7023] via-[#6B8330] to-[#7A9532] rounded-2xl shadow-lg overflow-hidden text-white relative">
-                <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
-                <div className="p-6 relative">
-                  <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-4">
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4">
-                      <div className="w-20 h-20 rounded-full border-4 border-white/30 bg-white/20 backdrop-blur-sm flex items-center justify-center overflow-hidden shadow-lg shrink-0">
-                        {viewing.photoDataUrl ? (
-                          <img src={viewing.photoDataUrl} alt="Profile" className="w-full h-full object-cover" />
-                        ) : (
-                          <UserRound size={36} className="text-white" />
-                        )}
+        <div className="min-h-screen w-full bg-[#E9EEF5] px-4 sm:px-6 lg:px-7 py-5 sm:py-6">
+          <div className="max-w-[1400px] mx-auto">
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_330px] gap-6">
+              <div className="space-y-5 min-w-0">
+                {/* PROFILE HERO */}
+                <div className="rounded-[22px] overflow-hidden shadow-[0_14px_35px_rgba(15,82,160,0.18)] bg-gradient-to-br from-[#075BC5] via-[#0758B9] to-[#0B4EA2] text-white relative">
+                  <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
+                  <div className="relative px-6 pt-6 pb-5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+                      <div className="flex items-center gap-5 min-w-0">
+                        <div className="w-[94px] h-[94px] rounded-full border-4 border-white/35 bg-[#4B43DF] flex items-center justify-center overflow-hidden shadow-lg shrink-0">
+                          {viewing.photoDataUrl ? (
+                            <img src={viewing.photoDataUrl} alt="Profile" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-4xl font-semibold">{getInitials(viewing)}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <h1 className="text-2xl sm:text-[25px] font-extrabold truncate">{viewing.name || `${viewing.firstName || ""} ${viewing.lastName || ""}`.trim() || "Staff Member"}</h1>
+                          <p className="text-sm text-white/80 mt-1 truncate">{viewing.email || "No email listed"}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-3">
+                            <span className="px-3 py-1 rounded-full bg-white/15 border border-white/15 text-[11px] font-bold flex items-center gap-1.5">
+                              <span className={`w-2 h-2 rounded-full ${viewing.status === "inactive" || viewing.isActive === false ? "bg-gray-300" : "bg-white"}`} />
+                              {viewing.status === "inactive" || viewing.isActive === false ? "Inactive" : "Active"}
+                            </span>
+                            <span className="px-3 py-1 rounded-full bg-white/15 border border-white/15 text-[11px] font-bold">▣ {getDisplayEmpId(viewing)}</span>
+                            <span className="px-3 py-1 rounded-full bg-white/15 border border-white/15 text-[11px] font-bold">{viewing.experience || 0} yrs exp</span>
+                            {viewing.subject && <span className="px-3 py-1 rounded-full bg-white/15 border border-white/15 text-[11px] font-bold">▣ {viewing.subject}</span>}
+                            {viewing.qualification && <span className="px-3 py-1 rounded-full bg-white/15 border border-white/15 text-[11px] font-bold">{viewing.qualification.split(",")[0]}</span>}
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <h1 className="text-2xl font-bold leading-tight">{viewing.name || `${viewing.firstName || ""} ${viewing.lastName || ""}`.trim() || "Staff Member"}</h1>
-                        <p className="text-sm text-white/80 flex items-center justify-center sm:justify-start gap-1 mt-1"><Mail size={12} /> {viewing.email || "No email listed"}</p>
-                        <div className="flex flex-wrap justify-center sm:justify-start gap-2 mt-3.5">
-                          <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-white/20 backdrop-blur-sm flex items-center gap-1">
-                            <span className={`w-1.5 h-1.5 rounded-full ${viewing.status === "active" || viewing.isActive ? "bg-green-400" : "bg-gray-400"}`}></span>
-                            {(viewing.status || "active").toUpperCase()}
-                          </span>
-                          <span className="px-3 py-1 rounded-full text-[10px] font-semibold bg-white/20 backdrop-blur-sm">📋 {getDisplayEmpId(viewing)}</span>
+                      <Button onClick={() => openEdit(viewing)} className="bg-white text-[#1261C9] hover:bg-white/95 rounded-xl h-10 px-5 font-bold text-xs shadow-md shrink-0">
+                        <Pencil size={14} className="mr-2" /> Edit Profile
+                      </Button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 mt-6 -mx-6 -mb-5 border-t border-white/15">
+                      {[
+                        { value: assignedBatchNames(viewing).length, label: "BATCHES" },
+                        { value: attendancePercent(viewing) + "%", label: "ATTENDANCE" },
+                        { value: payslipCount(viewing), label: "PAYSLIPS" },
+                        { value: subjectCount(viewing), label: "SUBJECTS" },
+                      ].map((item, i) => (
+                        <div key={item.label} className={`py-4 text-center ${i > 0 ? "border-l border-white/15" : ""}`}>
+                          <div className="text-2xl font-extrabold">{item.value}</div>
+                          <div className="text-[10px] tracking-wider font-bold text-white/65 mt-1">{item.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* PROFILE TABS */}
+                <div className="bg-white border border-gray-100 rounded-xl shadow-sm px-2 py-1 flex items-center gap-1 overflow-x-auto no-scrollbar">
+                  {[
+                    { id: "overview", label: "Overview", icon: UserRound },
+                    { id: "attendance", label: "Attendance", icon: Calendar },
+                    { id: "payroll", label: "Payroll", icon: IndianRupee },
+                    { id: "payslip", label: "Payslip Downloads", icon: FileText },
+                  ].map(tab => (
+                    <button key={tab.id} onClick={() => setProfileTab(tab.id as any)} className={`px-4 py-2.5 rounded-t-lg text-xs font-bold flex items-center gap-2 whitespace-nowrap ${profileTab === tab.id ? "bg-[#E6F0FF] text-[#1261C9] border-b-2 border-[#1261C9]" : "text-[#64748B] hover:bg-gray-50"}`}>
+                      <tab.icon size={14} /> {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {profileTab === "overview" && (
+                  <>
+                    {/* PROFILE INFORMATION */}
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-[#EAF2FF] flex items-center justify-center"><UserRound size={15} className="text-[#1261C9]" /></div>
+                        <h3 className="text-sm font-extrabold text-gray-900">Profile Information</h3>
+                      </div>
+                      <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-5">
+                        <InfoItem label="FULL NAME" value={viewing.name || `${viewing.firstName || ""} ${viewing.lastName || ""}`.trim() || "—"} />
+                        <InfoItem label="EMAIL" value={viewing.email || "—"} />
+                        <InfoItem label="PHONE" value={viewing.phone || "—"} />
+                        <InfoItem label="EMPLOYEE ID" value={getDisplayEmpId(viewing)} />
+                        <InfoItem label="JOINING DATE" value={formatDate(viewing.joinDate)} />
+                        <InfoItem label="EXPERIENCE" value={viewing.experience ? `${viewing.experience} years` : "—"} />
+                        <InfoItem label="QUALIFICATION" value={viewing.qualification || "—"} />
+                        <InfoItem label="SPECIALIZATION" value={viewing.subject || "—"} />
+                        <InfoItem label="EMPLOYMENT TYPE" value={formatEmploymentType(viewing.employmentType)} />
+                        <InfoItem label="STATUS" value={<span className="text-emerald-600 font-bold flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />{viewing.status === "inactive" || viewing.isActive === false ? "Inactive" : "Active"}</span>} />
+                        <div className="md:col-span-2">
+                          <InfoItem label="BRANCHES" value={viewing.branches || viewing.branch || "All branches (institute-wide)"} />
+                        </div>
+                        <div className="md:col-span-2 border-t border-gray-100 pt-4">
+                          <InfoItem label="BIO" value={viewing.bio || `Experienced ${viewing.subject || "staff"} educator${viewing.experience ? ` with ${viewing.experience} years` : ""}.`} />
                         </div>
                       </div>
                     </div>
-                    <Button onClick={() => openEdit(viewing)} className="bg-white text-[#5B7023] hover:bg-white/95 rounded-xl text-xs h-9 font-bold shadow-md w-full sm:w-auto transition-all shrink-0">
-                      <Pencil size={12} className="mr-1.5" /> Modify Profile
-                    </Button>
-                  </div>
 
-                  <div className="grid grid-cols-4 gap-2 mt-6 pt-6 border-t border-white/10">
-                    <div className="text-center">
-                      <h4 className="text-xl sm:text-2xl font-bold">{(viewing.subjectsTaught || []).filter((s: any) => s.course || s.subject).length || viewing.subject?.split(',').filter(Boolean).length || 0}</h4>
-                      <p className="text-[9px] font-bold text-white/75 uppercase tracking-wider mt-1">Subjects</p>
+                    {/* LEAVE QUOTA */}
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                        <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-[#EAF2FF] flex items-center justify-center"><Calendar size={15} className="text-[#1261C9]" /></div><h3 className="text-sm font-extrabold">Leave Quota — {new Date().getFullYear()}</h3></div>
+                        <span className="text-xs text-gray-400">Joined {formatDate(viewing.joinDate)}</span>
+                      </div>
+                      <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {leaveQuota(viewing).map((leave: any) => (
+                          <div key={leave.label} className="rounded-xl border border-[#BFD4F6] bg-[#FBFDFF] p-3.5">
+                            <div className="flex items-center gap-1.5 text-xs font-bold"><span className={`w-2 h-2 rounded-full ${leave.dot}`} />{leave.label}</div>
+                            <div className={`mt-2 text-2xl font-extrabold ${leave.used > 0 ? "text-[#1261C9]" : "text-emerald-600"}`}>{leave.total} <span className="text-xs font-medium text-gray-400">/ {leave.total}</span></div>
+                            <div className="text-[10px] text-gray-500 mt-1">{leave.used} used</div>
+                            <div className="h-1 bg-[#C8D9F3] rounded-full mt-2"><div className="h-full rounded-full bg-[#9DBCE9]" style={{ width: `${leave.total ? Math.min(100, (leave.used / leave.total) * 100) : 0}%` }} /></div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="text-center border-l border-white/10">
-                      <h4 className="text-xl sm:text-2xl font-bold">100%</h4>
-                      <p className="text-[9px] font-bold text-white/75 uppercase tracking-wider mt-1">Attendance</p>
+
+                    {/* ASSIGNED BATCHES */}
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-[#EAF2FF] flex items-center justify-center"><Briefcase size={15} className="text-[#1261C9]" /></div><h3 className="text-sm font-extrabold">Assigned Batches in Timetable ({assignedBatchNames(viewing).length})</h3></div>
+                      <div className="p-5 flex flex-wrap gap-2">
+                        {assignedBatchNames(viewing).length ? assignedBatchNames(viewing).map((batch: string) => <span key={batch} className="px-3 py-2 rounded-lg border border-[#9BD2FF] bg-[#F7FCFF] text-[#0071BC] text-xs font-bold">♣ {batch}</span>) : <span className="text-xs text-gray-400">No batches assigned.</span>}
+                      </div>
                     </div>
-                    <div className="text-center border-l border-white/10">
-                      <h4 className="text-xl sm:text-2xl font-bold">{viewing.documents?.filter((d: any) => !ALL_SYSTEM_META_KEYS.includes(d.label))?.length || 0}</h4>
-                      <p className="text-[9px] font-bold text-white/75 uppercase tracking-wider mt-1 font-sans">Files</p>
+
+                  </>
+                )}
+
+                {profileTab === "attendance" && (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="bg-white rounded-2xl border-t-4 border-[#16B981] shadow-sm px-5 py-5 text-center">
+                        <div className="text-2xl font-extrabold text-[#0BA879]">{attendanceStats(viewing).present}</div>
+                        <div className="text-[10px] uppercase tracking-wider font-bold text-[#8A9BB4] mt-2">PRESENT</div>
+                      </div>
+                      <div className="bg-white rounded-2xl border-t-4 border-[#FF4B4B] shadow-sm px-5 py-5 text-center">
+                        <div className="text-2xl font-extrabold text-[#FF4141]">{attendanceStats(viewing).absent}</div>
+                        <div className="text-[10px] uppercase tracking-wider font-bold text-[#8A9BB4] mt-2">ABSENT</div>
+                      </div>
+                      <div className="bg-white rounded-2xl border-t-4 border-[#2670D8] shadow-sm px-5 py-5 text-center">
+                        <div className="text-2xl font-extrabold text-[#2469CE]">{attendancePercent(viewing)}%</div>
+                        <div className="text-[10px] uppercase tracking-wider font-bold text-[#8A9BB4] mt-2">THIS MONTH</div>
+                      </div>
                     </div>
-                    <div className="text-center border-l border-white/10">
-                      <h4 className="text-xl sm:text-2xl font-bold">{viewing.experience || "0"}+ Yrs</h4>
-                      <p className="text-[9px] font-bold text-white/75 uppercase tracking-wider mt-1">Experience</p>
+
+                    {(() => {
+                      const cal = attendanceCalendar(viewing);
+                      const monthLabel = new Date(cal.year, cal.month, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+                      const datedRecords = Object.entries(cal.records)
+                        .filter(([date]) => date.startsWith(`${cal.year}-${String(cal.month + 1).padStart(2, "0")}`))
+                        .sort(([a], [b]) => b.localeCompare(a));
+                      return (
+                        <>
+                          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-lg bg-[#EAF2FF] flex items-center justify-center"><Calendar size={15} className="text-[#1261C9]" /></div>
+                                <h3 className="text-sm font-extrabold">{monthLabel} Calendar</h3>
+                              </div>
+                              <div className="flex items-center gap-3 text-[10px] text-[#8290A7]">
+                                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#D5F7E5]" />Present</span>
+                                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#FFE0E0]" />Absent</span>
+                                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#FFF0C7]" />Late</span>
+                              </div>
+                            </div>
+                            <div className="p-5">
+                              <div className="grid grid-cols-7 text-center mb-3">
+                                {['SU','MO','TU','WE','TH','FR','SA'].map(d => <div key={d} className="text-[9px] font-bold text-[#8A9BB4] py-2">{d}</div>)}
+                              </div>
+                              <div className="grid grid-cols-7 gap-1.5">
+                                {cal.cells.map((cell, i) => (
+                                  <div key={`${cell.date || 'blank'}-${i}`} className={`min-h-[72px] rounded-lg flex items-center justify-center text-[11px] font-semibold ${cell.day ? attendanceStatusClass(cell.status) : ''} ${cell.day && !cell.status ? 'text-[#14213D]' : ''} ${!cell.day ? 'bg-transparent' : ''}`}>
+                                    {cell.day || ''}
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="mt-4 border-t border-gray-100 pt-3 space-y-0">
+                                {datedRecords.length ? datedRecords.map(([date, status]) => {
+                                  const d = new Date(`${date}T00:00:00`);
+                                  return (
+                                    <div key={date} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-b-0 text-xs">
+                                      <span className="font-semibold text-[#14213D]">{d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'long' })}</span>
+                                      <span className="px-2.5 py-1 rounded-full bg-[#EEF5FF] text-[#1261C9] text-[10px] font-bold">{attendanceStatusLabel(status)}</span>
+                                    </div>
+                                  );
+                                }) : (
+                                  <div className="py-3 text-center text-xs text-[#94A3B8]">No dated attendance records available for this month.</div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                        </>
+                      );
+                    })()}
+                  </>
+                )}
+
+                {profileTab === "payroll" && (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="px-5 py-4 border-b border-gray-100"><h3 className="font-extrabold text-sm">Salary Structure</h3></div>
+                    <div className="p-5 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="p-4 rounded-xl bg-[#F7F9FF]"><p className="text-xs text-gray-500">Monthly</p><p className="text-xl font-extrabold mt-2">₹{Number(viewing.salary || viewing.monthlySalary || 0).toLocaleString("en-IN")}</p></div>
+                        <div className="p-4 rounded-xl bg-[#F7F9FF]"><p className="text-xs text-gray-500">PF</p><p className="text-xl font-extrabold mt-2">{viewing.pfDeduction || 0}%</p></div>
+                        <div className="p-4 rounded-xl bg-[#F7F9FF]"><p className="text-xs text-gray-500">TDS</p><p className="text-xl font-extrabold mt-2">{viewing.tdsDeduction || 0}%</p></div>
+                      </div>
+                      <div className="p-4 rounded-xl bg-[#F0FFF8] border border-[#B7F0D4]"><p className="text-xs font-bold text-emerald-600">Estimated Net Salary</p><p className="text-2xl font-extrabold text-emerald-600 mt-1">₹{estimatedNet(viewing).toLocaleString("en-IN")}</p></div>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {profileTab === "payslip" && (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="px-5 py-4 border-b border-gray-100"><h3 className="font-extrabold text-sm">Payslip Downloads</h3></div>
+                    <div className="p-5 space-y-2">{payslipList(viewing).map((p: any) => <div key={p.month} className="flex items-center justify-between p-3 rounded-xl border border-gray-100"><div><p className="text-xs font-bold">{p.month}</p><p className="text-[10px] text-gray-400">₹{p.amount.toLocaleString("en-IN")}</p></div><button type="button" className="text-[#1261C9] text-xs font-bold flex items-center gap-1"><DownloadCloud size={14} /> Download</button></div>)}</div>
+                  </div>
+                )}
               </div>
 
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-1.5 flex gap-1 overflow-x-auto no-scrollbar">
-                {[
-                  { id: "overview", label: "Overview", icon: UserRound },
-                  { id: "attendance", label: "Attendance Log", icon: Calendar },
-                  { id: "payroll", label: "Salary Details", icon: IndianRupee },
-                  { id: "payslip", label: "Payslip Downloads", icon: FileText },
-                ].map((tab) => (
-                  <button key={tab.id} onClick={() => setProfileTab(tab.id as any)} className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 whitespace-nowrap transition-all ${profileTab === tab.id ? "bg-[#F0F4E8] text-[#5B7023]" : "text-gray-500 hover:bg-gray-50"}`}>
-                    <tab.icon size={13} /> {tab.label}
-                  </button>
-                ))}
-              </div>
+              {/* RIGHT SIDEBAR */}
+              <aside className="space-y-4">
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 text-center">
+                  <div className="w-20 h-20 mx-auto rounded-full border-4 border-[#DCE7FF] bg-[#4B43DF] text-white flex items-center justify-center overflow-hidden shadow-sm">
+                    {viewing.photoDataUrl ? <img src={viewing.photoDataUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-2xl font-semibold">{getInitials(viewing)}</span>}
+                  </div>
+                  <h3 className="font-extrabold text-base mt-4">{viewing.name || `${viewing.firstName || ""} ${viewing.lastName || ""}`.trim() || "Staff Member"}</h3>
+                  <p className="text-[11px] text-gray-400 mt-1">{viewing.email || "No email linked"}</p>
+                  <span className="inline-block mt-3 px-2.5 py-1 rounded-md bg-gray-100 text-[10px] font-bold text-gray-600">{getDisplayEmpId(viewing)}</span>
 
-              {profileTab === "overview" && (
-                <>
-                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div className="p-5 border-b border-gray-100 flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-[#F0F4E8] flex items-center justify-center"><UserRound size={15} className="text-[#5B7023]"/></div>
-                      <h3 className="text-sm font-bold text-gray-800">Complete Profile</h3>
-                    </div>
-                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <InfoItem label="First & Last Name" value={viewing.name || `${viewing.firstName || ""} ${viewing.lastName || ""}`.trim()} />
-                      <InfoItem label="Personal Mobile" value={viewing.phone} />
-                      <InfoItem label="Email Account" value={viewing.email} />
-                      <InfoItem label="ID Number" value={getDisplayEmpId(viewing)} />
-                      <InfoItem label="Joining Details" value={formatDate(viewing.joinDate)} />
-                      <div className="md:col-span-2">
-                        <InfoItem label="Educational Qualifications" value={viewing.qualification ? viewing.qualification.split(',').map((q: string) => <span key={q} className="inline-block bg-gray-100 px-2 py-0.5 rounded text-xs font-semibold mr-1.5 mb-1.5">{q.trim()}</span>) : "—"} />
-                      </div>
-
-                      {/* SUBJECTS TAUGHT DETAILS IN PROFILE */}
-                      <div className="md:col-span-2">
-                        <InfoItem 
-                          label="Subjects & Courses Taught" 
-                          value={
-                            Array.isArray(viewing.subjectsTaught) && viewing.subjectsTaught.some((st: any) => st.course || st.subject)
-                              ? (
-                                <div className="space-y-1.5 mt-1">
-                                  {viewing.subjectsTaught.map((st: any, i: number) => {
-                                    if (!st.course && !st.subject) return null;
-                                    return (
-                                      <div key={i} className="inline-flex flex-wrap items-center gap-1.5 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg text-xs mr-2 mb-1">
-                                        {st.course && <span className="font-bold text-gray-700">{st.course}</span>}
-                                        {st.course && st.subject && <span className="text-gray-300">•</span>}
-                                        {st.subject && <span className="font-semibold text-[#5B7023]">{st.subject}</span>}
-                                        {st.batch && <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded text-[10px] font-bold ml-1">{st.batch}</span>}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )
-                              : viewing.subject || "No specialized subject assignments."
-                          } 
-                        />
-                      </div>
-                      
-                      <InfoItem label="Prior Tenure" value={viewing.experience ? `${viewing.experience} Years` : "—"} />
-                      <InfoItem label="Role Designation" value={viewing.positionTitle || viewing.role || "Faculty"} />
-                      
-                      <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <InfoItem 
-                          label="Correspondence Address" 
-                          value={
-                            [
-                              viewing.localAddress || viewing.address, 
-                              viewing.localDistrict || viewing.documents?.find((d: any) => d.label === META_DISTRICT_KEY)?.name, 
-                              viewing.localState || viewing.documents?.find((d: any) => d.label === META_STATE_KEY)?.name, 
-                              (viewing.localPin || viewing.documents?.find((d: any) => d.label === META_PIN_KEY)?.name) ? `PIN: ${viewing.localPin || viewing.documents?.find((d: any) => d.label === META_PIN_KEY)?.name}` : ""
-                            ].filter(Boolean).join(", ") || "No address added"
-                          } 
-                        />
-                        <InfoItem 
-                          label="Permanent Address" 
-                          value={
-                            [
-                              viewing.permanentAddress || viewing.documents?.find((d: any) => d.label === META_PERM_ADDRESS_KEY)?.name, 
-                              viewing.permanentDistrict || viewing.documents?.find((d: any) => d.label === META_PERM_DISTRICT_KEY)?.name, 
-                              viewing.permanentState || viewing.documents?.find((d: any) => d.label === META_PERM_STATE_KEY)?.name, 
-                              (viewing.permanentPin || viewing.documents?.find((d: any) => d.label === META_PERM_PIN_KEY)?.name) ? `PIN: ${viewing.permanentPin || viewing.documents?.find((d: any) => d.label === META_PERM_PIN_KEY)?.name}` : ""
-                            ].filter(Boolean).join(", ") || "No address added"
-                          } 
-                        />
-                      </div>
+                  <div className="mt-5 pt-5 border-t border-gray-100 text-left">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-[#94A3B8]">Salary Structure</p>
+                    <div className="mt-3 p-3 rounded-xl bg-[#F7F9FF] border border-[#E2E8F5] space-y-3">
+                      <div className="flex justify-between text-xs"><span className="text-gray-500">Monthly</span><b>₹{Number(viewing.salary || viewing.monthlySalary || 0).toLocaleString("en-IN")}</b></div>
+                      <div className="flex justify-between text-xs"><span className="text-gray-400">PF</span><span className="text-gray-400">{viewing.pfDeduction || 0}%</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-gray-400">TDS</span><span className="text-gray-400">{viewing.tdsDeduction || 0}%</span></div>
                     </div>
                   </div>
-                </>
-              )}
 
-              {profileTab === "attendance" && (
-                <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm text-center">
-                  <Calendar size={32} className="mx-auto text-gray-300 mb-2" />
-                  <h4 className="text-sm font-bold text-gray-700">Attendance Register</h4>
-                  <p className="text-xs text-gray-400 max-w-xs mx-auto mt-1">This user has maintained a 100% standard attendance during active working days.</p>
-                </div>
-              )}
+                  <div className="mt-4 p-4 rounded-xl bg-[#F0FFF8] border border-[#A9EACD] text-left">
+                    <div className="flex items-center justify-between"><span className="text-[10px] uppercase font-bold text-emerald-600">THIS MONTH</span><b className="text-2xl text-emerald-600">{attendancePercent(viewing)}%</b></div>
+                    <div className="h-1.5 bg-[#CFF4E2] rounded-full mt-3"><div className="h-full bg-[#19B97A] rounded-full" style={{width:`${attendancePercent(viewing)}%`}} /></div>
+                    <div className="flex gap-4 text-[10px] mt-2"><span className="text-emerald-700">✓ {attendanceStats(viewing).present} present</span><span className="text-red-500">✕ {attendanceStats(viewing).absent} absent</span></div>
+                  </div>
 
-              {profileTab === "payroll" && (
-                <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-4">
-                  <h4 className="text-sm font-bold text-[#5B7023] flex items-center gap-1.5"><IndianRupee size={16} /> Salary Component</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
-                    <div className="bg-gray-50 p-3 rounded-xl">
-                      <p className="text-[10px] text-gray-400 font-bold uppercase">Basic Gross</p>
-                      <p className="text-lg font-extrabold text-gray-800 mt-1">₹{Number(viewing.salary || 0).toLocaleString("en-IN")}</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-xl">
-                      <p className="text-[10px] text-gray-400 font-bold uppercase">PF Deduction</p>
-                      <p className="text-lg font-extrabold text-red-600 mt-1">{viewing.pfDeduction || "0"}%</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-xl">
-                      <p className="text-[10px] text-gray-400 font-bold uppercase">TDS Deducted</p>
-                      <p className="text-lg font-extrabold text-red-500 mt-1">{viewing.tdsDeduction || "0"}%</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-xl">
-                      <p className="text-[10px] text-gray-400 font-bold uppercase">Estimated Net</p>
-                      <p className="text-lg font-extrabold text-emerald-600 mt-1">
-                        ₹{(Number(viewing.salary || 0) * (1 - (Number(viewing.pfDeduction || 0) + Number(viewing.tdsDeduction || 0)) / 100)).toLocaleString("en-IN")}
-                      </p>
-                    </div>
+                  <Button onClick={() => openEdit(viewing)} className="w-full mt-4 bg-[#1267D3] hover:bg-[#0D55B5] text-white rounded-xl h-11 text-xs font-extrabold"><Pencil size={14} className="mr-2" /> Edit Profile</Button>
+                  <Button onClick={backToList} variant="outline" className="w-full mt-2 border-gray-200 text-gray-600 rounded-xl h-11 text-xs font-bold hover:bg-gray-50">← Back to Staff List</Button>
+
+                  <div className="mt-5 pt-4 border-t border-gray-100 text-left space-y-2 text-[10px] text-gray-400">
+                    <p>▣ Member since {formatDate(viewing.joinDate)}</p>
+                    <p>▣ Joined {formatDate(viewing.joinDate)}</p>
+                    <p>◷ Last login: {viewing.lastLogin || "Not available"}</p>
                   </div>
                 </div>
-              )}
-
-              {profileTab === "payslip" && (
-                <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm text-center">
-                  <FileText size={32} className="mx-auto text-gray-300 mb-2" />
-                  <h4 className="text-sm font-bold text-gray-700">Digital Payslips</h4>
-                  <p className="text-xs text-gray-400 max-w-xs mx-auto mt-1">Monthly verified payslip items appear automatically once accounting periods close.</p>
-                </div>
-              )}
+              </aside>
             </div>
-            
-            <div className="lg:col-span-1 space-y-6">
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-center">
-                <div className="w-24 h-24 rounded-full mx-auto mb-4 border-4 border-[#F0F4E8] overflow-hidden bg-gray-50 flex items-center justify-center shadow-sm">
-                  {viewing.photoDataUrl ? ( <img src={viewing.photoDataUrl} alt="" className="w-full h-full object-cover" /> ) : ( <UserRound size={36} className="text-gray-400"/> )}
-                </div>
-                <h3 className="font-bold text-lg text-gray-800 leading-tight">{viewing.name || `${viewing.firstName || ""} ${viewing.lastName || ""}`.trim() || "Staff Member"}</h3>
-                <p className="text-xs text-gray-400 mt-1">{viewing.email || "No email linked"}</p>
-              </div>
 
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="bg-gray-50/70 p-4 border-b border-gray-100"><p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Remuneration Reference</p></div>
-                <div className="p-5 space-y-3.5">
-                  <div className="flex justify-between items-center"><p className="text-xs text-gray-500 font-semibold">Value Assigned</p><p className="text-base font-bold text-gray-950">₹{Number(viewing.salary || 0).toLocaleString("en-IN")}</p></div>
+            {(profileTab === "overview" || profileTab === "attendance") && (
+              <div className="mt-5 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden w-full">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-[#EAF2FF] flex items-center justify-center"><FolderOpen size={15} className="text-[#1261C9]" /></div>
+                    <h3 className="text-sm font-extrabold">Documents</h3>
+                  </div>
+                  <input ref={viewDocInputRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={handleViewDocumentUpload} />
+                  <Button type="button" onClick={() => viewDocInputRef.current?.click()} className="h-9 px-4 rounded-xl bg-[#1261C9] hover:bg-[#0D55B5] text-white text-xs font-bold"><Plus size={14} className="mr-1.5" /> Upload</Button>
+                </div>
+                <div className="p-5">
+                  {viewDocuments(viewing).length ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                      {viewDocuments(viewing).map((doc: any, i: number) => (
+                        <div key={`${doc.name}-${i}`} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText size={17} className="text-[#1261C9] shrink-0" />
+                            <div className="min-w-0"><p className="text-xs font-bold truncate">{doc.label || doc.name}</p><p className="text-[10px] text-gray-400 truncate">{doc.name}</p></div>
+                          </div>
+                          {doc.dataUrl && <a href={doc.dataUrl} target="_blank" rel="noreferrer" className="text-[#1261C9] shrink-0"><DownloadCloud size={15} /></a>}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="min-h-[145px] flex flex-col items-center justify-center text-center"><FolderOpen size={34} className="text-[#CBD5E1]" /><p className="text-xs text-[#94A3B8] mt-3">No documents uploaded yet.</p></div>
+                  )}
                 </div>
               </div>
-
-              <div className="space-y-2">
-                <Button onClick={() => openEdit(viewing)} className="w-full bg-[#5B7023] hover:bg-[#4a5c1d] text-white rounded-xl h-11 text-xs font-bold shadow-sm transition-all">
-                  <Pencil size={15} className="mr-2" /> Modify Profile details
-                </Button>
-                <Button onClick={backToList} variant="outline" className="w-full border-gray-200 text-gray-600 rounded-xl h-11 text-xs font-bold hover:bg-gray-50 transition-all">
-                  <ArrowLeft size={15} className="mr-2" /> Back to Faculty List
-                </Button>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       ) : (
         /* =========================== LIST VIEW ============================== */
-        <div className="p-6 max-w-7xl mx-auto space-y-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-              <h1 className="text-3xl font-extrabold text-[#5B7023] leading-none">{pageTitle}</h1>
-              <p className="text-gray-500 text-xs sm:text-sm mt-1">{totalStaffCount} listed professionals under verification</p>
-            </div>
-            <div className="flex items-center gap-2.5 w-full sm:w-auto">
-              <Button onClick={openAdd} className="bg-[#5B7023] hover:bg-[#4a5c1d] text-white rounded-xl gap-2 text-xs font-bold shadow-md w-full sm:w-auto transition-all"><Plus size={16} /> Add Staff Profile</Button>
-            </div>
-          </div>
+        <div className="min-h-full bg-[#E9EEF5] px-4 sm:px-6 lg:px-7 py-5 sm:py-6">
+          <div className="max-w-[1400px] mx-auto space-y-5">
+            {/* ================= HEADER ================= */}
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div>
+                <h1 className="text-2xl sm:text-[28px] font-extrabold text-[#1261C9] tracking-tight">{pageTitle === "Staff Directory" ? "Staff" : pageTitle}</h1>
+                <p className="text-sm text-[#64748B] mt-0.5">{totalStaffCount} staff members · Manage your team</p>
+              </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="bg-[#F4F7EE] p-3 rounded-xl text-[#5B7023]"><Users size={22} /></div>
-              <div><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Staff</p><h3 className="text-2xl font-bold text-gray-900 mt-0.5">{totalStaffCount}</h3></div>
-            </div>
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="bg-[#EBF7F0] p-3 rounded-xl text-emerald-600"><CheckCircle2 size={22} /></div>
-              <div><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Active Status</p><h3 className="text-2xl font-bold text-gray-900 mt-0.5">{activeCount}</h3></div>
-            </div>
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="bg-[#FFF6E9] p-3 rounded-xl text-amber-600"><Calendar size={22} /></div>
-              <div><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Lectures scheduled</p><h3 className="text-2xl font-bold text-gray-900 mt-0.5">6</h3></div>
-            </div>
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="bg-[#F3EFFF] p-3 rounded-xl text-purple-600"><IndianRupee size={22} /></div>
-              <div><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Payroll Baseline</p><h3 className="text-2xl font-bold text-gray-900 mt-0.5">₹{totalSalarySum.toLocaleString("en-IN")}</h3></div>
-            </div>
-          </div>
-
-          {/* Designation tabs layer */}
-          <div className="flex flex-wrap items-center gap-1.5 pb-2 overflow-x-auto no-scrollbar">
-            {designationTabs.map((tab) => {
-              const count = tab === "All Staff" 
-                ? filteredStaff.length 
-                : currentStaffList.filter(m => (m.positionTitle || m.role || "").toLowerCase() === tab.toLowerCase()).length;
-              return (
+              <div className="flex items-center gap-2 w-full lg:w-auto">
                 <button
-                  key={tab}
-                  onClick={() => setDesignationTab(tab)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap border ${
-                    designationTab === tab 
-                      ? "bg-[#5B7023] text-white border-[#5B7023] shadow-sm" 
-                      : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
-                  }`}
+                  type="button"
+                  className="h-10 px-4 rounded-xl bg-white border border-gray-200 text-[#1F2937] text-sm font-semibold shadow-sm hover:shadow-md transition flex items-center gap-2"
                 >
-                  {tab} ({count})
+                  <Calendar size={15} className="text-[#2563EB]" />
+                  Work Shifts
                 </button>
-              );
-            })}
-          </div>
 
-          <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center gap-3">
-            <div className="relative flex-1 w-full pl-2">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search via name, employee code, subject, course, batch..." className="w-full pl-9 pr-4 py-1.5 text-xs sm:text-sm bg-transparent border-none focus:outline-none" />
-            </div>
-            
-            <div className="flex flex-wrap items-center gap-2 pr-1 w-full md:w-auto shrink-0 justify-end">
-              <button onClick={() => setStatusFilter("all")} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${statusFilter === "all" ? "bg-[#F0F4E8] text-[#5B7023] border-[#5B7023]" : "border-gray-200 text-gray-500"}`}>All ({totalStaffCount})</button>
-              <button onClick={() => setStatusFilter("active")} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${statusFilter === "active" ? "bg-[#F0F4E8] text-[#5B7023] border-[#5B7023]" : "border-gray-200 text-gray-500"}`}>Active ({activeCount})</button>
-              <button onClick={() => setStatusFilter("inactive")} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${statusFilter === "inactive" ? "bg-[#F0F4E8] text-[#5B7023] border-[#5B7023]" : "border-gray-200 text-gray-500"}`}>Inactive ({inactiveCount})</button>
-              <div className="flex bg-gray-100 p-1 rounded-lg ml-1">
-                <button onClick={() => setViewType("grid")} className={`p-1.5 rounded-md transition-all ${viewType === "grid" ? "bg-[#5B7023] text-white" : "text-gray-400 hover:text-gray-600"}`}><LayoutGrid size={14} /></button>
-                <button onClick={() => setViewType("list")} className={`p-1.5 rounded-md transition-all ${viewType === "list" ? "bg-[#5B7023] text-white" : "text-gray-400 hover:text-gray-600"}`}><List size={14} /></button>
+                <button
+                  type="button"
+                  className="h-10 px-4 rounded-xl bg-white border border-gray-200 text-[#1F2937] text-sm font-semibold shadow-sm hover:shadow-md transition flex items-center gap-2"
+                >
+                  <Upload size={15} className="text-[#64748B]" />
+                  Import
+                  <ChevronDown size={14} className="text-gray-400" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openAdd}
+                  className="h-10 px-4 sm:px-5 rounded-xl bg-[#0757B8] hover:bg-[#064A9D] text-white text-sm font-bold shadow-[0_5px_15px_rgba(7,87,184,0.25)] transition flex items-center justify-center gap-2 ml-auto lg:ml-0"
+                >
+                  <Plus size={16} />
+                  Add New Staff
+                </button>
               </div>
             </div>
-          </div>
 
-          {isLoading ? (
-            <div className="bg-white rounded-2xl p-16 text-center text-gray-400 border border-gray-100 shadow-sm">Loading staff profiles...</div>
-          ) : filteredStaff.length === 0 ? (
-            <div className="bg-white rounded-2xl p-16 text-center text-gray-400 border border-gray-100 shadow-sm">No profiles correspond to selected parameters.</div>
-          ) : viewType === "grid" ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filteredStaff.map((member: any, index: number) => {
-                const memberId = member.id || member._id;
-                const displayName = member.name || `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim() || "Staff Member";
+            {/* ================= SUMMARY CARDS ================= */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm px-5 py-4 flex items-center gap-4 min-h-[104px]">
+                <div className="w-12 h-12 rounded-2xl bg-[#EEF4FC] text-[#1464C8] flex items-center justify-center shrink-0">
+                  <Users size={23} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#8290A5]">Total Staff</p>
+                  <p className="text-2xl font-extrabold text-[#0F172A] leading-none mt-1">{totalStaffCount}</p>
+                  <p className="text-[11px] text-[#64748B] mt-1">{activeCount} active</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm px-5 py-4 flex items-center gap-4 min-h-[104px]">
+                <div className="w-12 h-12 rounded-2xl bg-[#DDF8EA] text-[#059669] flex items-center justify-center shrink-0">
+                  <CheckCircle2 size={23} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#8290A5]">Active</p>
+                  <p className="text-2xl font-extrabold text-[#0F172A] leading-none mt-1">{activeCount}</p>
+                  <p className="text-[11px] text-[#64748B] mt-1">{inactiveCount} inactive</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm px-5 py-4 flex items-center gap-4 min-h-[104px]">
+                <div className="w-12 h-12 rounded-2xl bg-[#FFF1CC] text-[#F59E0B] flex items-center justify-center shrink-0">
+                  <Calendar size={23} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#8290A5]">Today's Classes</p>
+                  <p className="text-2xl font-extrabold text-[#0F172A] leading-none mt-1">6</p>
+                  <p className="text-[11px] text-[#64748B] mt-1">scheduled today</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm px-5 py-4 flex items-center gap-4 min-h-[104px]">
+                <div className="w-12 h-12 rounded-2xl bg-[#EEE9FF] text-[#6D4AEF] flex items-center justify-center shrink-0">
+                  <IndianRupee size={23} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#8290A5]">Total Salary/Mo</p>
+                  <p className="text-2xl font-extrabold text-[#0F172A] leading-none mt-1">₹{totalSalarySum.toLocaleString("en-IN")}</p>
+                  <p className="text-[11px] text-[#64748B] mt-1">payroll this month</p>
+                </div>
+              </div>
+            </div>
+
+            {/* ================= SEARCH + STATUS ================= */}
+            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-3 flex flex-col lg:flex-row items-center gap-3">
+              <div className="relative flex-1 w-full">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#64748B]" size={17} />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by name, subject, employee ID..."
+                  className="w-full h-10 pl-10 pr-4 rounded-xl border border-[#9AAAC0] bg-white text-sm text-gray-800 placeholder:text-[#7A8798] focus:outline-none focus:ring-2 focus:ring-[#1D6FD1]/20 focus:border-[#1D6FD1]"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 w-full lg:w-auto shrink-0 justify-end">
+                <button type="button" onClick={() => setStatusFilter("all")} className={`h-10 px-4 rounded-xl text-xs font-bold border transition ${statusFilter === "all" ? "bg-[#F1F7FF] text-[#0757B8] border-[#1464C8]" : "bg-white text-[#334155] border-[#9AAAC0] hover:bg-gray-50"}`}>
+                  All ({totalStaffCount})
+                </button>
+                <button type="button" onClick={() => setStatusFilter("active")} className={`h-10 px-4 rounded-xl text-xs font-bold border transition ${statusFilter === "active" ? "bg-[#F1F7FF] text-[#0757B8] border-[#1464C8]" : "bg-white text-[#334155] border-[#9AAAC0] hover:bg-gray-50"}`}>
+                  Active ({activeCount})
+                </button>
+                <button type="button" onClick={() => setStatusFilter("inactive")} className={`h-10 px-4 rounded-xl text-xs font-bold border transition ${statusFilter === "inactive" ? "bg-[#F1F7FF] text-[#0757B8] border-[#1464C8]" : "bg-white text-[#334155] border-[#9AAAC0] hover:bg-gray-50"}`}>
+                  Inactive ({inactiveCount})
+                </button>
+                <div className="flex items-center border border-[#9AAAC0] rounded-xl overflow-hidden bg-white ml-0.5">
+                  <button type="button" onClick={() => setViewType("grid")} className={`h-10 w-10 flex items-center justify-center transition ${viewType === "grid" ? "bg-[#1464C8] text-white" : "text-[#64748B] hover:bg-gray-50"}`} title="Grid view"><LayoutGrid size={17} /></button>
+                  <button type="button" onClick={() => setViewType("list")} className={`h-10 w-10 flex items-center justify-center transition border-l border-[#9AAAC0] ${viewType === "list" ? "bg-[#1464C8] text-white" : "text-[#64748B] hover:bg-gray-50"}`} title="List view"><List size={17} /></button>
+                </div>
+              </div>
+            </div>
+
+            {/* ================= DESIGNATION TABS ================= */}
+            <div className="flex flex-wrap items-center gap-2 overflow-x-auto no-scrollbar">
+              {designationTabs.map((tab) => {
+                const count = tab === "All Staff"
+                  ? currentStaffList.length
+                  : currentStaffList.filter(m => (m.positionTitle || m.role || "").toLowerCase() === tab.toLowerCase()).length;
                 return (
-                  <div key={memberId} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition duration-200 flex flex-col justify-between relative">
-                    
-                    {/* Serial Badge */}
-                    <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-[#F0F4E8] text-[#5B7023] text-[10px] font-bold flex items-center justify-center border border-[#D8E1C8]">
-                      {index + 1}
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between items-start gap-2 mb-4 pr-6">
-                        <div className="flex items-center gap-3">
-                          {member.photoDataUrl ? (
-                            <img src={member.photoDataUrl} alt="" className="w-12 h-12 rounded-full object-cover border" />
-                          ) : (
-                            <div className="w-12 h-12 rounded-full bg-[#F0F4E8] text-[#5B7023] font-extrabold flex items-center justify-center text-sm">{displayName.charAt(0).toUpperCase()}</div>
-                          )}
-                          <div>
-                            <h4 className="font-bold text-gray-800 text-sm leading-tight">{displayName}</h4>
-                            <p className="text-[11px] text-[#5B7023] font-semibold mt-0.5 truncate max-w-[130px]">{member.positionTitle || member.role || "Staff Member"}</p>
-                          </div>
-                        </div>
-                        <button type="button" onClick={() => toggleStatus(member)} className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase transition hover:opacity-85 border ${ (member.status ?? "active") === "active" ? "bg-green-100 text-green-700 border-green-200" : "bg-gray-100 text-gray-600 border-gray-200" }`}>
-                          {member.status ?? "active"}
-                        </button>
-                      </div>
-                      <div className="space-y-1.5 text-xs text-gray-600 border-t border-b border-gray-50 py-3 mb-4">
-                        <div className="flex items-center gap-2"><Mail size={13} className="text-gray-400 shrink-0" /><span className="truncate">{member.email || "—"}</span></div>
-                        <div className="flex items-center gap-2"><Phone size={13} className="text-gray-400 shrink-0" /><span>{member.phone || "—"}</span></div>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center text-[11px]">
-                      <span className="text-gray-400 font-semibold uppercase">ID: {getDisplayEmpId(member)}</span>
-                      <div className="flex gap-1.5">
-                        <button type="button" onClick={() => openView(member)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600 transition" title="View Profile"><Eye size={14} /></button>
-                        <button type="button" onClick={() => openEdit(member)} className="p-1.5 hover:bg-gray-50 rounded-lg text-gray-600 transition" title="Edit Profile"><Pencil size={14} /></button>
-                        <button type="button" onClick={() => deleteStaff(memberId)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-600 transition" title="Delete Profile"><Trash2 size={14} /></button>
-                      </div>
-                    </div>
-                  </div>
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setDesignationTab(tab)}
+                    className={`h-9 px-4 rounded-xl text-xs font-bold whitespace-nowrap border transition ${designationTab === tab
+                      ? "bg-[#0757B8] text-white border-[#0757B8] shadow-[0_4px_10px_rgba(7,87,184,0.22)]"
+                      : "bg-white text-[#334155] border-[#9AAAC0] hover:border-[#1464C8] hover:text-[#0757B8]"}`}
+                  >
+                    {tab} ({count})
+                  </button>
                 );
               })}
             </div>
-          ) : (
-            <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[700px]">
-                  <thead>
-                    <tr className="bg-gray-50/70 border-b border-gray-100 text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-                      <th className="p-4 pl-6 w-14 text-center">S.No.</th>
-                      <th className="p-4">Profile Details</th>
-                      <th className="p-4">Staff Role Type</th>
-                      <th className="p-4">System Contact</th>
-                      <th className="p-4">Status</th>
-                      <th className="p-4 pr-6 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50 text-xs sm:text-sm">
-                    {filteredStaff.map((member: any, index: number) => {
-                      const memberId = member.id || member._id;
-                      const displayName = member.name || `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim() || "Staff Member";
-                      return (
-                        <tr key={memberId} className="hover:bg-gray-50/30 transition">
-                          <td className="p-4 pl-6 text-center">
-                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-[#F0F4E8] text-[#5B7023] text-xs font-bold">
-                              {index + 1}
-                            </span>
-                          </td>
-                          <td className="p-4 font-semibold text-gray-800 flex items-center gap-3">
-                            {member.photoDataUrl ? ( 
-                              <img src={member.photoDataUrl} alt="" className="w-8 h-8 rounded-full object-cover border" /> 
-                            ) : ( 
-                              <div className="w-8 h-8 rounded-full bg-[#F0F4E8] text-[#5B7023] font-extrabold flex items-center justify-center text-xs">{displayName.charAt(0).toUpperCase()}</div> 
-                            )}
-                            <div><div className="text-sm font-bold text-gray-800 leading-tight">{displayName}</div><div className="text-[10px] text-gray-400 font-semibold tracking-wider mt-0.5 uppercase">ID: {getDisplayEmpId(member)}</div></div>
-                          </td>
-                          <td className="p-4 text-gray-600 text-xs font-semibold">{member.positionTitle || member.role || "—"}</td>
-                          <td className="p-4 text-gray-600 text-xs"><div>{member.phone}</div><div className="text-gray-400">{member.email}</div></td>
-                          <td className="p-4">
-                            <button type="button" onClick={() => toggleStatus(member)} className={`px-2.5 py-1 rounded-md text-[9px] font-bold uppercase transition hover:opacity-85 border ${ (member.status ?? "active") === "active" ? "bg-green-100 text-green-700 border-green-200" : "bg-gray-100 text-gray-600 border-gray-200" }`}>{member.status ?? "active"}</button>
-                          </td>
-                          <td className="p-4 pr-6 text-right">
-                            <div className="flex justify-end gap-1">
-                              <button type="button" onClick={() => openView(member)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600 transition" title="View Profile"><Eye size={14} /></button>
-                              <button type="button" onClick={() => openEdit(member)} className="p-1.5 hover:bg-gray-50 rounded-lg text-gray-600 transition" title="Edit Profile"><Pencil size={14} /></button>
-                              <button type="button" onClick={() => deleteStaff(memberId)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-600 transition" title="Delete Profile"><Trash2 size={14} /></button>
+
+            {isLoading ? (
+              <div className="bg-white rounded-2xl p-16 text-center text-gray-400 border border-gray-100 shadow-sm">Loading staff profiles...</div>
+            ) : filteredStaff.length === 0 ? (
+              <div className="bg-white rounded-2xl p-16 text-center text-gray-400 border border-gray-100 shadow-sm">No profiles correspond to selected parameters.</div>
+            ) : viewType === "grid" ? (
+              /* ================= GRID CARDS ================= */
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                {filteredStaff.map((member: any) => {
+                  const memberId = member.id || member._id;
+                  const displayName = member.name || `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim() || "Staff Member";
+                  const designation = member.positionTitle || member.role || "Staff Member";
+                  const subjects = Array.isArray(member.subjectsTaught)
+                    ? member.subjectsTaught.map((s: any) => s?.subject).filter(Boolean)
+                    : [];
+                  const fallbackSubject = member.subject ? String(member.subject).split(",")[0].trim() : "";
+                  const primarySubject = subjects[0] || fallbackSubject || designation;
+                  const assignedSubjects = Array.from(new Set(subjects.length ? subjects : (member.subject ? String(member.subject).split(",").map((x: string) => x.trim()).filter(Boolean) : [])));
+                  const experience = member.experience ? `${member.experience}${String(member.experience).toLowerCase().includes("yr") ? "" : " yrs"}` : "—";
+                  const joined = member.joinDate ? new Date(member.joinDate).toLocaleDateString("en-IN", { month: "short", year: "numeric" }) : "—";
+                  const isActive = (member.status ?? "active") === "active" || member.isActive === true;
+                  const staffTypeLabel = member.staffType === "computer" ? "COMPUTER" : designation.toLowerCase().includes("counsell") ? "COUNSELLOR" : "TEACHER";
+                  return (
+                    <div key={memberId} className="bg-white rounded-2xl border border-gray-200/90 shadow-sm overflow-hidden hover:shadow-md transition flex flex-col">
+                      <div className="p-5 pb-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-14 h-14 rounded-full overflow-hidden bg-[#EEF2F7] border border-gray-100 shadow-sm flex items-center justify-center shrink-0">
+                              {member.photoDataUrl ? (
+                                <img src={member.photoDataUrl} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-xl font-bold text-[#4F46E5]">{displayName.split(/\s+/).map((n: string) => n.charAt(0)).slice(0, 2).join("").toUpperCase()}</span>
+                              )}
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            <div className="min-w-0">
+                              <h3 className="text-[15px] font-extrabold text-[#0F172A] truncate">{displayName}</h3>
+                              <p className="text-xs text-[#55708F] mt-1 truncate">{primarySubject}</p>
+                              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                                <button type="button" onClick={() => toggleStatus(member)} className={`px-2.5 py-1 rounded-full text-[9px] font-extrabold tracking-wide ${isActive ? "bg-[#DDF8EA] text-[#087A57]" : "bg-gray-100 text-gray-600"}`}>
+                                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-current mr-1 align-middle" />{isActive ? "ACTIVE" : "INACTIVE"}
+                                </button>
+                                <span className="px-2.5 py-1 rounded-full bg-[#EEF4FC] text-[#1261C9] text-[9px] font-extrabold tracking-wide">{staffTypeLabel}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <button type="button" className="w-8 h-8 rounded-lg border border-gray-200 text-[#64748B] flex items-center justify-center hover:bg-gray-50 shrink-0" title="More actions">
+                            <MoreVertical size={17} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-gray-100 bg-[#F8FAFC] px-5 py-3.5 grid grid-cols-2 gap-x-6 gap-y-3">
+                        <div>
+                          <p className="text-[9px] font-bold text-[#8A99AD] uppercase tracking-wider">Experience</p>
+                          <p className="text-xs font-semibold text-[#1E293B] mt-1">{experience}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-bold text-[#8A99AD] uppercase tracking-wider">Emp ID</p>
+                          <p className="text-xs font-semibold text-[#1E293B] mt-1">{getDisplayEmpId(member)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-bold text-[#8A99AD] uppercase tracking-wider">Phone</p>
+                          <p className="text-xs font-semibold text-[#1E293B] mt-1 truncate">{member.phone || "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-bold text-[#8A99AD] uppercase tracking-wider">Joined</p>
+                          <p className="text-xs font-semibold text-[#1E293B] mt-1">{joined}</p>
+                        </div>
+                      </div>
+
+                      <div className="px-5 py-3 min-h-[52px] border-t border-gray-100">
+                        {assignedSubjects.length ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {assignedSubjects.slice(0, 4).map((subject: string, i: number) => (
+                              <span key={`${subject}-${i}`} className="px-2.5 py-1 rounded-full bg-[#F2F6FF] border border-[#C9D8FF] text-[#1261C9] text-[10px] font-semibold">{subject}</span>
+                            ))}
+                            {assignedSubjects.length > 4 && <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-500 text-[10px] font-semibold">+{assignedSubjects.length - 4}</span>}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-[#A0ACBB]">No subjects assigned</span>
+                        )}
+                      </div>
+
+                      <div className="px-4 py-3 border-t border-gray-100 flex items-center gap-2">
+                        <button type="button" onClick={() => openView(member)} className="flex-1 h-9 rounded-xl border border-[#B9D1FF] text-[#1261C9] text-xs font-bold hover:bg-[#F3F7FF] transition flex items-center justify-center gap-1.5"><Eye size={14} /> View</button>
+                        <button type="button" onClick={() => openEdit(member)} className="flex-1 h-9 rounded-xl border border-[#B8EBCF] text-[#079455] text-xs font-bold hover:bg-[#F0FDF4] transition flex items-center justify-center gap-1.5"><Pencil size={14} /> Edit</button>
+                        <button type="button" onClick={() => member.email && (window.location.href = `mailto:${member.email}`)} className="w-11 h-9 rounded-xl border border-gray-200 text-[#64748B] hover:bg-gray-50 transition flex items-center justify-center" title="Email staff"><Mail size={14} /></button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          )}
+            ) : (
+              /* ================= LIST CARDS ================= */
+              <div className="space-y-3">
+                {filteredStaff.map((member: any) => {
+                  const memberId = member.id || member._id;
+                  const displayName = member.name || `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim() || "Staff Member";
+                  const designation = member.positionTitle || member.role || "Staff Member";
+                  const subjects = Array.isArray(member.subjectsTaught) ? member.subjectsTaught.map((s: any) => s?.subject).filter(Boolean) : [];
+                  const fallbackSubject = member.subject ? String(member.subject).split(",")[0].trim() : "";
+                  const primarySubject = subjects[0] || fallbackSubject || designation;
+                  const isActive = (member.status ?? "active") === "active" || member.isActive === true;
+                  return (
+                    <div key={memberId} className="bg-white rounded-2xl border border-gray-200/90 shadow-sm px-5 py-4 flex flex-col lg:flex-row lg:items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#EEF2F7] border border-gray-100 flex items-center justify-center shrink-0">
+                        {member.photoDataUrl ? <img src={member.photoDataUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-base font-bold text-[#4F46E5]">{displayName.split(/\s+/).map((n: string) => n.charAt(0)).slice(0, 2).join("").toUpperCase()}</span>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-sm font-extrabold text-[#0F172A]">{displayName}</h3>
+                          <span className={`px-2.5 py-1 rounded-full text-[9px] font-extrabold ${isActive ? "bg-[#DDF8EA] text-[#087A57]" : "bg-gray-100 text-gray-600"}`}>{isActive ? "● ACTIVE" : "● INACTIVE"}</span>
+                          <span className="px-2.5 py-1 rounded-full bg-[#EEF4FC] text-[#1261C9] text-[9px] font-extrabold">{member.staffType === "computer" ? "COMPUTER" : "TEACHER"}</span>
+                        </div>
+                        <p className="text-xs text-[#55708F] mt-1">{primarySubject}</p>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[10px] text-[#718096]">
+                          <span>▣ {getDisplayEmpId(member)}</span>
+                          <span>⌕ {member.phone || "—"}</span>
+                          <span>▣ {member.experience ? `${member.experience}${String(member.experience).toLowerCase().includes("yr") ? "" : " yrs"}` : "—"}</span>
+                          {subjects.length > 0 && <span>▧ {subjects.slice(0, 2).join(", ")}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button type="button" onClick={() => openView(member)} className="h-9 px-4 rounded-xl border border-[#B9D1FF] text-[#1261C9] text-xs font-bold hover:bg-[#F3F7FF] flex items-center gap-1.5"><Eye size={14} /> View</button>
+                        <button type="button" onClick={() => openEdit(member)} className="h-9 px-4 rounded-xl border border-[#B8EBCF] text-[#079455] text-xs font-bold hover:bg-[#F0FDF4] flex items-center gap-1.5"><Pencil size={14} /> Edit</button>
+                        <button type="button" className="w-9 h-9 rounded-xl border border-gray-200 text-[#64748B] flex items-center justify-center hover:bg-gray-50"><MoreVertical size={16} /></button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

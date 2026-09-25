@@ -16,6 +16,20 @@ function getInstituteIdForUser(req: any): string | null {
   return user?.instituteId ? String(user.instituteId) : null;
 }
 
+function getSubjectsTaught(staff: any): any[] {
+  if (Array.isArray(staff.subjectsTaught)) return staff.subjectsTaught;
+  const metadata = Array.isArray(staff.documents)
+    ? staff.documents.find((document: any) => document.label === "__SYSTEM_SUBJECTS_TAUGHT__")
+    : null;
+  if (!metadata?.name) return [];
+  try {
+    const parsed = JSON.parse(metadata.name);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function formatStaff(staff: any) {
   const empIdValue = staff.empId || staff.employeeId || "";
   return {
@@ -32,6 +46,8 @@ function formatStaff(staff: any) {
     positionTitle: staff.positionTitle ?? "",
     qualification: staff.qualification ?? "",
     subject: staff.subject ?? "",
+    subjectsTaught: getSubjectsTaught(staff),
+    batches: Array.isArray(staff.batches) ? staff.batches : [],
     experience: staff.experience ?? "",
     salary: staff.salary ?? 0,
     joinDate: staff.joinDate ?? "",
@@ -94,7 +110,7 @@ function formatStaff(staff: any) {
 function cleanBody(body: any) {
   const allowed = [
     "name", "firstName", "lastName", "email", "phone", "homePhone",
-    "role", "staffType", "positionTitle", "qualification", "subject", "experience",
+    "role", "staffType", "positionTitle", "qualification", "subject", "subjectsTaught", "batches", "experience",
     "salary", "joinDate", "status", "employeeStatus", "payRateType",
     "workTimingFrom", "workTimingTo", "contractWorkDetail",
     "gender", "dateOfBirth",
