@@ -72,6 +72,42 @@ function getAuthHeaders() {
   };
 }
 
+function extractArray(raw: any): any[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+
+  const direct = [
+    raw.data,
+    raw.staff,
+    raw.teachers,
+    raw.entries,
+    raw.items,
+    raw.results,
+    raw.records,
+  ];
+
+  for (const value of direct) {
+    if (Array.isArray(value)) return value;
+  }
+
+  if (raw.data && typeof raw.data === "object") {
+    const nested = extractArray(raw.data);
+    if (nested.length) return nested;
+  }
+
+  if (typeof raw === "object") {
+    for (const value of Object.values(raw)) {
+      if (Array.isArray(value)) return value as any[];
+      if (value && typeof value === "object") {
+        const nested = extractArray(value);
+        if (nested.length) return nested;
+      }
+    }
+  }
+
+  return [];
+}
+
 async function readApiError(response: Response) {
   try {
     const result = await response.json();
@@ -519,6 +555,25 @@ function resolveBatchName(entry: any, batchList: any[]) {
   return batchList.find((b) => String(b.id ?? b._id ?? "") === id)?.name ?? "";
 }
 
+function resolveSubjectName(entry: any, subjectList: any[]) {
+  if (entry?.subjectName && String(entry.subjectName).trim()) {
+    return String(entry.subjectName).trim();
+  }
+
+  const id = resolveId(entry?.subjectId);
+  const subject = subjectList.find(
+    (s: any) => String(s?.id ?? s?._id ?? "") === id
+  );
+
+  return String(
+    subject?.name ??
+      subject?.subject ??
+      subject?.title ??
+      subject?.label ??
+      ""
+  ).trim();
+}
+
 /* ───── DYNAMIC SHIFT AVAILABILITY CALCULATOR ───── */
 function calculateTeacherAvailability(teacherClasses: any[], shiftStart24 = "08:00", shiftEnd24 = "20:00") {
   const dayStartMins = time24ToMins(shiftStart24);
@@ -890,7 +945,7 @@ function SearchableDropdown({
       </button>
 
       {open && !disabled ? (
-        <div className="absolute z-50 mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+        <div className="absolute left-0 top-full z-[100] mt-1 w-full min-w-[220px] rounded-xl border border-slate-200 bg-white p-2 shadow-2xl">
           <Input
             autoFocus
             value={searchText}
@@ -997,10 +1052,11 @@ export default function Timetable() {
   };
   const currentDayName = new Date().toLocaleDateString("en-US", { weekday: "long" });
 
-  const allBatchList = (batches ?? []) as any[];
-  const allCourseList = (courses ?? []) as any[];
-  const allSubjectList = (subjects ?? []) as any[];
-  const staffList = (staff ?? []) as any[];
+  const allBatchList = extractArray(batches);
+  const allCourseList = extractArray(courses);
+  const allSubjectList = extractArray(subjects);
+  const staffList = extractArray(staff);
+
 
   const courseList = allCourseList.filter(
     (course) => (course.courseType ?? "academic") === pageType
@@ -1304,7 +1360,7 @@ export default function Timetable() {
             ]
               .filter(Boolean)
               .join(" ");
-            return `<div class="class-row"><span class="time">${entry.startTime}–${entry.endTime}</span><span class="subject">${entry.subjectName || ""}</span><span class="meta">${meta}</span></div>`;
+            return `<div class="class-row"><span class="time">${formatTime12(entry.startTime)}–${formatTime12(entry.endTime)}</span><span class="subject">${entry.subjectName || ""}</span><span class="meta">${meta}</span></div>`;
           })
           .join("");
         return `<tr><td class="day-cell">${day}</td><td class="classes-cell">${classesHtml}</td></tr>`;
@@ -1896,7 +1952,7 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
                                       {entry.subjectName}
                                     </div>
                                     <div className="text-[11px] text-slate-600 font-medium">
-                                      {entry.startTime}–{entry.endTime}
+                                      {formatTime12(entry.startTime)} – {formatTime12(entry.endTime)}
                                     </div>
                                     {teacherName ? (
                                       <div className="text-[11px] text-slate-700 font-semibold leading-snug break-words whitespace-normal">
@@ -1953,155 +2009,238 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
           </div>
         </div>
 
-        {/* TEACHER AVAILABILITY CHECKER WIDGET */}
+        {/* TEACHER AVAILABILITY CHECKER */}
         <div
           id="teacher-availability-section"
-          className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-5"
+          className="relative overflow-visible rounded-2xl border border-slate-200 bg-white shadow-sm"
         >
-          <div className="flex items-center gap-2.5 text-[#5c6ac4]">
-            <UserCheck className="w-5 h-5" />
-            <h3 className="font-bold text-lg text-slate-800">Check Teacher Availability</h3>
+          {/* Section header */}
+          <div className="flex items-center gap-3 border-b border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-5 py-3.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+              <UserCheck className="h-4 w-4" />
+            </div>
+            <h3 className="text-base font-bold text-blue-900">
+              Check Teacher Availability
+            </h3>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold tracking-wide text-slate-500 uppercase">
-                Teacher
-              </label>
-              <SearchableDropdown
-                value={availTeacher}
-                placeholder="Select teacher..."
-                rounded="lg"
-                options={staffList.map((t) => ({ label: getStaffName(t), value: resolveId(t) })).filter((option) => option.value)}
-                onChange={(val) => {
-                  setAvailTeacher(val);
-                  setAvailChecked(true);
-                }}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold tracking-wide text-slate-500 uppercase">Day</label>
-              <Select
-                value={availDay}
-                onValueChange={(val) => {
-                  setAvailDay(val);
-                  setAvailChecked(true);
-                }}
-              >
-                <SelectTrigger className="h-11 rounded-xl border-slate-200 text-sm bg-white">
-                  <SelectValue placeholder="Select day" />
-                </SelectTrigger>
-                <SelectContent>
-                  {days.map((d) => (
-                    <SelectItem key={d} value={d}>
-                      {d}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button
-              onClick={() => setAvailChecked(true)}
-              disabled={!availTeacher}
-              className="bg-[#6366f1] hover:bg-[#4f46e5] text-white h-11 px-6 rounded-xl font-semibold text-sm shadow-sm"
-            >
-              <Search className="w-4 h-4 mr-2" /> Check Availability
-            </Button>
-          </div>
-
-          {/* AVAILABILITY RESULTS DISPLAY */}
-          {availChecked && availTeacherObj && (
-            <div className="mt-4 rounded-2xl border border-indigo-100 bg-slate-50/50 p-5 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div>
-                  <div className="text-base font-bold text-slate-800">
-                    {availTeacherObj.name}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    Schedule for <span className="font-semibold text-indigo-600">{availDay}</span> ({availabilityAnalysis.shiftStart} - {availabilityAnalysis.shiftEnd})
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-100 text-xs font-bold text-rose-700 flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-rose-500" />
-                    <span>{availabilityAnalysis.busySlots.length} Classes ({formatDuration(availabilityAnalysis.totalBusyMins)} Busy)</span>
-                  </div>
-
-                  <div className="px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100 text-xs font-bold text-emerald-700 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>{formatDuration(availabilityAnalysis.totalFreeMins)} Free</span>
-                  </div>
-                </div>
+          <div className="p-5 md:p-6">
+            {/* Filters */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_1fr] md:items-end">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                  Teacher
+                </label>
+                <SearchableDropdown
+                  value={availTeacher}
+                  placeholder="Select teacher"
+                  rounded="lg"
+                  options={staffList
+                    .map((t: any) => ({
+                      label: getStaffName(t),
+                      value: resolveId(t),
+                    }))
+                    .filter((option) => option.value && option.label)}
+                  onChange={(val) => {
+                    setAvailTeacher(val);
+                    setAvailChecked(false);
+                  }}
+                />
               </div>
 
-              <div className="space-y-2">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Available Free Time Windows ({availabilityAnalysis.freeSlots.length} Windows)</span>
-                </div>
-
-                {availabilityAnalysis.freeSlots.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                    {availabilityAnalysis.freeSlots.map((free, idx) => (
-                      <div
-                        key={idx}
-                        className="bg-emerald-50/80 border border-emerald-200/80 p-3 rounded-xl flex items-center justify-between shadow-2xs"
-                      >
-                        <div>
-                          <div className="text-xs font-bold text-emerald-900">{free.label}</div>
-                          <div className="text-[10px] font-medium text-emerald-600 mt-0.5">Completely Unscheduled</div>
-                        </div>
-                        <span className="text-xs font-extrabold text-emerald-700 bg-white border border-emerald-200 px-2 py-0.5 rounded-md">
-                          {formatDuration(free.durationMins)}
-                        </span>
-                      </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                  Day
+                </label>
+                <Select
+                  value={availDay}
+                  onValueChange={(val) => {
+                    setAvailDay(val);
+                    setAvailChecked(false);
+                  }}
+                >
+                  <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-sm">
+                    <SelectValue placeholder="Select day" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {days.map((d) => (
+                      <SelectItem key={d} value={d}>
+                        {d}
+                      </SelectItem>
                     ))}
-                  </div>
-                ) : (
-                  <div className="p-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl">
-                    Teacher has no free windows on {availDay} between {availabilityAnalysis.shiftStart} and {availabilityAnalysis.shiftEnd}.
-                  </div>
-                )}
+                  </SelectContent>
+                </Select>
               </div>
 
-              {availabilityAnalysis.busySlots.length > 0 && (
-                <div className="space-y-2 pt-2 border-t border-slate-200/60">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                    <AlertCircle className="w-4 h-4 text-rose-500" />
-                    <span>Scheduled Classes Across All Batches ({availabilityAnalysis.busySlots.length})</span>
-                  </div>
+              <Button
+                onClick={() => setAvailChecked(true)}
+                disabled={!availTeacher}
+                className="h-10 rounded-lg bg-blue-600 px-5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Search className="mr-2 h-4 w-4" />
+                Check Availability
+              </Button>
+            </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {availabilityAnalysis.busySlots.map((item: any) => {
-                      const batchName = resolveBatchName(item, batchList);
-                      return (
+            {/* Result */}
+            {availChecked && availTeacherObj && (
+              <div className="mt-4 space-y-3">
+                {(() => {
+                  const teacherName = getStaffName(availTeacherObj) || "Teacher";
+                  const busyCount = availabilityAnalysis.busySlots.length;
+                  const isFree = busyCount === 0;
+                  const shiftStartMins = time24ToMins(
+                    availTeacherObj?.workTimingFrom || "08:00"
+                  );
+                  const shiftEndMins = time24ToMins(
+                    availTeacherObj?.workTimingTo || "20:00"
+                  );
+                  const totalShift = Math.max(1, shiftEndMins - shiftStartMins);
+
+                  return (
+                    <>
+                      {/* Status alert */}
+                      <div
+                        className={
+                          isFree
+                            ? "flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+                            : "flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                        }
+                      >
                         <div
-                          key={item.id}
-                          className="bg-white p-3.5 rounded-xl border border-slate-200 text-xs space-y-1.5 shadow-sm"
+                          className={
+                            isFree
+                              ? "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white"
+                              : "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-700 text-white"
+                          }
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-slate-800">{item.subjectName}</span>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-100">
-                              {item.timeLabel}
+                          {isFree ? (
+                            <CheckCircle2 className="h-4 w-4" />
+                          ) : (
+                            <AlertCircle className="h-4 w-4" />
+                          )}
+                        </div>
+
+                        <div className="font-semibold">
+                          {isFree ? (
+                            <>
+                              {teacherName} is completely free on {availDay} — no classes scheduled.
+                            </>
+                          ) : (
+                            <>
+                              {teacherName} has {busyCount} class{busyCount === 1 ? "" : "es"} on {availDay}.
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {!isFree && (
+                        <>
+                          {/* Timeline heading */}
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                            <span>
+                              Timeline {availabilityAnalysis.shiftStart}–{availabilityAnalysis.shiftEnd}
+                            </span>
+                            <span className="rounded bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                              BUSY
+                            </span>
+                            <span className="rounded border border-emerald-400 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                              FREE
                             </span>
                           </div>
-                          <div className="text-slate-500 text-[11px] flex items-center gap-1">
-                            <span>Batch: <strong className="text-slate-700">{batchName || "General"}</strong></span>
-                            {item.room ? <span> · 📍Room {item.room}</span> : ""}
+
+                          {/* Timeline */}
+                          <div className="relative flex h-7 w-full overflow-hidden rounded-lg border border-slate-200 bg-emerald-100">
+                            {availabilityAnalysis.freeSlots.map((slot: any, idx: number) => {
+                              const start = Math.max(shiftStartMins, slot.startMins);
+                              const end = Math.min(shiftEndMins, slot.endMins);
+                              const width = Math.max(0, ((end - start) / totalShift) * 100);
+                              return width > 0 ? (
+                                <div
+                                  key={`free-${idx}`}
+                                  className="h-full bg-emerald-100"
+                                  style={{ width: `${width}%` }}
+                                  title={`${slot.label} Free`}
+                                />
+                              ) : null;
+                            })}
+
+                            {availabilityAnalysis.busySlots.map((slot: any, idx: number) => {
+                              const start = Math.max(shiftStartMins, slot.startMins);
+                              const end = Math.min(shiftEndMins, slot.endMins);
+                              const width = Math.max(0, ((end - start) / totalShift) * 100);
+                              const left = Math.max(0, ((start - shiftStartMins) / totalShift) * 100);
+
+                              return width > 0 ? (
+                                <div
+                                  key={`busy-${idx}`}
+                                  className="absolute top-0 h-full overflow-hidden bg-red-500 px-1 text-center text-[9px] font-bold leading-7 text-white"
+                                  style={{ left: `${left}%`, width: `${width}%` }}
+                                  title={`${slot.subjectName || "Class"} • ${slot.timeLabel}`}
+                                >
+                                  <span className="block truncate">
+                                    {slot.subjectName || "Class"}
+                                  </span>
+                                </div>
+                              ) : null;
+                            })}
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+
+                          {/* Classes table */}
+                          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                            <div className="grid grid-cols-[1.1fr_0.9fr_1.2fr_0.7fr] border-b border-blue-100 bg-gradient-to-r from-blue-50 to-slate-50 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-slate-800">
+                              <div>Subject</div>
+                              <div>Time</div>
+                              <div>Batch</div>
+                              <div>Room</div>
+                            </div>
+
+                            {availabilityAnalysis.busySlots.map((item: any, idx: number) => {
+                              const batchName = resolveBatchName(item, batchList);
+                              const subjectName =
+                                item.subjectName ||
+                                resolveSubjectName(item, subjectList) ||
+                                "Class";
+
+                              return (
+                                <div
+                                  key={item.id || `${item.startTime}-${idx}`}
+                                  className="grid grid-cols-[1.1fr_0.9fr_1.2fr_0.7fr] items-center border-b border-slate-100 px-4 py-3 text-sm last:border-b-0 even:bg-slate-50/70"
+                                >
+                                  <div className="flex min-w-0 items-center gap-1.5 font-semibold text-slate-800">
+                                    <BookOpen className="h-4 w-4 shrink-0 text-blue-600" />
+                                    <span className="truncate" title={subjectName}>
+                                      {subjectName}
+                                    </span>
+                                  </div>
+
+                                  <div>
+                                    <span className="inline-flex rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-600 shadow-sm">
+                                      {item.timeLabel ||
+                                        `${formatTime12(item.startTime)} - ${formatTime12(item.endTime)}`}
+                                    </span>
+                                  </div>
+
+                                  <div className="truncate font-medium text-slate-800" title={batchName || "General"}>
+                                    {batchName || "General"}
+                                  </div>
+
+                                  <div className="truncate text-slate-400" title={item.room ? `Room ${item.room}` : "No room assigned"}>
+                                    {item.room ? `Room ${item.room}` : "—"}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
       {/* SUBSTITUTES DIALOG */}
       <Dialog open={substituteOpen} onOpenChange={setSubstituteOpen}>
@@ -2166,6 +2305,7 @@ th{background:#6366f1;color:#fff;font-size:12px;padding:10px 14px;text-align:lef
           </div>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }
