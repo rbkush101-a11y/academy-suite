@@ -386,7 +386,21 @@ export default function Staff() {
     if (s.includes("late") || s === "l") return "Late";
     return "";
   };
-  const payslipCount = (member: any) => Array.isArray(member?.payslips) ? member.payslips.length : Number(member?.payslipCount ?? 0) || 0;
+  // Payroll/payslip data must come from the staff record/API. Do not create
+  // placeholder "Current Month" slips when the backend has no real records.
+  const payrollRecords = (member: any): any[] => {
+    const candidates = [
+      member?.payslips,
+      member?.payrollHistory,
+      member?.payrollRecords,
+      member?.payroll?.history,
+      member?.payroll?.records,
+    ];
+    const source = candidates.find((value: any) => Array.isArray(value));
+    return Array.isArray(source) ? source : [];
+  };
+
+  const payslipCount = (member: any) => payrollRecords(member).length;
   const estimatedNet = (member: any) => {
     const salary = Number(member?.salary || member?.monthlySalary || 0) || 0;
     const pf = Number(member?.pfDeduction || 0) || 0;
@@ -417,10 +431,108 @@ export default function Staff() {
   const viewDocuments = (member: any) => Array.isArray(member?.documents)
     ? member.documents.filter((d: any) => !ALL_SYSTEM_META_KEYS.includes(d.label))
     : [];
-  const payslipList = (member: any) => {
-    if (Array.isArray(member?.payslips) && member.payslips.length) return member.payslips;
-    const amount = Number(member?.salary || member?.monthlySalary || 0) || 0;
-    return [{ month: "Current Month", amount }];
+  const payslipList = (member: any) => payrollRecords(member);
+
+  const pdfSafe = (value: any) =>
+    String(value ?? "")
+      .replace(/₹/g, "Rs. ")
+      .replace(/[^\x20-\x7E]/g, "")
+      .replace(/[\\()]/g, (c) => `\\${c}`)
+      .slice(0, 180);
+
+  // Downloads the API's original PDF when one is supplied; otherwise creates
+  // a PDF from the actual payroll record shown on screen.
+  const downloadPayslipPdf = (slip: any, index: number) => {
+    if (!viewing) return;
+
+    const providedUrl = slip?.pdfUrl || slip?.pdfDataUrl || slip?.fileUrl || slip?.dataUrl;
+    if (typeof providedUrl === "string" && providedUrl.startsWith("data:application/pdf")) {
+      const a = document.createElement("a");
+      a.href = providedUrl;
+      a.download = `${pdfSafe(viewing.name || "Staff")}-${pdfSafe(slip?.month || `Payslip-${index + 1}`)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
+
+    const gross = Number(slip?.gross ?? slip?.grossPay ?? slip?.amount ?? 0) || 0;
+    const deductions = Number(
+      slip?.deductions ??
+      slip?.deduction ??
+      (Number(slip?.pfAmount ?? 0) + Number(slip?.tdsAmount ?? 0))
+    ) || 0;
+    const net = Number(slip?.netPay ?? slip?.net ?? Math.max(0, gross - deductions)) || 0;
+    const pf = Number(slip?.pf ?? slip?.pfAmount ?? viewing?.pfDeduction ?? 0) || 0;
+    const tds = Number(slip?.tds ?? slip?.tdsAmount ?? viewing?.tdsDeduction ?? 0) || 0;
+    const present = slip?.presentDays != null && slip?.workingDays != null
+      ? `${slip.presentDays}/${slip.workingDays}`
+      : "Not available";
+
+    const name = viewing?.name || `${viewing?.firstName || ""} ${viewing?.lastName || ""}`.trim() || "Staff Member";
+    const month = slip?.month || slip?.payPeriod || slip?.period || "Payslip";
+    const status = slip?.status || "Not specified";
+    const lines = [
+      "STAFF PAYSLIP",
+      "",
+      `Employee: ${name}`,
+      `Employee ID: ${getDisplayEmpId(viewing)}`,
+      `Email: ${viewing?.email || "Not available"}`,
+      `Pay Period: ${month}`,
+      "",
+      `Gross Pay: Rs. ${gross.toLocaleString("en-IN")}`,
+      `Deductions: Rs. ${deductions.toLocaleString("en-IN")}`,
+      `Net Pay: Rs. ${net.toLocaleString("en-IN")}`,
+      `PF: ${pf}${pf <= 100 ? "%" : " Rs."}`,
+      `TDS: ${tds}${tds <= 100 ? "%" : " Rs."}`,
+      `Present / Working Days: ${present}`,
+      `Status: ${status}`,
+      "",
+      "Generated from the staff payroll record.",
+    ];
+
+    const streamLines = [
+      "BT",
+      "/F1 16 Tf",
+      "50 760 Td",
+      `(${pdfSafe(lines[0])}) Tj`,
+      "/F1 10 Tf",
+      ...lines.slice(1).flatMap((line) => ["0 -20 Td", `(${pdfSafe(line)}) Tj`]),
+      "ET",
+    ];
+    const stream = streamLines.join("\n");
+
+    const objects = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+      `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+
+    let pdf = "%PDF-1.4\n";
+    const offsets: number[] = [0];
+    objects.forEach((obj, i) => {
+      offsets.push(pdf.length);
+      pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+    });
+    const xrefOffset = pdf.length;
+    pdf += `xref\n0 ${objects.length + 1}\n`;
+    pdf += "0000000000 65535 f \n";
+    offsets.slice(1).forEach((offset) => {
+      pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+    });
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+    const blob = new Blob([pdf], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${String(name).replace(/[^a-z0-9]+/gi, "-")}-${String(month).replace(/[^a-z0-9]+/gi, "-")}-payslip.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
   const handleViewDocumentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -2088,24 +2200,66 @@ export default function Staff() {
                   </>
                 )}
 
-                {profileTab === "payroll" && (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="px-5 py-4 border-b border-gray-100"><h3 className="font-extrabold text-sm">Salary Structure</h3></div>
-                    <div className="p-5 space-y-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="p-4 rounded-xl bg-[#F7F9FF]"><p className="text-xs text-gray-500">Monthly</p><p className="text-xl font-extrabold mt-2">₹{Number(viewing.salary || viewing.monthlySalary || 0).toLocaleString("en-IN")}</p></div>
-                        <div className="p-4 rounded-xl bg-[#F7F9FF]"><p className="text-xs text-gray-500">PF</p><p className="text-xl font-extrabold mt-2">{viewing.pfDeduction || 0}%</p></div>
-                        <div className="p-4 rounded-xl bg-[#F7F9FF]"><p className="text-xs text-gray-500">TDS</p><p className="text-xl font-extrabold mt-2">{viewing.tdsDeduction || 0}%</p></div>
+                {profileTab === "payroll" && (() => {
+                  const salary = Number(viewing.salary || viewing.monthlySalary || 0) || 0;
+                  const slips = payslipList(viewing);
+                  const totalEarned = slips.reduce((sum: number, item: any) => sum + (Number(item?.gross ?? item?.grossPay ?? item?.amount ?? 0) || 0), 0);
+                  const lastNet = slips.length ? Number(slips[slips.length - 1]?.netPay ?? slips[slips.length - 1]?.net ?? slips[slips.length - 1]?.amount ?? 0) || 0 : estimatedNet(viewing);
+                  const paidSlips = slips.filter((item: any) => /paid|settled|finalized/i.test(String(item?.status || ""))).length;
+                  return (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="bg-white rounded-2xl border-t-4 border-[#2670D8] shadow-sm px-5 py-5 text-center"><div className="text-2xl font-extrabold">₹{totalEarned.toLocaleString("en-IN")}</div><div className="text-[10px] uppercase tracking-wider font-bold text-[#8A9BB4] mt-2">TOTAL EARNED</div></div>
+                        <div className="bg-white rounded-2xl border-t-4 border-[#16B981] shadow-sm px-5 py-5 text-center"><div className="text-2xl font-extrabold">₹{lastNet.toLocaleString("en-IN")}</div><div className="text-[10px] uppercase tracking-wider font-bold text-[#8A9BB4] mt-2">LAST NET PAY</div></div>
+                        <div className="bg-white rounded-2xl border-t-4 border-[#F0A000] shadow-sm px-5 py-5 text-center"><div className="text-2xl font-extrabold">{paidSlips}/{slips.length}</div><div className="text-[10px] uppercase tracking-wider font-bold text-[#8A9BB4] mt-2">PAID SLIPS</div></div>
                       </div>
-                      <div className="p-4 rounded-xl bg-[#F0FFF8] border border-[#B7F0D4]"><p className="text-xs font-bold text-emerald-600">Estimated Net Salary</p><p className="text-2xl font-extrabold text-emerald-600 mt-1">₹{estimatedNet(viewing).toLocaleString("en-IN")}</p></div>
-                    </div>
-                  </div>
-                )}
+
+                      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-[#EAF2FF] flex items-center justify-center"><FileText size={15} className="text-[#1261C9]" /></div><h3 className="font-extrabold text-sm">Payroll History</h3></div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead><tr className="text-left text-[10px] uppercase tracking-wider text-[#8A9BB4] border-b border-gray-100"><th className="px-5 py-3">MONTH</th><th className="px-5 py-3">GROSS</th><th className="px-5 py-3">DEDUCTIONS</th><th className="px-5 py-3">NET PAY</th><th className="px-5 py-3">STATUS</th><th className="px-5 py-3 text-right">DAYS</th></tr></thead>
+                            <tbody>
+                              {slips.map((item: any, i: number) => {
+                                const gross = Number(item?.gross ?? item?.grossPay ?? item?.amount ?? salary) || 0;
+                                const deductions = Number(item?.deductions ?? item?.deduction ?? (gross * ((Number(viewing.pfDeduction || 0) + Number(viewing.tdsDeduction || 0)) / 100))) || 0;
+                                const net = Number(item?.netPay ?? item?.net ?? Math.max(0, gross - deductions)) || 0;
+                                const status = String(item?.status || "Draft");
+                                const days = item?.presentDays != null && item?.workingDays != null ? `${item.presentDays}/${item.workingDays}` : "—";
+                                return <tr key={`${item?.month || "month"}-${i}`} className="border-b border-gray-100 last:border-b-0"><td className="px-5 py-3 font-bold">{item?.month || "Current Month"}</td><td className="px-5 py-3">₹{gross.toLocaleString("en-IN")}</td><td className="px-5 py-3 text-red-500">−₹{deductions.toLocaleString("en-IN")}</td><td className="px-5 py-3 text-emerald-600 font-extrabold">₹{net.toLocaleString("en-IN")}</td><td className="px-5 py-3"><span className="px-2.5 py-1 rounded-full bg-[#FFF0C7] text-[#A56A00] text-[10px] font-bold">{status}</span></td><td className="px-5 py-3 text-right text-[#64748B]">{days}</td></tr>;
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100"><h3 className="font-extrabold text-sm">Salary Structure</h3></div>
+                        <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="p-4 rounded-xl bg-[#F7F9FF]"><p className="text-xs text-gray-500">Monthly</p><p className="text-xl font-extrabold mt-2">₹{salary.toLocaleString("en-IN")}</p></div>
+                          <div className="p-4 rounded-xl bg-[#F7F9FF]"><p className="text-xs text-gray-500">PF</p><p className="text-xl font-extrabold mt-2">{viewing.pfDeduction || 0}%</p></div>
+                          <div className="p-4 rounded-xl bg-[#F7F9FF]"><p className="text-xs text-gray-500">TDS</p><p className="text-xl font-extrabold mt-2">{viewing.tdsDeduction || 0}%</p></div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 {profileTab === "payslip" && (
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="px-5 py-4 border-b border-gray-100"><h3 className="font-extrabold text-sm">Payslip Downloads</h3></div>
-                    <div className="p-5 space-y-2">{payslipList(viewing).map((p: any) => <div key={p.month} className="flex items-center justify-between p-3 rounded-xl border border-gray-100"><div><p className="text-xs font-bold">{p.month}</p><p className="text-[10px] text-gray-400">₹{p.amount.toLocaleString("en-IN")}</p></div><button type="button" className="text-[#1261C9] text-xs font-bold flex items-center gap-1"><DownloadCloud size={14} /> Download</button></div>)}</div>
+                    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between"><div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-[#EAF2FF] flex items-center justify-center"><FileText size={15} className="text-[#1261C9]" /></div><h3 className="font-extrabold text-sm">Download Payslips</h3></div><span className="text-xs text-[#94A3B8]">{payslipList(viewing).length} payslip(s) available</span></div>
+                    <div className="p-5 space-y-3">
+                      {payslipList(viewing).length === 0 ? (
+                        <div className="py-12 text-center text-xs text-[#94A3B8] border border-dashed border-[#D8E2F0] rounded-xl">
+                          No verified payslips are available for this staff member yet.
+                        </div>
+                      ) : payslipList(viewing).map((p: any, i: number) => {
+                        const gross = Number(p?.gross ?? p?.grossPay ?? p?.amount ?? 0) || 0;
+                        const deductions = Number(p?.deductions ?? p?.deduction ?? 0) || 0;
+                        const net = Number(p?.netPay ?? p?.net ?? Math.max(0, gross - deductions)) || 0;
+                        return <div key={`${p?.month || "payslip"}-${i}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3.5 rounded-xl border border-[#E2E8F0] bg-white"><div className="flex items-center gap-3 min-w-0"><div className="w-11 h-11 rounded-xl bg-[#FFF1BF] flex items-center justify-center shrink-0"><FileText size={18} className="text-[#E88A00]" /></div><div className="min-w-0"><p className="text-xs font-extrabold truncate">{p?.month || "Current Month"} Payslip</p><p className="text-[10px] text-[#64748B] mt-1">Gross: ₹{gross.toLocaleString("en-IN")} · Deductions: ₹{deductions.toLocaleString("en-IN")}{p?.presentDays != null && p?.workingDays != null ? ` · Present: ${p.presentDays}/${p.workingDays} days` : ""}</p></div></div><div className="flex items-center gap-4 sm:gap-6"><span className="text-lg font-extrabold text-emerald-600">₹{net.toLocaleString("en-IN")}</span><button type="button" onClick={() => downloadPayslipPdf(p, i)} className="px-4 py-2 rounded-lg bg-[#EEF3FF] border border-[#C9D9FF] text-[#1261C9] text-xs font-bold flex items-center gap-1.5 hover:bg-[#E5EDFF]"><DownloadCloud size={14} /> PDF</button></div></div>;
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
@@ -2147,7 +2301,7 @@ export default function Staff() {
               </aside>
             </div>
 
-            {(profileTab === "overview" || profileTab === "attendance") && (
+            {(profileTab === "overview" || profileTab === "attendance" || profileTab === "payroll" || profileTab === "payslip") && (
               <div className="mt-5 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden w-full">
                 <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                   <div className="flex items-center gap-2">
