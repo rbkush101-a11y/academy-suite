@@ -317,6 +317,31 @@ router.patch("/staff/:id", authenticate, authorize("super_admin", "institute_adm
     }
 
     const updateData = cleanBody(req.body);
+
+    // Teachers may edit only their own Staff record. These fields are owned by
+    // Admin/Institute and are therefore immutable from the teacher portal.
+    if (user.role === "teacher") {
+      const ownConditions: any[] = [];
+      if (user.email) ownConditions.push({ email: String(user.email).toLowerCase().trim() });
+      if ((user as any).loginId) ownConditions.push({ username: String((user as any).loginId).toLowerCase().trim() });
+      if ((user as any).phone) ownConditions.push({ phone: String((user as any).phone) });
+
+      const ownStaff = ownConditions.length ? await Staff.findOne({ $or: ownConditions }) : null;
+      if (!ownStaff || String(ownStaff._id) !== String(id)) {
+        res.status(403).json({ error: "Teachers can update only their own profile." });
+        return;
+      }
+
+      const lockedFields = [
+        "empId", "employeeId", "role", "batches", "subject", "subjectsTaught", "joinDate",
+        "workTimingFrom", "workTimingTo", "status",
+        "employmentType", "salary", "monthlySalary", "perClassRate",
+        "baseSalary", "hourlyRate", "pfDeduction", "tdsDeduction",
+        "accessLevel",
+      ];
+      for (const field of lockedFields) delete updateData[field];
+    }
+
     const { loginEnabled, username, password, accessLevel } = req.body;
     const portalEnabled = loginEnabled !== undefined ? Boolean(loginEnabled) : Boolean(oldStaff.loginEnabled);
 
@@ -370,7 +395,7 @@ router.patch("/staff/:id", authenticate, authorize("super_admin", "institute_adm
       isApproved: portalEnabled,
     };
 
-    if (accessLevel) userPayload.role = mapPortalRoleToUserRole(accessLevel);
+    if (accessLevel && user.role !== "teacher") userPayload.role = mapPortalRoleToUserRole(accessLevel);
 
     if (password && String(password).trim().length > 0) {
       userPayload.password = await bcrypt.hash(String(password).trim(), 10);

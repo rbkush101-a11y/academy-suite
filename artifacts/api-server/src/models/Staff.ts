@@ -97,6 +97,11 @@ export interface IStaff extends Document {
   subjectsTaught?: ISubjectTaught[];
 
   // =========================
+  // Assigned Teaching Batches
+  // =========================
+  batches?: Types.ObjectId[];
+
+  // =========================
   // Employee Code
   // =========================
   empId?: string;
@@ -501,6 +506,16 @@ const staffSchema = new Schema<IStaff>(
       type: [subjectTaughtSchema],
       default: [],
     },
+
+    // =========================
+    // Assigned Teaching Batches
+    // =========================
+    batches: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "Batch",
+      },
+    ],
 
 
     // =========================

@@ -48,6 +48,7 @@ async function formatExam(exam: any) {
     batchName: batch?.name ?? "",
     subjectId: String(exam.subjectId),
     subjectName: subject?.name ?? "",
+    teacherId: subject?.teacherId ? String(subject.teacherId) : "",
     teacherName: teacher?.name ?? "",
     date: exam.date,
     startTime: exam.startTime ?? "",

@@ -92,6 +92,46 @@ router.get("/auth/me", authenticate, async (req, res): Promise<void> => {
       return;
     }
 
+    // Teacher/Staff portal must load the Staff document, not only the auth User.
+    // Staff contains batches, subjects, payroll, documents and profile fields.
+    if (["teacher", "staff", "accountant"].includes(req.user!.role)) {
+      const userEmail = String((user as any).email ?? "").trim().toLowerCase();
+      const userPhone = String((user as any).phone ?? "").trim();
+      const userLoginId = String((user as any).loginId ?? "").trim().toLowerCase();
+      const conditions: any[] = [];
+      if (userEmail) conditions.push({ email: userEmail });
+      if (userPhone) conditions.push({ phone: userPhone });
+      if (userLoginId) conditions.push({ username: userLoginId });
+
+      const staff = conditions.length
+        ? await Staff.findOne({
+            $or: conditions,
+            ...(user.instituteId ? { instituteId: user.instituteId } : {}),
+          })
+        : null;
+
+      if (staff) {
+        const staffObj: any = staff.toObject();
+        res.json({
+          ...staffObj,
+          id: String(staff._id),
+          _id: String(staff._id),
+          role: staff.role || "Teacher / Faculty",
+          accessLevel: staff.accessLevel || req.user!.role,
+          loginRole: req.user!.role,
+          userId: String(user._id),
+          loginId: (user as any).loginId ?? staff.username ?? "",
+          email: staff.email ?? (user as any).email ?? "",
+          phone: staff.phone ?? (user as any).phone ?? "",
+          instituteId: staff.instituteId ? String(staff.instituteId) : (user.instituteId ? String(user.instituteId) : null),
+          batches: Array.isArray((staff as any).batches) ? (staff as any).batches.map((id: any) => String(id)) : [],
+          isApproved: user.isApproved,
+          createdAt: staff.createdAt,
+        });
+        return;
+      }
+    }
+
     res.json({
       id: String(user._id),
       name: user.name,

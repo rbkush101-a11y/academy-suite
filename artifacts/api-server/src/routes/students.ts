@@ -2,6 +2,8 @@ import { Router, type IRouter } from "express";
 import { authenticate, authorize } from "../middlewares/auth";
 import { Student } from "../models/Student";
 import { Batch } from "../models/Batch";
+import { Staff } from "../models/Staff";
+import { User } from "../models/User";
 import { Course } from "../models/Course";
 import { FeeStructure, StudentFeeAssignment, Payment } from "../models/Finance";
 import { getCycleDay, generateDueDates, getMonthInfo } from "../lib/feeCycle";
@@ -410,6 +412,73 @@ router.get("/students", authenticate, authorize("super_admin", "institute_admin"
         return;
       }
       filter.instituteId = instituteId;
+    }
+
+    // Teachers must only receive students from their assigned batches.
+    // Admin/staff access remains unchanged.
+    if (user.role === "teacher") {
+      const authUser = await User.findById(user.userId).select("email phone loginId instituteId");
+      const email = String((authUser as any)?.email ?? "").trim().toLowerCase();
+      const phone = String((authUser as any)?.phone ?? "").trim();
+      const loginId = String((authUser as any)?.loginId ?? "").trim().toLowerCase();
+      const conditions: any[] = [];
+      if (email) conditions.push({ email });
+      if (phone) conditions.push({ phone });
+      if (loginId) conditions.push({ username: loginId });
+
+      const teacher = conditions.length
+        ? await Staff.findOne({
+            $or: conditions,
+            ...(instituteId ? { instituteId } : {}),
+          }).select("batches subjectsTaught")
+        : null;
+
+      let assignedBatchIds = Array.isArray((teacher as any)?.batches)
+        ? (teacher as any).batches.map((id: any) => String(id))
+        : [];
+
+      // Backward compatibility: older teacher records may have only
+      // subjectsTaught { course, subject, batch } and no Batch ObjectIds yet.
+      if (assignedBatchIds.length === 0 && teacher) {
+        const taughtRows = Array.isArray((teacher as any).subjectsTaught)
+          ? (teacher as any).subjectsTaught
+          : [];
+        const courseNames = taughtRows
+          .map((row: any) => String(row?.course || "").trim().toLowerCase())
+          .filter(Boolean);
+        const batchNames = taughtRows
+          .map((row: any) => String(row?.batch || "").trim().toLowerCase())
+          .filter((name: string) => name && name !== "all batches" && name !== "none");
+
+        if (courseNames.length || batchNames.length) {
+          const candidateBatches = await Batch.find({
+            ...(instituteId ? { instituteId } : {}),
+          }).populate("courseId", "name").select("_id name courseId");
+
+          assignedBatchIds = candidateBatches
+            .filter((batch: any) => {
+              const batchName = String(batch.name || "").trim().toLowerCase();
+              const courseName = String(batch.courseId?.name || "").trim().toLowerCase();
+              return batchNames.includes(batchName) || courseNames.includes(courseName);
+            })
+            .map((batch: any) => String(batch._id));
+        }
+      }
+
+      if (assignedBatchIds.length === 0) {
+        res.json([]);
+        return;
+      }
+
+      if (batchId) {
+        if (!assignedBatchIds.includes(String(batchId))) {
+          res.json([]);
+          return;
+        }
+        filter.batchId = String(batchId);
+      } else {
+        filter.batchId = { $in: assignedBatchIds };
+      }
     }
 
     if (search) {

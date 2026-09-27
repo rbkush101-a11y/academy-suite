@@ -5,7 +5,7 @@ import {
   ChevronRight, Home, CheckCircle2, X, Plus, 
   Search, Award, Loader2, Save, ShieldCheck, Upload,
   MapPin, IndianRupee, FolderOpen, FileText, Mail, Phone,
-  Briefcase, ClipboardList, AlarmClock, Timer, ChevronDown, 
+  Briefcase, ClipboardList, AlarmClock, Timer, ChevronDown, Camera, 
   Check, Eye, EyeOff, KeyRound, DownloadCloud, UserRound, 
   Lock, CalendarDays, Users, Clock, Calendar, ArrowLeft, Pencil, Trash2,
   Sparkles, FileUp, Info, GraduationCap, CheckCircle, RefreshCw, AlertCircle
@@ -86,6 +86,7 @@ const ACCESS_LEVELS = [
 ];
 
 type StaffDocument = { label: string; name: string; dataUrl: string; mimeType: string; };
+type SubjectTaughtRow = { course: string; subject: string; batch: string; };
 
 type StaffForm = {
   id?: string;
@@ -104,6 +105,7 @@ type StaffForm = {
   employmentType: "full_time" | "contractual" | "hybrid" | "hourly";
   monthlySalary: string; perClassRate: string; baseSalary: string; hourlyRate: string; pfDeduction: string; tdsDeduction: string;
   batches: string[];
+  subjectsTaught: SubjectTaughtRow[];
 };
 
 // Pure blank structure - Zero fake dummy fillers
@@ -119,9 +121,11 @@ const blankForm: StaffForm = {
   loginEnabled: true, username: "", password: "", confirmPassword: "", accessLevel: "teacher",
   employmentType: "full_time", monthlySalary: "", perClassRate: "", baseSalary: "", hourlyRate: "", pfDeduction: "12", tdsDeduction: "0",
   batches: [],
+  subjectsTaught: [{ course: "", subject: "", batch: "" }],
 };
 
-const EXCLUDED_DOCS = ["__SYSTEM_GENDER_SPECIFICATION__", "__SYSTEM_QUALIFICATION_SPECIFICATION__", "__SYSTEM_EMPID_SPECIFICATION__", "Aadhaar Card", "PAN Card"];
+const EXCLUDED_DOCS = ["Aadhaar Card", "PAN Card"];
+const SYSTEM_META_DOC = /^__SYSTEM_/;
 
 // ======================== FORM FIELD COMPONENTS ========================
 function Field({ label, value, onChange, type = "text", placeholder = "", required = false, disabled = false, autoComplete }: any) {
@@ -143,7 +147,7 @@ function Field({ label, value, onChange, type = "text", placeholder = "", requir
   );
 }
 
-function PayrollInput({ label, value, onChange, prefix, suffix, type = "text", required = false, placeholder = "", subtext = "" }: any) {
+function PayrollInput({ label, value, onChange, prefix, suffix, type = "text", required = false, placeholder = "", subtext = "", disabled = false }: any) {
   return (
     <div className="space-y-1 flex-1 min-w-[140px]">
       <Label className="text-xs font-semibold text-gray-700">
@@ -155,8 +159,8 @@ function PayrollInput({ label, value, onChange, prefix, suffix, type = "text", r
           type={type} 
           value={value ?? ""} 
           placeholder={placeholder}
-          onChange={(e) => onChange && onChange(e.target.value)} 
-          className="w-full px-2.5 py-2 text-sm outline-none bg-transparent font-bold text-gray-800" 
+          onChange={(e) => onChange && onChange(e.target.value)} disabled={disabled}
+          className={`w-full px-2.5 py-2 text-sm outline-none font-bold text-gray-800 ${disabled ? "bg-gray-100 text-gray-500" : "bg-transparent"}`} 
         />
         {suffix && <span className="px-2.5 h-full flex items-center bg-gray-50 text-gray-600 text-sm font-semibold border-l border-gray-200">{suffix}</span>}
       </div>
@@ -200,7 +204,7 @@ function SearchableSelect({ options, value, onChange, placeholder = "Select...",
   );
 }
 
-function MultiSearchableSelect({ options, value = [], onChange, placeholder = "Search and select..." }: any) {
+function MultiSearchableSelect({ options, value = [], onChange, placeholder = "Search and select...", disabled = false }: any) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   
@@ -213,7 +217,7 @@ function MultiSearchableSelect({ options, value = [], onChange, placeholder = "S
 
   return (
     <div className="relative w-full">
-      <div onClick={() => setIsOpen(!isOpen)} className="min-h-10 w-full p-2 border border-gray-200 rounded-md bg-gray-50/70 flex flex-wrap gap-1.5 items-center cursor-pointer">
+      <div onClick={() => !disabled && setIsOpen(!isOpen)} className={`min-h-10 w-full p-2 border border-gray-200 rounded-md flex flex-wrap gap-1.5 items-center ${disabled ? "bg-gray-100 cursor-not-allowed opacity-80" : "bg-gray-50/70 cursor-pointer"}`}>
         {value.length === 0 ? (
           <span className="text-xs text-gray-400 pl-1">{placeholder}</span>
         ) : (
@@ -233,7 +237,7 @@ function MultiSearchableSelect({ options, value = [], onChange, placeholder = "S
         <ChevronDown size={14} className="text-gray-400 ml-auto shrink-0" />
       </div>
 
-      {isOpen && (
+      {isOpen && !disabled && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
           <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-gray-200 rounded-lg shadow-xl z-50 p-2 max-h-60 overflow-hidden">
@@ -279,6 +283,10 @@ export default function TeacherDashboard() {
   const docFileRef = useRef<HTMLInputElement>(null);
   const aadhaarFileRef = useRef<HTMLInputElement>(null);
   const panFileRef = useRef<HTMLInputElement>(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraTarget, setCameraTarget] = useState<"profile" | "Aadhaar Card" | "PAN Card">("profile");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Real Database state lists
   const [allBatches, setAllBatches] = useState<any[]>([]);
@@ -297,6 +305,11 @@ export default function TeacherDashboard() {
 
   const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3500); };
   const setValue = (key: keyof StaffForm, value: any) => setForm((old) => ({ ...old, [key]: value }));
+
+  const addSubjectRow = () => setForm((old) => ({ ...old, subjectsTaught: [...old.subjectsTaught, { course: "", subject: "", batch: "" }] }));
+  const updateSubjectRow = (index: number, key: keyof SubjectTaughtRow, value: string) => setForm((old) => ({ ...old, subjectsTaught: old.subjectsTaught.map((row, i) => i === index ? { ...row, [key]: value } : row) }));
+  const removeSubjectRow = (index: number) => setForm((old) => ({ ...old, subjectsTaught: old.subjectsTaught.length > 1 ? old.subjectsTaught.filter((_, i) => i !== index) : old.subjectsTaught }));
+
 
   // ======================== LIVE DATABASE FETCH (ZERO DUMMY) ========================
   const fetchAllData = useCallback(async () => {
@@ -393,6 +406,7 @@ export default function TeacherDashboard() {
           photoDataUrl: teacherData.photoDataUrl || "",
           documents: Array.isArray(teacherData.documents) ? teacherData.documents : [],
           batches: Array.isArray(teacherData.batches) ? teacherData.batches : (teacherData.batchIds || []),
+          subjectsTaught: Array.isArray(teacherData.subjectsTaught) && teacherData.subjectsTaught.length ? teacherData.subjectsTaught : [{ course: "", subject: "", batch: "" }],
           username: teacherData.username || "",
           loginEnabled: teacherData.loginEnabled !== undefined ? teacherData.loginEnabled : true,
           accessLevel: teacherData.accessLevel || "teacher",
@@ -506,9 +520,40 @@ export default function TeacherDashboard() {
   const permanentDistrictsList = useMemo(() => form.permanentState ? INDIA_STATES_AND_DISTRICTS[form.permanentState] || [] : [], [form.permanentState]);
   
   const selectedQualifications = useMemo(() => form.qualification ? form.qualification.split(",").map((s) => s.trim()).filter(Boolean) : [], [form.qualification]);
-  const userDocuments = useMemo(() => form.documents?.filter((d: any) => !EXCLUDED_DOCS.includes(d.label)) || [], [form.documents]);
+  const userDocuments = useMemo(() => form.documents?.filter((d: any) => !EXCLUDED_DOCS.includes(d.label) && !SYSTEM_META_DOC.test(String(d.label || ""))) || [], [form.documents]);
   const aadhaarDoc = form.documents?.find((d: any) => d.label === "Aadhaar Card");
   const panDoc = form.documents?.find((d: any) => d.label === "PAN Card");
+
+  const startCamera = async (target: "profile" | "Aadhaar Card" | "PAN Card" = "profile") => {
+    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      streamRef.current = stream; setCameraTarget(target); setCameraActive(true);
+    } catch (err: any) {
+      const msg = err?.name === "NotAllowedError" ? "Camera permission denied. Browser address bar mein camera allow karo." : err?.name === "NotFoundError" ? "Koi camera device nahi mila." : "Camera access fail. Sirf HTTPS ya localhost pe chalta hai.";
+      alert(msg); setCameraActive(false);
+    }
+  };
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null;
+    if (videoRef.current) { videoRef.current.pause(); videoRef.current.srcObject = null; }
+    setCameraActive(false);
+  };
+  const capturePhoto = () => {
+    const video = videoRef.current; if (!video || !video.videoWidth) return alert("Camera ready nahi hai. 1 second wait karke phir try karo.");
+    const canvas = document.createElement("canvas"); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d"); if (!ctx) return; ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    if (cameraTarget === "profile") setValue("photoDataUrl", dataUrl);
+    else { const label = cameraTarget; setValue("documents", [...(form.documents || []).filter((d: any) => d.label !== label), { label, name: `${label.replace(/\s+/g, "_")}_camera.jpg`, dataUrl, mimeType: "image/jpeg" }]); }
+    stopCamera();
+  };
+  useEffect(() => {
+    if (!cameraActive) return; let cancelled = false; let tries = 0;
+    const attach = () => { if (cancelled) return; const video = videoRef.current, stream = streamRef.current; if (!video || !stream) { if (tries++ < 20) setTimeout(attach, 50); return; } video.srcObject = stream; video.play().catch(() => {}); };
+    requestAnimationFrame(attach); return () => { cancelled = true; };
+  }, [cameraActive]);
+  useEffect(() => () => { streamRef.current?.getTracks().forEach((t) => t.stop()); }, []);
 
   const handleLogout = () => {
     localStorage.removeItem("coach_sutra_token");
@@ -540,7 +585,9 @@ export default function TeacherDashboard() {
     setSaving(true);
 
     const fullName = `${form.firstName?.trim() || ""} ${form.lastName?.trim() || ""}`.trim();
-    const payload = { ...form, name: fullName };
+    const cleanDocuments = (form.documents || []).filter((d: any) => !SYSTEM_META_DOC.test(String(d.label || "")));
+    const cleanedSubjectsTaught = (form.subjectsTaught || []).map(r => ({ course: String(r.course || "").trim(), subject: String(r.subject || "").trim(), batch: String(r.batch || "").trim() })).filter(r => r.course || r.subject || r.batch);
+    const payload = { ...form, name: fullName, documents: cleanDocuments, subjectsTaught: cleanedSubjectsTaught, subject: cleanedSubjectsTaught.map(r => r.subject).filter(Boolean).join(", ") || form.subject };
 
     try {
       const staffEndpoint = (form.id || form._id) ? `/api/staff/${form.id || form._id}` : "/api/staff/me";
@@ -753,16 +800,23 @@ export default function TeacherDashboard() {
 
   if (initialLoading) {
     return (
-      <div className="fixed inset-0 z-[9999] bg-[#EBEFE6] flex flex-col items-center justify-center">
-        <Loader2 className="h-10 w-10 animate-spin text-[#5B7023] mb-3" />
-        <p className="text-sm font-bold text-[#5B7023]">Connecting to Admin Database...</p>
-      </div>
+      <>
+        <div className="flex min-h-screen flex-col items-center justify-center bg-blue-900 text-white px-6">
+          <div className="rounded-3xl bg-white/10 p-5 mb-4 animate-bounce">
+            <GraduationCap className="h-12 w-12 text-white" />
+          </div>
+          <h1 className="text-xl font-black tracking-wider">TEACHER PORTAL</h1>
+          <p className="text-xs text-blue-200 mt-1 animate-pulse">
+            Loading secure session...
+          </p>
+        </div>
+      </>
     );
   }
 
   return (
     <div className="fixed inset-0 z-[9999] bg-[#EBEFE6] flex justify-center font-sans overflow-hidden">
-      <div className="w-full max-w-[480px] bg-[#EBEFE6] h-full shadow-2xl relative flex flex-col overflow-hidden text-gray-800">
+      <div className={`w-full ${activeTab === "profile" ? "max-w-6xl" : "max-w-[480px]"} bg-[#EBEFE6] h-full shadow-2xl relative flex flex-col overflow-hidden text-gray-800`}>
 
         {/* ============ PROFILE FORM (EXACT STAFF.TSX - REAL DATA) ============ */}
         {activeTab === "profile" ? (
@@ -788,7 +842,8 @@ export default function TeacherDashboard() {
             </div>
 
             {/* MAIN FORM CONTENT AREA */}
-            <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6 pb-20">
+            <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 pb-20">
+              <div className="max-w-5xl mx-auto w-full space-y-6">
               
               {message && <div className="p-4 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm font-medium">{message}</div>}
               
@@ -812,10 +867,13 @@ export default function TeacherDashboard() {
                 <div className="text-center sm:text-left">
                   <h3 className="font-bold text-gray-800 text-base">{form.firstName || "Faculty"} {form.lastName}</h3>
                   <p className="text-xs text-[#5B7023] font-bold mb-2">{form.empId || "Emp ID N/A"} • {form.role}</p>
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
                   <Label className="cursor-pointer bg-[#F0F4E8] text-[#5B7023] hover:bg-[#5B7023] hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all">
                     <Upload size={14} /> Change Photo
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => photoChange(e.target.files?.[0])} />
                   </Label>
+                  <Button type="button" onClick={() => startCamera("profile")} className="bg-[#5B7023] hover:bg-[#4a5c1d] text-white rounded-lg px-3 py-1.5 h-auto text-xs font-bold gap-1.5"><Camera size={14} /> Use Live Camera</Button>
+                </div>
                 </div>
               </div>
 
@@ -824,7 +882,7 @@ export default function TeacherDashboard() {
                 <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl">
                   <h3 className="font-semibold text-[#5B7023]">1. Personal & Contact Details</h3>
                 </div>
-                <div className="p-6 grid grid-cols-1 gap-5">
+                <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
                   <Field label="First Name" value={form.firstName} onChange={(v: string) => setValue("firstName", v)} required />
                   <Field label="Last Name" value={form.lastName} onChange={(v: string) => setValue("lastName", v)} />
                   <Field label="Date of Birth" value={formatDate(form.dateOfBirth)} onChange={(v: string) => setValue("dateOfBirth", v)} type="date" />
@@ -859,12 +917,12 @@ export default function TeacherDashboard() {
                 <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl">
                   <h3 className="font-semibold text-[#5B7023]">2. Professional Assignment & Role</h3>
                 </div>
-                <div className="p-6 grid grid-cols-1 gap-5">
+                <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
                   <Field label="Employee ID" value={form.empId} onChange={(v: string) => setValue("empId", v)} placeholder="EMP-001" required disabled />
                   
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold text-gray-700">Staff Role Designation *</Label>
-                    <SearchableSelect options={STAFF_ROLES} value={form.role} onChange={(v: string) => setValue("role", v)} />
+                    <SearchableSelect options={STAFF_ROLES} value={form.role} onChange={(v: string) => setValue("role", v)} disabled />
                   </div>
 
                   {form.role === "Other" && (
@@ -926,27 +984,37 @@ export default function TeacherDashboard() {
                     <MultiSearchableSelect 
                       options={allBatchesOptions} 
                       value={form.batches} 
-                      onChange={(v: string[]) => setValue("batches", v)} 
-                      placeholder="Search and assign batches..."
+                      onChange={() => {}} 
+                      placeholder="Admin assigned batches"
+                      disabled
                     />
                   </div>
 
+                  <div className="md:col-span-3 space-y-3 bg-gray-50/50 p-4 rounded-xl border border-gray-200/80">
+                    <div className="flex items-center justify-between"><span className="text-xs font-bold text-[#1E293B] uppercase tracking-wider">SUBJECTS TAUGHT</span><button type="button" onClick={addSubjectRow} className="text-xs font-bold text-[#5B7023] hover:underline flex items-center gap-1"><Plus size={14} /> Add Another Subject</button></div>
+                    {form.subjectsTaught.map((row, idx) => (<div key={idx} className="flex flex-col sm:flex-row items-center gap-3 bg-white p-2.5 border border-gray-200 rounded-xl shadow-sm">
+                      <div className="flex-1 w-full"><SearchableSelect options={allBatches.map((b: any) => String(b.name || b.batchName || b.code || b._id))} value={row.batch} onChange={(val: string) => updateSubjectRow(idx, "batch", val)} placeholder="— Choose Batch —" /></div>
+                      <div className="flex-1 w-full"><Input value={row.course} onChange={(e) => updateSubjectRow(idx, "course", e.target.value)} placeholder="Course / Class" className="text-sm bg-gray-50/70" /></div>
+                      <div className="flex-1 w-full"><Input value={row.subject} onChange={(e) => updateSubjectRow(idx, "subject", e.target.value)} placeholder="Subject" className="text-sm bg-gray-50/70" /></div>
+                      {form.subjectsTaught.length > 1 && <button type="button" onClick={() => removeSubjectRow(idx)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>}
+                    </div>))}
+                  </div>
                   <Field label="Subject Specialization" value={form.subject} onChange={(v: string) => setValue("subject", v)} placeholder="e.g. Mathematics" />
                   <Field label="Prior Experience (Years)" value={form.experience} onChange={(v: string) => setValue("experience", v)} type="number" />
-                  <Field label="Start / Join Date" value={formatDate(form.joinDate)} onChange={(v: string) => setValue("joinDate", v)} type="date" required />
-                  <Field label="Working Shifts From" value={form.workTimingFrom} onChange={(v: string) => setValue("workTimingFrom", v)} type="time" />
-                  <Field label="Working Shifts To" value={form.workTimingTo} onChange={(v: string) => setValue("workTimingTo", v)} type="time" />
+                  <Field label="Start / Join Date" value={formatDate(form.joinDate)} onChange={(v: string) => setValue("joinDate", v)} type="date" required disabled />
+                  <Field label="Working Shifts From" value={form.workTimingFrom} onChange={(v: string) => setValue("workTimingFrom", v)} type="time" disabled />
+                  <Field label="Working Shifts To" value={form.workTimingTo} onChange={(v: string) => setValue("workTimingTo", v)} type="time" disabled />
                   
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold">Current System Status</Label>
-                    <Select value={form.status} onValueChange={(v: any) => setValue("status", v)}>
+                    <Select value={form.status} onValueChange={() => {}} disabled>
                       <SelectTrigger className="bg-gray-50/70"><SelectValue /></SelectTrigger>
                       <SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
                     </Select>
                   </div>
 
                   {/* EMPLOYMENT TYPE & PAYROLL */}
-                  <div className="mt-4">
+                  <div className="md:col-span-3 mt-4">
                     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                       <div className="bg-indigo-50/40 px-5 py-3.5 border-b border-gray-200 flex items-center gap-2.5">
                         <Briefcase size={16} className="text-indigo-600" />
@@ -961,7 +1029,7 @@ export default function TeacherDashboard() {
                               <button
                                 key={type.id}
                                 type="button"
-                                onClick={() => setValue("employmentType", type.id as any)}
+                                onClick={() => {}} disabled
                                 className={`text-left p-3 rounded-xl border-2 transition-all duration-200 flex flex-col h-full ${
                                   isSelected 
                                   ? 'border-indigo-600 bg-indigo-50/30 shadow-sm' 
@@ -986,33 +1054,33 @@ export default function TeacherDashboard() {
                           <div className="flex flex-wrap items-start gap-4">
                             {form.employmentType === 'full_time' && (
                               <>
-                                <PayrollInput label="Monthly Salary (₹)" required prefix="₹" type="number" value={form.monthlySalary} onChange={(v: string) => setValue("monthlySalary", v)} />
-                                <PayrollInput label="PF Deduction (%)" subtext="Standard PF = 12%" suffix="%" type="number" value={form.pfDeduction} onChange={(v: string) => setValue("pfDeduction", v)} />
-                                <PayrollInput label="TDS Deduction (%)" suffix="%" type="number" value={form.tdsDeduction} onChange={(v: string) => setValue("tdsDeduction", v)} />
+                                <PayrollInput label="Monthly Salary (₹)" required prefix="₹" type="number" value={form.monthlySalary} onChange={(v: string) => setValue("monthlySalary", v)} disabled />
+                                <PayrollInput label="PF Deduction (%)" subtext="Standard PF = 12%" suffix="%" type="number" value={form.pfDeduction} onChange={(v: string) => setValue("pfDeduction", v)} disabled />
+                                <PayrollInput label="TDS Deduction (%)" suffix="%" type="number" value={form.tdsDeduction} onChange={(v: string) => setValue("tdsDeduction", v)} disabled />
                               </>
                             )}
 
                             {form.employmentType === 'contractual' && (
                               <>
-                                <PayrollInput label="Per-Class Rate (₹)" required prefix="₹" suffix="/class" type="number" value={form.perClassRate} onChange={(v: string) => setValue("perClassRate", v)} />
-                                <PayrollInput label="TDS Deduction (%)" suffix="%" type="number" value={form.tdsDeduction} onChange={(v: string) => setValue("tdsDeduction", v)} />
+                                <PayrollInput label="Per-Class Rate (₹)" required prefix="₹" suffix="/class" type="number" value={form.perClassRate} onChange={(v: string) => setValue("perClassRate", v)} disabled />
+                                <PayrollInput label="TDS Deduction (%)" suffix="%" type="number" value={form.tdsDeduction} onChange={(v: string) => setValue("tdsDeduction", v)} disabled />
                               </>
                             )}
 
                             {form.employmentType === 'hybrid' && (
                               <>
-                                <PayrollInput label="Base Salary (₹)" required prefix="₹" type="number" value={form.baseSalary} onChange={(v: string) => setValue("baseSalary", v)} />
-                                <PayrollInput label="Per-Class Rate (₹)" required prefix="₹" suffix="/class" type="number" value={form.perClassRate} onChange={(v: string) => setValue("perClassRate", v)} />
-                                <PayrollInput label="PF (%)" suffix="%" type="number" value={form.pfDeduction} onChange={(v: string) => setValue("pfDeduction", v)} />
-                                <PayrollInput label="TDS (%)" suffix="%" type="number" value={form.tdsDeduction} onChange={(v: string) => setValue("tdsDeduction", v)} />
+                                <PayrollInput label="Base Salary (₹)" required prefix="₹" type="number" value={form.baseSalary} onChange={(v: string) => setValue("baseSalary", v)} disabled />
+                                <PayrollInput label="Per-Class Rate (₹)" required prefix="₹" suffix="/class" type="number" value={form.perClassRate} onChange={(v: string) => setValue("perClassRate", v)} disabled />
+                                <PayrollInput label="PF (%)" suffix="%" type="number" value={form.pfDeduction} onChange={(v: string) => setValue("pfDeduction", v)} disabled />
+                                <PayrollInput label="TDS (%)" suffix="%" type="number" value={form.tdsDeduction} onChange={(v: string) => setValue("tdsDeduction", v)} disabled />
                               </>
                             )}
 
                             {form.employmentType === 'hourly' && (
                               <>
-                                <PayrollInput label="Hourly Rate (₹)" required prefix="₹" suffix="/hour" type="number" value={form.hourlyRate} onChange={(v: string) => setValue("hourlyRate", v)} />
-                                <PayrollInput label="PF Deduction (%)" suffix="%" type="number" value={form.pfDeduction} onChange={(v: string) => setValue("pfDeduction", v)} />
-                                <PayrollInput label="TDS Deduction (%)" suffix="%" type="number" value={form.tdsDeduction} onChange={(v: string) => setValue("tdsDeduction", v)} />
+                                <PayrollInput label="Hourly Rate (₹)" required prefix="₹" suffix="/hour" type="number" value={form.hourlyRate} onChange={(v: string) => setValue("hourlyRate", v)} disabled />
+                                <PayrollInput label="PF Deduction (%)" suffix="%" type="number" value={form.pfDeduction} onChange={(v: string) => setValue("pfDeduction", v)} disabled />
+                                <PayrollInput label="TDS Deduction (%)" suffix="%" type="number" value={form.tdsDeduction} onChange={(v: string) => setValue("tdsDeduction", v)} disabled />
                               </>
                             )}
                           </div>
@@ -1205,6 +1273,7 @@ export default function TeacherDashboard() {
                           <Button type="button" variant="outline" onClick={() => aadhaarFileRef.current?.click()} className="w-full text-xs h-9 bg-white border-dashed border-gray-300 text-gray-600 hover:border-[#5B7023] hover:text-[#5B7023]">
                             <Upload size={14} className="mr-2" /> Upload Aadhaar File
                           </Button>
+                          <Button type="button" variant="outline" onClick={() => startCamera("Aadhaar Card")} className="w-full text-xs h-9 mt-2 bg-white border-dashed border-gray-300 text-gray-600 hover:border-[#5B7023] hover:text-[#5B7023]"><Camera size={14} className="mr-2" /> Use Camera</Button>
                         </>
                       )}
                     </div>
@@ -1228,6 +1297,7 @@ export default function TeacherDashboard() {
                           <Button type="button" variant="outline" onClick={() => panFileRef.current?.click()} className="w-full text-xs h-9 bg-white border-dashed border-gray-300 text-gray-600 hover:border-[#5B7023] hover:text-[#5B7023]">
                             <Upload size={14} className="mr-2" /> Upload PAN File
                           </Button>
+                          <Button type="button" variant="outline" onClick={() => startCamera("PAN Card")} className="w-full text-xs h-9 mt-2 bg-white border-dashed border-gray-300 text-gray-600 hover:border-[#5B7023] hover:text-[#5B7023]"><Camera size={14} className="mr-2" /> Use Camera</Button>
                         </>
                       )}
                     </div>
@@ -1327,7 +1397,7 @@ export default function TeacherDashboard() {
                 </div>
                 {form.loginEnabled && (
                   <div className="p-6 space-y-5">
-                    <div className="grid grid-cols-1 gap-5">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                       <Field label="System Username *" value={form.username} onChange={(v: string) => setValue("username", v.toLowerCase().replace(/\s/g, ""))} required autoComplete="off" />
                       <div className="space-y-1.5">
                         <Label className="text-xs font-semibold">Secure Password</Label>
@@ -1340,7 +1410,7 @@ export default function TeacherDashboard() {
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-xs font-semibold">Access Level Role</Label>
-                        <Select value={form.accessLevel || "teacher"} onValueChange={(v) => setValue("accessLevel", v)}>
+                        <Select value={form.accessLevel || "teacher"} onValueChange={() => {}} disabled>
                           <SelectTrigger className="text-sm bg-gray-50/70"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {ACCESS_LEVELS.map((level) => (<SelectItem key={level.value} value={level.value}>{level.label}</SelectItem>))}
@@ -1352,7 +1422,18 @@ export default function TeacherDashboard() {
                 )}
               </div>
 
+              </div>
             </div>
+
+            {cameraActive && (
+              <div className="fixed inset-0 z-[10000] bg-black/80 flex items-center justify-center p-4">
+                <div className="w-full max-w-2xl bg-white rounded-2xl overflow-hidden shadow-2xl">
+                  <div className="px-5 py-4 border-b flex items-center justify-between"><div className="font-bold text-gray-800 flex items-center gap-2"><Camera size={18} className="text-[#5B7023]" /> {cameraTarget === "profile" ? "Capture Profile Photo" : `Capture ${cameraTarget}`}</div><button onClick={stopCamera}><X size={18}/></button></div>
+                  <div className="bg-black aspect-video flex items-center justify-center"><video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" /></div>
+                  <div className="p-5 flex items-center gap-3"><Button type="button" variant="outline" onClick={stopCamera} className="flex-1"><X size={16} className="mr-2"/> Cancel</Button><Button type="button" onClick={capturePhoto} className="flex-1 bg-[#5B7023] hover:bg-[#4a5c1d]"><Camera size={16} className="mr-2"/> Capture</Button></div>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <>

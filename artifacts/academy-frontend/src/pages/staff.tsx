@@ -167,7 +167,7 @@ function Field({ label, value, onChange, type = "text", placeholder = "", requir
       <Label className="text-xs font-semibold text-gray-700">
         {label} {required && <span className="text-red-500">*</span>}
       </Label>
-      <Input type={type} value={value || ""} placeholder={placeholder} onChange={(e: any) => onChange(e.target.value)} autoComplete={autoComplete} className="text-sm bg-gray-50/50 focus-visible:ring-[#5B7023]" />
+      <Input type={type} value={value || ""} placeholder={placeholder} onChange={(e: any) => onChange(e.target.value)} autoComplete={autoComplete} className="text-sm bg-gray-50/50 focus-visible:ring-[#123B63]" />
     </div>
   );
 }
@@ -209,7 +209,7 @@ function SearchableSelect({ options, value, onChange, placeholder = "Select...",
 
   return (
     <div className="relative w-full" ref={containerRef}>
-      <button type="button" disabled={disabled} onClick={() => !disabled && setOpen((p) => !p)} className={`w-full h-10 px-3 py-2 text-sm bg-gray-50/50 border border-gray-200 rounded-md shadow-sm flex items-center justify-between text-left focus:outline-none focus:ring-2 focus:ring-[#5B7023] ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}>
+      <button type="button" disabled={disabled} onClick={() => !disabled && setOpen((p) => !p)} className={`w-full h-10 px-3 py-2 text-sm bg-gray-50/50 border border-gray-200 rounded-md shadow-sm flex items-center justify-between text-left focus:outline-none focus:ring-2 focus:ring-[#123B63] ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}>
         <span className={value ? "text-gray-800 truncate" : "text-gray-500"}>{value || placeholder}</span>
         <ChevronDown size={16} className={`text-gray-400 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -218,7 +218,7 @@ function SearchableSelect({ options, value, onChange, placeholder = "Select...",
           <div className="p-2 border-b border-gray-100 bg-gray-50 sticky top-0 rounded-t-xl">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-              <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Type to search..." className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-[#5B7023]" autoFocus />
+              <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Type to search..." className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-[#123B63]" autoFocus />
             </div>
           </div>
           <div className="overflow-y-auto max-h-48 p-1 rounded-b-xl bg-white">
@@ -226,9 +226,9 @@ function SearchableSelect({ options, value, onChange, placeholder = "Select...",
               <div className="p-3 text-xs text-gray-400 text-center">No options found</div>
             ) : (
               filteredOptions.map((opt) => (
-                <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false); setSearchTerm(""); }} className={`w-full px-3 py-2 text-xs text-left rounded-lg transition flex items-center justify-between ${value === opt ? "bg-[#F0F4E8] text-[#5B7023] font-semibold" : "hover:bg-gray-50 text-gray-700"}`}>
+                <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false); setSearchTerm(""); }} className={`w-full px-3 py-2 text-xs text-left rounded-lg transition flex items-center justify-between ${value === opt ? "bg-[#EAF2F8] text-[#123B63] font-semibold" : "hover:bg-gray-50 text-gray-700"}`}>
                   <span className="truncate">{opt}</span>
-                  {value === opt && <Check size={14} className="text-[#5B7023] shrink-0" />}
+                  {value === opt && <Check size={14} className="text-[#123B63] shrink-0" />}
                 </button>
               ))
             )}
@@ -276,7 +276,13 @@ export default function Staff() {
   const availableBatches = useMemo(() => {
     if (!rawBatches) return [];
     const list = Array.isArray(rawBatches) ? rawBatches : (rawBatches as any).data || (rawBatches as any).batches || [];
-    return list.map((b: any) => typeof b === "string" ? b : (b.name || b.title || b.batchName || "")).filter(Boolean);
+    return list
+      .map((b: any) => typeof b === "string" ? { id: b, name: b, courseName: "" } : ({
+        id: String(b.id || b._id || ""),
+        name: String(b.name || b.title || b.batchName || ""),
+        courseName: String(b.courseName || b.course || ""),
+      }))
+      .filter((b: any) => b.id && b.name);
   }, [rawBatches]);
 
   const availableCourses = useMemo(() => {
@@ -296,7 +302,10 @@ export default function Staff() {
   // Options with "None" appended
   const courseOptionsWithNone = useMemo(() => ["None", ...availableCourses], [availableCourses]);
   const subjectOptionsWithNone = useMemo(() => ["None", ...availableSubjects], [availableSubjects]);
-  const batchOptionsWithNone = useMemo(() => ["None", "All Batches", ...availableBatches], [availableBatches]);
+  const batchOptionsWithNone = useMemo(
+    () => ["None", "All Batches", ...availableBatches.map((b: any) => b.name)],
+    [availableBatches]
+  );
   // =================================================================
 
   const [viewMode, setViewMode] = useState<"list" | "form" | "view">("list");
@@ -421,7 +430,7 @@ export default function Staff() {
     });
     return [
       make("casual", "Casual Leave", 12, "bg-blue-500"),
-      make("earned", "Earned Leave", 15, "bg-emerald-500"),
+      make("earned", "Earned Leave", 15, "bg-blue-500"),
       make("lossOfPay", "Loss of Pay", 0, "bg-slate-500"),
       make("maternity", "Maternity Leave", 180, "bg-pink-500"),
       make("sick", "Sick Leave", 8, "bg-red-500"),
@@ -601,10 +610,12 @@ export default function Staff() {
 
   // ================= LIVE CAMERA (FIXED BLACK SCREEN) =================
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraTarget, setCameraTarget] = useState<"profile" | "Aadhaar Card" | "PAN Card">("profile");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const startCamera = async () => {
+  const startCamera = async (target: "profile" | "Aadhaar Card" | "PAN Card" = "profile") => {
+    setCameraTarget(target);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -661,7 +672,20 @@ export default function Staff() {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-    setValue("photoDataUrl", dataUrl);
+    if (cameraTarget === "profile") {
+      setValue("photoDataUrl", dataUrl);
+    } else {
+      const label = cameraTarget;
+      const fileName = `${label === "Aadhaar Card" ? "aadhaar" : "pan"}-camera-${Date.now()}.jpg`;
+      const docObj: StaffDocument = {
+        label,
+        name: fileName,
+        dataUrl,
+        mimeType: "image/jpeg",
+      };
+      const filteredDocs = form.documents.filter(d => d.label !== label);
+      setValue("documents", [...filteredDocs, docObj]);
+    }
     stopCamera();
   };
 
@@ -1061,9 +1085,25 @@ export default function Staff() {
   const save = async () => {
     if (!form.firstName.trim() || !form.phone.trim() || !form.role || !form.joinDate) { setMessage("First Name, Mobile, Role and Start Date are required."); return; }
     if (form.loginEnabled) {
-      if (!form.username.trim() || !form.password.trim()) { setMessage("Portal access credentials are required when active."); return; }
-      if (form.password.length < 6) { setMessage("Password must be at least 6 characters long."); return; }
-      if (form.password !== form.confirmPassword) { setMessage("Portal access passwords do not match."); return; }
+      // New staff must have complete portal credentials. While editing an
+      // existing staff member, an empty password means "keep existing
+      // password"; the backend already preserves it in that case.
+      if (!form.username.trim()) {
+        setMessage("Portal username is required when access is active.");
+        return;
+      }
+      if (!editing && !form.password.trim()) {
+        setMessage("Portal password is required when creating a staff login.");
+        return;
+      }
+      if (form.password.trim() && form.password.length < 6) {
+        setMessage("Password must be at least 6 characters long.");
+        return;
+      }
+      if (form.password.trim() && form.password !== form.confirmPassword) {
+        setMessage("Portal access passwords do not match.");
+        return;
+      }
     }
     
     setSaving(true); setMessage("");
@@ -1151,8 +1191,36 @@ export default function Staff() {
       .filter(r => r.course || r.subject || r.batch);
       
     const subjectsToSave = cleanedSubjectsTaught.length > 0 ? cleanedSubjectsTaught : [];
-    const combinedSubjectsString = subjectsToSave.map(s => s.subject).filter(Boolean).join(", ") || form.subject || "";
-    const derivedBatchesFromRows = Array.from(new Set(subjectsToSave.map(s => s.batch).filter(b => b && b !== "All Batches" && b !== "None")));
+    // Staff.batches is an ObjectId[] in MongoDB. The UI displays batch names,
+    // so resolve those names back to real Batch IDs before saving.
+    const resolvedBatchIds = new Set<string>();
+    subjectsToSave.forEach((row) => {
+      const rowCourse = String(row.course || "").trim().toLowerCase();
+      const rowBatch = String(row.batch || "").trim().toLowerCase();
+
+      if (rowBatch && rowBatch !== "all batches" && rowBatch !== "none") {
+        availableBatches
+          .filter((b: any) => String(b.name).trim().toLowerCase() === rowBatch)
+          .forEach((b: any) => resolvedBatchIds.add(String(b.id)));
+        return;
+      }
+
+      // "All Batches" (or no specific batch) means all batches of that class.
+      if (rowCourse) {
+        availableBatches
+          .filter((b: any) => String(b.courseName || "").trim().toLowerCase() === rowCourse)
+          .forEach((b: any) => resolvedBatchIds.add(String(b.id)));
+      }
+    });
+
+    // Preserve any already-selected real IDs when editing an existing staff record.
+    (form.batches || []).forEach((value: any) => {
+      const raw = String(value?.id || value?._id || value || "");
+      const byId = availableBatches.find((b: any) => String(b.id) === raw);
+      const byName = availableBatches.find((b: any) => String(b.name).trim().toLowerCase() === raw.trim().toLowerCase());
+      if (byId) resolvedBatchIds.add(String(byId.id));
+      else if (byName) resolvedBatchIds.add(String(byName.id));
+    });
 
     updatedDocuments = updatedDocuments.filter(d => d.label !== META_SUBJECTS_TAUGHT_KEY);
     if (subjectsToSave.length > 0) {
@@ -1176,10 +1244,11 @@ export default function Staff() {
       name: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
       salary: legacySalaryVal, 
       
-      // Override explicitly
-      subject: combinedSubjectsString,
+      // Keep Subject Specialization completely independent from Subjects Taught.
+      // Admin enters specialization manually in the text input above.
+      subject: form.subject,
       subjectsTaught: subjectsToSave,
-      batches: derivedBatchesFromRows.length > 0 ? derivedBatchesFromRows : form.batches || [],
+      batches: Array.from(resolvedBatchIds),
 
       address: form.localAddress,
       localState: form.localState,
@@ -1236,13 +1305,13 @@ export default function Staff() {
               <div className="flex items-center gap-4">
                 <button type="button" onClick={backToList} className="p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition"><ArrowLeft size={20} /></button>
                 <div>
-                  <h1 className="text-xl font-bold text-[#5B7023]">{editing ? "Edit Staff Profile" : "Add New Staff Member"}</h1>
+                  <h1 className="text-xl font-bold text-[#123B63]">{editing ? "Edit Staff Profile" : "Add New Staff Member"}</h1>
                   <p className="text-xs text-gray-500">Provide personal, profile, and system settings details</p>
                 </div>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={backToList} disabled={saving} className="rounded-xl">Cancel</Button>
-                <Button onClick={save} disabled={saving} className="bg-[#5B7023] hover:bg-[#4a5c1d] text-white rounded-xl gap-2 shadow-md transition-all">
+                <Button onClick={save} disabled={saving} className="bg-[#123B63] hover:bg-[#0D2E4D] text-white rounded-xl gap-2 shadow-md transition-all">
                   <Save size={16} /> {saving ? "Saving Details..." : editing ? "Update Profile" : "Save Profile"}
                 </Button>
               </div>
@@ -1261,7 +1330,7 @@ export default function Staff() {
                     <img
                       src={form.photoDataUrl}
                       alt=""
-                      className="w-24 h-24 rounded-full object-cover border-4 border-[#F0F4E8] shadow-sm"
+                      className="w-24 h-24 rounded-full object-cover border-4 border-[#EAF2F8] shadow-sm"
                     />
                   ) : (
                     <div className="w-24 h-24 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-400">
@@ -1271,7 +1340,7 @@ export default function Staff() {
                   <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                     <Camera size={24} className="text-white" />
                   </div>
-                  <div className="absolute bottom-0 right-0 bg-white p-1.5 rounded-full border border-gray-200 shadow-sm text-gray-600 group-hover:text-[#5B7023] transition-colors">
+                  <div className="absolute bottom-0 right-0 bg-white p-1.5 rounded-full border border-gray-200 shadow-sm text-gray-600 group-hover:text-[#123B63] transition-colors">
                     <Camera size={14} />
                   </div>
                   <input
@@ -1288,7 +1357,7 @@ export default function Staff() {
                 <p className="text-sm text-gray-500 mb-3">Allowed: JPEG or PNG under 1.5MB</p>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <Label className="cursor-pointer bg-[#F0F4E8] text-[#5B7023] hover:bg-[#5B7023] hover:text-white px-4 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all h-[36px]">
+                  <Label className="cursor-pointer bg-[#EAF2F8] text-[#123B63] hover:bg-[#123B63] hover:text-white px-4 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all h-[36px]">
                     <Upload size={14} /> Choose Image File
                     <input
                       type="file"
@@ -1300,8 +1369,8 @@ export default function Staff() {
 
                   <Button
                     type="button"
-                    onClick={startCamera}
-                    className="bg-[#5B7023] hover:bg-[#4a5c1d] text-white rounded-lg px-4 py-2 text-xs flex items-center gap-1.5 font-bold h-[36px] shadow-sm transition-all"
+                    onClick={() => startCamera()}
+                    className="bg-[#123B63] hover:bg-[#0D2E4D] text-white rounded-lg px-4 py-2 text-xs flex items-center gap-1.5 font-bold h-[36px] shadow-sm transition-all"
                   >
                     <Camera size={14} /> Use Live Camera
                   </Button>
@@ -1311,7 +1380,7 @@ export default function Staff() {
 
             {/* SECTION 1 */}
             <div className="bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl"><h3 className="font-semibold text-[#5B7023]">1. Personal & Contact Details</h3></div>
+              <div className="bg-[#EAF2F8] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl"><h3 className="font-semibold text-[#123B63]">1. Personal & Contact Details</h3></div>
               <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
                 <Field label="First Name" value={form.firstName} onChange={(v) => setValue("firstName", v)} required />
                 <Field label="Last Name" value={form.lastName} onChange={(v) => setValue("lastName", v)} />
@@ -1330,8 +1399,8 @@ export default function Staff() {
 
                   {form.gender === "other" && (
                     <div className="pt-2">
-                      <Label className="text-[11px] font-bold text-[#5B7023]">Specify Gender *</Label>
-                      <Input value={form.otherGender} onChange={(e: any) => setValue("otherGender", e.target.value)} placeholder="e.g. Transgender, Non-binary" className="text-sm bg-[#F4F7EE] border-[#5B7023] h-9 mt-1" autoFocus />
+                      <Label className="text-[11px] font-bold text-[#123B63]">Specify Gender *</Label>
+                      <Input value={form.otherGender} onChange={(e: any) => setValue("otherGender", e.target.value)} placeholder="e.g. Transgender, Non-binary" className="text-sm bg-[#EAF2F8] border-[#123B63] h-9 mt-1" autoFocus />
                     </div>
                   )}
                 </div>
@@ -1344,7 +1413,7 @@ export default function Staff() {
 
             {/* SECTION 2 */}
             <div className="bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl"><h3 className="font-semibold text-[#5B7023]">2. Professional Assignment & Role</h3></div>
+              <div className="bg-[#EAF2F8] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl"><h3 className="font-semibold text-[#123B63]">2. Professional Assignment & Role</h3></div>
               <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
                 <Field label="Employee ID" value={form.empId} onChange={(v) => setValue("empId", v)} placeholder="EMP-001" required />
                 <div className="space-y-1.5">
@@ -1362,7 +1431,7 @@ export default function Staff() {
                     {QUALIFICATIONS_LIST.map((qual) => {
                       const isSelected = selectedQualifications.includes(qual);
                       return (
-                        <button key={qual} type="button" onClick={() => handleQualificationToggle(qual)} className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all ${isSelected ? "bg-[#5B7023] text-white border-[#5B7023] shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:border-[#5B7023] hover:text-[#5B7023]"}`}>
+                        <button key={qual} type="button" onClick={() => handleQualificationToggle(qual)} className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all ${isSelected ? "bg-[#123B63] text-white border-[#123B63] shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:border-[#123B63] hover:text-[#123B63]"}`}>
                           {isSelected && <Check size={12} className="inline mr-1" />}{qual}
                         </button>
                       );
@@ -1370,8 +1439,8 @@ export default function Staff() {
                   </div>
                   {selectedQualifications.includes("Other") && (
                     <div className="pt-2 max-w-sm">
-                      <Label className="text-xs font-semibold text-[#5B7023] mb-1 block">Please specify other qualification *</Label>
-                      <Input value={form.otherQualification || ""} onChange={(e: any) => setValue("otherQualification", e.target.value)} placeholder="e.g. M.Phil, CA, CS, Certificate..." className="text-sm bg-[#F4F7EE] border-[#5B7023] h-9" />
+                      <Label className="text-xs font-semibold text-[#123B63] mb-1 block">Please specify other qualification *</Label>
+                      <Input value={form.otherQualification || ""} onChange={(e: any) => setValue("otherQualification", e.target.value)} placeholder="e.g. M.Phil, CA, CS, Certificate..." className="text-sm bg-[#EAF2F8] border-[#123B63] h-9" />
                     </div>
                   )}
 
@@ -1387,16 +1456,16 @@ export default function Staff() {
                             <div key={qual} className="bg-white border border-gray-200 p-2.5 rounded-lg flex flex-col justify-center gap-2">
                               <span className="text-[11px] font-bold text-gray-800">{qual === "Other" ? (form.otherQualification || "Other") : qual} Certificate</span>
                               {existingDoc ? (
-                                <div className="flex items-center justify-between bg-[#F4F7EE] p-1.5 rounded border border-[#D8E1C8]">
+                                <div className="flex items-center justify-between bg-[#EAF2F8] p-1.5 rounded border border-[#D8E1C8]">
                                   <div className="flex items-center gap-1.5 overflow-hidden">
-                                    <CheckCircle2 size={12} className="text-[#5B7023] shrink-0" />
-                                    <span className="text-[10px] text-[#5B7023] font-semibold truncate">{existingDoc.name}</span>
+                                    <CheckCircle2 size={12} className="text-[#123B63] shrink-0" />
+                                    <span className="text-[10px] text-[#123B63] font-semibold truncate">{existingDoc.name}</span>
                                   </div>
                                   <button type="button" onClick={() => removeSpecificDoc(docLabel)} className="p-1 hover:bg-white text-red-500 rounded transition shrink-0"><X size={10} /></button>
                                 </div>
                               ) : (
                                 <label className="cursor-pointer w-full m-0">
-                                  <div className="flex items-center justify-center gap-1.5 text-[10px] font-bold border border-dashed border-gray-300 text-gray-500 hover:border-[#5B7023] hover:text-[#5B7023] hover:bg-[#F4F7EE] transition-colors py-1.5 px-3 rounded-md w-full">
+                                  <div className="flex items-center justify-center gap-1.5 text-[10px] font-bold border border-dashed border-gray-300 text-gray-500 hover:border-[#123B63] hover:text-[#123B63] hover:bg-[#EAF2F8] transition-colors py-1.5 px-3 rounded-md w-full">
                                     <Upload size={12} /> Upload File
                                   </div>
                                   <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => handleSpecificDocUpload(e, docLabel)} />
@@ -1419,7 +1488,7 @@ export default function Staff() {
                     <button
                       type="button"
                       onClick={addSubjectRow}
-                      className="text-xs font-bold text-[#5B7023] hover:underline flex items-center gap-1"
+                      className="text-xs font-bold text-[#123B63] hover:underline flex items-center gap-1"
                     >
                       <Plus size={14} /> Add Another Subject
                     </button>
@@ -1472,6 +1541,7 @@ export default function Staff() {
                   ))}
                 </div>
 
+                <Field label="Subject Specialization" value={form.subject} onChange={(v) => setValue("subject", v)} placeholder="e.g. Mathematics" />
                 <Field label="Prior Experience (Years)" value={form.experience} onChange={(v) => setValue("experience", v)} type="number" />
                 <Field label="Start / Join Date" value={form.joinDate} onChange={(v) => setValue("joinDate", v)} type="date" required />
                 <Field label="Working Shifts From" value={form.workTimingFrom} onChange={(v) => setValue("workTimingFrom", v)} type="time" />
@@ -1547,8 +1617,8 @@ export default function Staff() {
                               <PayrollInput label="TDS Deduction (%)" subtext="Contractual TDS typically 10%" suffix="%" type="number" value={form.tdsDeduction} onChange={(v: string) => setValue("tdsDeduction", v)} />
                               {form.perClassRate && (
                                 <div className="self-end pb-1 ml-auto">
-                                  <div className="bg-emerald-50 px-4 py-2.5 rounded-lg border border-emerald-100 text-xs font-medium text-emerald-800 flex items-center h-[38px]">
-                                    <span className="font-bold mr-1">Example:</span> 20 classes × ₹{form.perClassRate} = <span className="font-bold ml-1">₹{(Number(form.perClassRate) * 20).toLocaleString('en-IN')}</span> <span className="ml-1 text-emerald-600">gross</span>
+                                  <div className="bg-blue-50 px-4 py-2.5 rounded-lg border border-blue-100 text-xs font-medium text-[#123B63] flex items-center h-[38px]">
+                                    <span className="font-bold mr-1">Example:</span> 20 classes × ₹{form.perClassRate} = <span className="font-bold ml-1">₹{(Number(form.perClassRate) * 20).toLocaleString('en-IN')}</span> <span className="ml-1 text-[#123B63]">gross</span>
                                   </div>
                                 </div>
                               )}
@@ -1582,9 +1652,9 @@ export default function Staff() {
 
             {/* SECTION 3 - RESIDENTIAL ADDRESS */}
             <div className="bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl flex items-center gap-2">
-                <MapPin size={16} className="text-[#5B7023]" />
-                <h3 className="font-semibold text-[#5B7023]">3. Residential Address</h3>
+              <div className="bg-[#EAF2F8] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl flex items-center gap-2">
+                <MapPin size={16} className="text-[#123B63]" />
+                <h3 className="font-semibold text-[#123B63]">3. Residential Address</h3>
               </div>
 
               <div className="p-6 space-y-8">
@@ -1656,7 +1726,7 @@ export default function Staff() {
                 </div>
 
                 {/* SAME AS CHECKBOX */}
-                <label className="flex items-center gap-3 cursor-pointer select-none bg-[#F4F7EE]/60 border border-[#D8E1C8] rounded-xl px-4 py-3 w-fit hover:bg-[#F4F7EE] transition">
+                <label className="flex items-center gap-3 cursor-pointer select-none bg-[#EAF2F8]/60 border border-[#D8E1C8] rounded-xl px-4 py-3 w-fit hover:bg-[#EAF2F8] transition">
                   <div className="relative flex items-center justify-center">
                     <input
                       type="checkbox"
@@ -1673,7 +1743,7 @@ export default function Staff() {
                         }
                       }}
                     />
-                    <div className="w-5 h-5 rounded-md border-2 border-gray-300 bg-white peer-checked:bg-[#5B7023] peer-checked:border-[#5B7023] transition flex items-center justify-center">
+                    <div className="w-5 h-5 rounded-md border-2 border-gray-300 bg-white peer-checked:bg-[#123B63] peer-checked:border-[#123B63] transition flex items-center justify-center">
                       {sameAsCorrespondence && <Check size={12} className="text-white" strokeWidth={3} />}
                     </div>
                   </div>
@@ -1742,9 +1812,9 @@ export default function Staff() {
 
             {/* SECTION 4 */}
             <div className="bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl flex items-center gap-2">
-                <ShieldCheck size={16} className="text-[#5B7023]" />
-                <h3 className="font-semibold text-[#5B7023]">4. Identity Verification</h3>
+              <div className="bg-[#EAF2F8] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl flex items-center gap-2">
+                <ShieldCheck size={16} className="text-[#123B63]" />
+                <h3 className="font-semibold text-[#123B63]">4. Identity Verification</h3>
               </div>
               <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                 
@@ -1753,9 +1823,9 @@ export default function Staff() {
                   <div>
                     <Label className="text-xs font-semibold text-gray-700 block mb-1.5">Aadhaar Document</Label>
                     {aadhaarDoc ? (
-                      <div className="flex items-center justify-between bg-white border border-green-200 p-2.5 rounded-lg">
+                      <div className="flex items-center justify-between bg-white border border-blue-200 p-2.5 rounded-lg">
                         <div className="flex items-center gap-2 overflow-hidden">
-                          <CheckCircle2 size={16} className="text-green-600 shrink-0" />
+                          <CheckCircle2 size={16} className="text-[#123B63] shrink-0" />
                           <span className="text-xs text-gray-700 font-medium truncate">{aadhaarDoc.name}</span>
                         </div>
                         <button type="button" onClick={() => removeSpecificDoc("Aadhaar Card")} className="p-1 hover:bg-red-50 text-red-500 rounded transition shrink-0"><X size={14} /></button>
@@ -1763,9 +1833,14 @@ export default function Staff() {
                     ) : (
                       <>
                         <input type="file" ref={aadhaarFileRef} className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleSpecificDocUpload(e, "Aadhaar Card")} />
-                        <Button type="button" variant="outline" onClick={() => aadhaarFileRef.current?.click()} className="w-full text-xs h-9 bg-white border-dashed border-gray-300 text-gray-600 hover:border-[#5B7023] hover:text-[#5B7023]">
-                          <Upload size={14} className="mr-2" /> Upload Aadhaar File
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button type="button" variant="outline" onClick={() => aadhaarFileRef.current?.click()} className="flex-1 text-xs h-9 bg-white border-dashed border-gray-300 text-gray-600 hover:border-[#123B63] hover:text-[#123B63]">
+                            <Upload size={14} className="mr-2" /> Upload Aadhaar File
+                          </Button>
+                          <Button type="button" onClick={() => startCamera("Aadhaar Card")} className="h-9 px-3 bg-[#123B63] hover:bg-[#0D2E4D] text-white text-xs gap-1.5">
+                            <Camera size={14} /> Camera
+                          </Button>
+                        </div>
                       </>
                     )}
                   </div>
@@ -1776,9 +1851,9 @@ export default function Staff() {
                   <div>
                     <Label className="text-xs font-semibold text-gray-700 block mb-1.5">PAN Document</Label>
                     {panDoc ? (
-                      <div className="flex items-center justify-between bg-white border border-green-200 p-2.5 rounded-lg">
+                      <div className="flex items-center justify-between bg-white border border-blue-200 p-2.5 rounded-lg">
                         <div className="flex items-center gap-2 overflow-hidden">
-                          <CheckCircle2 size={16} className="text-green-600 shrink-0" />
+                          <CheckCircle2 size={16} className="text-[#123B63] shrink-0" />
                           <span className="text-xs text-gray-700 font-medium truncate">{panDoc.name}</span>
                         </div>
                         <button type="button" onClick={() => removeSpecificDoc("PAN Card")} className="p-1 hover:bg-red-50 text-red-500 rounded transition shrink-0"><X size={14} /></button>
@@ -1786,9 +1861,14 @@ export default function Staff() {
                     ) : (
                       <>
                         <input type="file" ref={panFileRef} className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleSpecificDocUpload(e, "PAN Card")} />
-                        <Button type="button" variant="outline" onClick={() => panFileRef.current?.click()} className="w-full text-xs h-9 bg-white border-dashed border-gray-300 text-gray-600 hover:border-[#5B7023] hover:text-[#5B7023]">
-                          <Upload size={14} className="mr-2" /> Upload PAN File
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button type="button" variant="outline" onClick={() => panFileRef.current?.click()} className="flex-1 text-xs h-9 bg-white border-dashed border-gray-300 text-gray-600 hover:border-[#123B63] hover:text-[#123B63]">
+                            <Upload size={14} className="mr-2" /> Upload PAN File
+                          </Button>
+                          <Button type="button" onClick={() => startCamera("PAN Card")} className="h-9 px-3 bg-[#123B63] hover:bg-[#0D2E4D] text-white text-xs gap-1.5">
+                            <Camera size={14} /> Camera
+                          </Button>
+                        </div>
                       </>
                     )}
                   </div>
@@ -1811,8 +1891,8 @@ export default function Staff() {
 
             {/* SECTION 5 */}
             <div className="bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl flex items-center justify-between">
-                <div className="flex items-center gap-2"><IndianRupee size={16} className="text-[#5B7023]" /><h3 className="font-semibold text-[#5B7023]">5. Bank Account & Salary Transfer</h3></div>
+              <div className="bg-[#EAF2F8] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl flex items-center justify-between">
+                <div className="flex items-center gap-2"><IndianRupee size={16} className="text-[#123B63]" /><h3 className="font-semibold text-[#123B63]">5. Bank Account & Salary Transfer</h3></div>
                 <span className="text-[10px] font-bold px-2 py-1 bg-blue-50 text-blue-600 rounded uppercase tracking-wider">Payroll Info</span>
               </div>
               <div className="p-6 space-y-5">
@@ -1833,9 +1913,9 @@ export default function Staff() {
 
             {/* SECTION 6 */}
             <div className="bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl flex items-center justify-between">
-                <div className="flex items-center gap-2"><FolderOpen size={16} className="text-[#5B7023]" /><h3 className="font-semibold text-[#5B7023]">6. Documents & File Attachments</h3></div>
-                <span className="text-[10px] font-bold px-2 py-1 bg-[#F0F4E8] text-[#5B7023] rounded uppercase tracking-wider">{userDocuments.length} {userDocuments.length === 1 ? "File" : "Files"}</span>
+              <div className="bg-[#EAF2F8] px-6 py-3 border-b border-gray-200/50 rounded-t-2xl flex items-center justify-between">
+                <div className="flex items-center gap-2"><FolderOpen size={16} className="text-[#123B63]" /><h3 className="font-semibold text-[#123B63]">6. Documents & File Attachments</h3></div>
+                <span className="text-[10px] font-bold px-2 py-1 bg-[#EAF2F8] text-[#123B63] rounded uppercase tracking-wider">{userDocuments.length} {userDocuments.length === 1 ? "File" : "Files"}</span>
               </div>
               <div className="p-6 space-y-5">
                 <div className="bg-amber-50/50 border border-amber-100 p-3 rounded-xl flex items-start gap-2">
@@ -1850,7 +1930,7 @@ export default function Staff() {
                     </div>
                     <div>
                       <input type="file" ref={docFileRef} className="hidden" onChange={handleAddDocument} accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" />
-                      <Button type="button" onClick={() => docFileRef.current?.click()} className="w-full md:w-auto bg-[#5B7023] hover:bg-[#4a5c1d] text-white text-xs gap-2 h-10 px-5 rounded-lg"><FileUp size={14} /> Choose & Upload</Button>
+                      <Button type="button" onClick={() => docFileRef.current?.click()} className="w-full md:w-auto bg-[#123B63] hover:bg-[#0D2E4D] text-white text-xs gap-2 h-10 px-5 rounded-lg"><FileUp size={14} /> Choose & Upload</Button>
                     </div>
                   </div>
                 </div>
@@ -1866,7 +1946,7 @@ export default function Staff() {
                       {userDocuments.map((doc, idx) => (
                         <div key={idx} className="flex items-center justify-between p-3 border border-gray-200 bg-white hover:bg-gray-50/50 rounded-xl transition-all group">
                           <div className="flex items-center gap-3 min-w-0 flex-1">
-                            <div className="w-9 h-9 bg-[#F0F4E8] rounded-lg flex items-center justify-center shrink-0"><FileText size={16} className="text-[#5B7023]" /></div>
+                            <div className="w-9 h-9 bg-[#EAF2F8] rounded-lg flex items-center justify-center shrink-0"><FileText size={16} className="text-[#123B63]" /></div>
                             <div className="min-w-0 flex-1"><p className="text-xs font-bold text-gray-800 truncate">{doc.label}</p><p className="text-[10px] text-gray-400 truncate">{doc.name}</p></div>
                           </div>
                           <div className="flex items-center gap-1 shrink-0 ml-2">
@@ -1883,13 +1963,13 @@ export default function Staff() {
 
             {/* SECTION 7 (PORTAL CREDENTIALS WITH AUTO-GENERATE) */}
             <div className="bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="bg-[#F4F7EE] px-6 py-3 border-b border-gray-100 rounded-t-2xl flex items-center justify-between">
-                <h3 className="font-semibold text-[#5B7023] flex items-center gap-2"><KeyRound size={16} /> 7. Portal Access Credentials</h3>
+              <div className="bg-[#EAF2F8] px-6 py-3 border-b border-gray-100 rounded-t-2xl flex items-center justify-between">
+                <h3 className="font-semibold text-[#123B63] flex items-center gap-2"><KeyRound size={16} /> 7. Portal Access Credentials</h3>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <span className="text-xs font-semibold text-gray-600">{form.loginEnabled ? "System Portal Active" : "Portal Off"}</span>
                   <div className="relative">
                     <input type="checkbox" checked={form.loginEnabled} onChange={(e) => setValue("loginEnabled", e.target.checked)} className="sr-only peer" />
-                    <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-[#5B7023] transition-colors"></div>
+                    <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-[#123B63] transition-colors"></div>
                     <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
                   </div>
                 </label>
@@ -1952,9 +2032,9 @@ export default function Staff() {
                   <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center">
-                        <Camera size={16} className="text-blue-600" />
+                        <Camera size={16} className="text-[#123B63]" />
                       </div>
-                      <h2 className="text-base font-bold text-gray-800">Live Photo Capture</h2>
+                      <h2 className="text-base font-bold text-gray-800">{cameraTarget === "profile" ? "Live Photo Capture" : `Capture ${cameraTarget} Document`}</h2>
                     </div>
                     <button
                       type="button"
@@ -2099,7 +2179,7 @@ export default function Staff() {
                         <InfoItem label="QUALIFICATION" value={viewing.qualification || "—"} />
                         <InfoItem label="SPECIALIZATION" value={viewing.subject || "—"} />
                         <InfoItem label="EMPLOYMENT TYPE" value={formatEmploymentType(viewing.employmentType)} />
-                        <InfoItem label="STATUS" value={<span className="text-emerald-600 font-bold flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />{viewing.status === "inactive" || viewing.isActive === false ? "Inactive" : "Active"}</span>} />
+                        <InfoItem label="STATUS" value={<span className="text-[#123B63] font-bold flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-500" />{viewing.status === "inactive" || viewing.isActive === false ? "Inactive" : "Active"}</span>} />
                         <div className="md:col-span-2">
                           <InfoItem label="BRANCHES" value={viewing.branches || viewing.branch || "All branches (institute-wide)"} />
                         </div>
@@ -2119,7 +2199,7 @@ export default function Staff() {
                         {leaveQuota(viewing).map((leave: any) => (
                           <div key={leave.label} className="rounded-xl border border-[#BFD4F6] bg-[#FBFDFF] p-3.5">
                             <div className="flex items-center gap-1.5 text-xs font-bold"><span className={`w-2 h-2 rounded-full ${leave.dot}`} />{leave.label}</div>
-                            <div className={`mt-2 text-2xl font-extrabold ${leave.used > 0 ? "text-[#1261C9]" : "text-emerald-600"}`}>{leave.total} <span className="text-xs font-medium text-gray-400">/ {leave.total}</span></div>
+                            <div className={`mt-2 text-2xl font-extrabold ${leave.used > 0 ? "text-[#1261C9]" : "text-[#123B63]"}`}>{leave.total} <span className="text-xs font-medium text-gray-400">/ {leave.total}</span></div>
                             <div className="text-[10px] text-gray-500 mt-1">{leave.used} used</div>
                             <div className="h-1 bg-[#C8D9F3] rounded-full mt-2"><div className="h-full rounded-full bg-[#9DBCE9]" style={{ width: `${leave.total ? Math.min(100, (leave.used / leave.total) * 100) : 0}%` }} /></div>
                           </div>
@@ -2234,7 +2314,7 @@ export default function Staff() {
                                 const net = Number(item?.netPay ?? item?.net ?? Math.max(0, gross - deductions)) || 0;
                                 const status = String(item?.status || "Draft");
                                 const days = item?.presentDays != null && item?.workingDays != null ? `${item.presentDays}/${item.workingDays}` : "—";
-                                return <tr key={`${item?.month || "month"}-${i}`} className="border-b border-gray-100 last:border-b-0"><td className="px-5 py-3 font-bold">{item?.month || "Current Month"}</td><td className="px-5 py-3">₹{gross.toLocaleString("en-IN")}</td><td className="px-5 py-3 text-red-500">−₹{deductions.toLocaleString("en-IN")}</td><td className="px-5 py-3 text-emerald-600 font-extrabold">₹{net.toLocaleString("en-IN")}</td><td className="px-5 py-3"><span className="px-2.5 py-1 rounded-full bg-[#FFF0C7] text-[#A56A00] text-[10px] font-bold">{status}</span></td><td className="px-5 py-3 text-right text-[#64748B]">{days}</td></tr>;
+                                return <tr key={`${item?.month || "month"}-${i}`} className="border-b border-gray-100 last:border-b-0"><td className="px-5 py-3 font-bold">{item?.month || "Current Month"}</td><td className="px-5 py-3">₹{gross.toLocaleString("en-IN")}</td><td className="px-5 py-3 text-red-500">−₹{deductions.toLocaleString("en-IN")}</td><td className="px-5 py-3 text-[#123B63] font-extrabold">₹{net.toLocaleString("en-IN")}</td><td className="px-5 py-3"><span className="px-2.5 py-1 rounded-full bg-[#FFF0C7] text-[#A56A00] text-[10px] font-bold">{status}</span></td><td className="px-5 py-3 text-right text-[#64748B]">{days}</td></tr>;
                               })}
                             </tbody>
                           </table>
@@ -2265,7 +2345,7 @@ export default function Staff() {
                         const gross = Number(p?.gross ?? p?.grossPay ?? p?.amount ?? 0) || 0;
                         const deductions = Number(p?.deductions ?? p?.deduction ?? 0) || 0;
                         const net = Number(p?.netPay ?? p?.net ?? Math.max(0, gross - deductions)) || 0;
-                        return <div key={`${p?.month || "payslip"}-${i}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3.5 rounded-xl border border-[#E2E8F0] bg-white"><div className="flex items-center gap-3 min-w-0"><div className="w-11 h-11 rounded-xl bg-[#FFF1BF] flex items-center justify-center shrink-0"><FileText size={18} className="text-[#E88A00]" /></div><div className="min-w-0"><p className="text-xs font-extrabold truncate">{p?.month || "Current Month"} Payslip</p><p className="text-[10px] text-[#64748B] mt-1">Gross: ₹{gross.toLocaleString("en-IN")} · Deductions: ₹{deductions.toLocaleString("en-IN")}{p?.presentDays != null && p?.workingDays != null ? ` · Present: ${p.presentDays}/${p.workingDays} days` : ""}</p></div></div><div className="flex items-center gap-4 sm:gap-6"><span className="text-lg font-extrabold text-emerald-600">₹{net.toLocaleString("en-IN")}</span><button type="button" onClick={() => downloadPayslipPdf(p, i)} className="px-4 py-2 rounded-lg bg-[#EEF3FF] border border-[#C9D9FF] text-[#1261C9] text-xs font-bold flex items-center gap-1.5 hover:bg-[#E5EDFF]"><DownloadCloud size={14} /> PDF</button></div></div>;
+                        return <div key={`${p?.month || "payslip"}-${i}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3.5 rounded-xl border border-[#E2E8F0] bg-white"><div className="flex items-center gap-3 min-w-0"><div className="w-11 h-11 rounded-xl bg-[#FFF1BF] flex items-center justify-center shrink-0"><FileText size={18} className="text-[#E88A00]" /></div><div className="min-w-0"><p className="text-xs font-extrabold truncate">{p?.month || "Current Month"} Payslip</p><p className="text-[10px] text-[#64748B] mt-1">Gross: ₹{gross.toLocaleString("en-IN")} · Deductions: ₹{deductions.toLocaleString("en-IN")}{p?.presentDays != null && p?.workingDays != null ? ` · Present: ${p.presentDays}/${p.workingDays} days` : ""}</p></div></div><div className="flex items-center gap-4 sm:gap-6"><span className="text-lg font-extrabold text-[#123B63]">₹{net.toLocaleString("en-IN")}</span><button type="button" onClick={() => downloadPayslipPdf(p, i)} className="px-4 py-2 rounded-lg bg-[#EEF3FF] border border-[#C9D9FF] text-[#1261C9] text-xs font-bold flex items-center gap-1.5 hover:bg-[#E5EDFF]"><DownloadCloud size={14} /> PDF</button></div></div>;
                       })}
                     </div>
                   </div>
@@ -2292,7 +2372,7 @@ export default function Staff() {
                   </div>
 
                   <div className="mt-4 p-4 rounded-xl bg-[#F0FFF8] border border-[#A9EACD] text-left">
-                    <div className="flex items-center justify-between"><span className="text-[10px] uppercase font-bold text-emerald-600">THIS MONTH</span><b className="text-2xl text-emerald-600">{attendancePercent(viewing)}%</b></div>
+                    <div className="flex items-center justify-between"><span className="text-[10px] uppercase font-bold text-[#123B63]">THIS MONTH</span><b className="text-2xl text-[#123B63]">{attendancePercent(viewing)}%</b></div>
                     <div className="h-1.5 bg-[#CFF4E2] rounded-full mt-3"><div className="h-full bg-[#19B97A] rounded-full" style={{width:`${attendancePercent(viewing)}%`}} /></div>
                     <div className="flex gap-4 text-[10px] mt-2"><span className="text-emerald-700">✓ {attendanceStats(viewing).present} present</span><span className="text-red-500">✕ {attendanceStats(viewing).absent} absent</span></div>
                   </div>

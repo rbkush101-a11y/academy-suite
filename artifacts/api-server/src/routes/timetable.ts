@@ -3,6 +3,8 @@ import { authenticate, authorize } from "../middlewares/auth";
 import { Timetable } from "../models/Timetable";
 import { Subject } from "../models/Subject";
 import { Batch } from "../models/Batch";
+import { Staff } from "../models/Staff";
+import { User } from "../models/User";
 
 const router: IRouter = Router();
 
@@ -44,11 +46,71 @@ async function populatedTimetableEntry(id: string) {
 router.get(
   "/timetable",
   authenticate,
-  authorize("super_admin", "institute_admin", "staff", "student"),
+  authorize("super_admin", "institute_admin", "staff", "teacher", "student"),
   async (req, res): Promise<void> => {
     try {
       const batchId = toText(req.query.batchId);
       const filter: any = batchId ? { batchId } : {};
+
+      if (req.user?.role === "teacher") {
+        const user = await User.findById(req.user.userId).select("email phone loginId instituteId");
+        const email = String((user as any)?.email ?? "").trim().toLowerCase();
+        const phone = String((user as any)?.phone ?? "").trim();
+        const loginId = String((user as any)?.loginId ?? "").trim().toLowerCase();
+        const conditions: any[] = [];
+        if (email) conditions.push({ email });
+        if (phone) conditions.push({ phone });
+        if (loginId) conditions.push({ username: loginId });
+        const staff = conditions.length
+          ? await Staff.findOne({
+              $or: conditions,
+              ...((user as any)?.instituteId ? { instituteId: (user as any).instituteId } : {}),
+            }).select("_id batches subjectsTaught")
+          : null;
+
+        if (!staff) {
+          res.json([]);
+          return;
+        }
+
+        let assignedBatchIds = Array.isArray((staff as any).batches)
+          ? (staff as any).batches.map((id: any) => String(id))
+          : [];
+
+        // Backward compatibility for older teacher records that only have
+        // subjectsTaught { course, subject, batch }.
+        if (assignedBatchIds.length === 0 && staff) {
+          const taughtRows = Array.isArray((staff as any).subjectsTaught)
+            ? (staff as any).subjectsTaught
+            : [];
+          const courseNames = taughtRows
+            .map((row: any) => String(row?.course || "").trim().toLowerCase())
+            .filter(Boolean);
+          const batchNames = taughtRows
+            .map((row: any) => String(row?.batch || "").trim().toLowerCase())
+            .filter((name: string) => name && name !== "all batches" && name !== "none");
+
+          if (courseNames.length || batchNames.length) {
+            const candidateBatches = await Batch.find({
+              ...((user as any)?.instituteId ? { instituteId: (user as any).instituteId } : {}),
+            }).populate("courseId", "name").select("_id name courseId");
+
+            assignedBatchIds = candidateBatches
+              .filter((batch: any) => {
+                const batchName = String(batch.name || "").trim().toLowerCase();
+                const courseName = String(batch.courseId?.name || "").trim().toLowerCase();
+                return batchNames.includes(batchName) || courseNames.includes(courseName);
+              })
+              .map((batch: any) => String(batch._id));
+          }
+        }
+
+        const teacherScope = assignedBatchIds.length
+          ? [{ teacherId: staff._id }, { batchId: { $in: assignedBatchIds } }]
+          : [{ teacherId: staff._id }];
+
+        filter.$or = teacherScope;
+      }
 
       const entries = await Timetable.find(filter)
         .populate("batchId", "name courseId")
@@ -77,6 +139,7 @@ router.post(
       const startTime = toText(req.body?.startTime);
       const endTime = toText(req.body?.endTime);
       const room = toText(req.body?.room);
+      const teacherId = toText(req.body?.teacherId || req.body?.staffId || req.body?.facultyId);
 
       const validDays = [
         "Monday",
@@ -147,6 +210,7 @@ router.post(
       const entry = await Timetable.create({
         batchId,
         subjectId,
+        ...(teacherId ? { teacherId } : {}),
         day: day as any,
         startTime,
         endTime,
@@ -178,7 +242,7 @@ router.patch(
       }
 
       const updates: any = {};
-      const allowedFields = ["batchId", "subjectId", "day", "startTime", "endTime", "room"];
+      const allowedFields = ["batchId", "subjectId", "day", "startTime", "endTime", "room", "teacherId"];
 
       for (const field of allowedFields) {
         if (req.body?.[field] !== undefined) {
@@ -213,7 +277,9 @@ router.patch(
         return;
       }
 
-      updates.teacherId = subject.teacherId || undefined;
+      if (!updates.teacherId) {
+        updates.teacherId = subject.teacherId || undefined;
+      }
 
       await Timetable.findByIdAndUpdate(id, updates, {
         new: true,

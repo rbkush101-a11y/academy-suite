@@ -121,7 +121,7 @@ function Router() {
       </Route>
 
       <Route path="/teacher-dashboard">
-        <ProtectedRoute component={TeacherDashboard} roles={["teacher"]} />
+        <ProtectedRoute component={TeacherDashboard} roles={["teacher"]} withLayout={false} />
       </Route>
 
       <Route path="/accountant-dashboard">
