@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
 import { User } from "../models/User";
+import { Staff } from "../models/Staff";
 import { Student } from "../models/Student";
 import { signToken } from "../lib/jwt";
 import { authenticate } from "../middlewares/auth";
@@ -130,15 +131,43 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       { loginId: cleanLower },
       { email: cleanLower },
       { phone: rawInput },
+      // Legacy portal accounts may have been stored with `username` before
+      // loginId became the canonical field. Keep this lookup for compatibility.
+      { username: cleanLower },
     ];
     if (cleanDigits.length >= 10) {
       userSearchConditions.push({ phone: { $regex: cleanDigits.slice(-10) + "$" } });
     }
 
     // 1) Pehle staff/admin/teacher user collection me dhoondho
-    const user = await User.findOne({
+    let user = await User.findOne({
       $or: userSearchConditions,
     });
+
+    // Compatibility fallback for older Staff records: if the entered value is
+    // a Staff portal username but the linked User record has no loginId, find
+    // that User through the Staff email/phone + institute and authenticate it.
+    if (!user) {
+      const staff = await Staff.findOne({
+        username: cleanLower,
+        loginEnabled: true,
+      });
+
+      if (staff) {
+        const staffEmail = staff.email ? String(staff.email).toLowerCase().trim() : "";
+        const staffPhone = staff.phone ? String(staff.phone).trim() : "";
+        const staffUserConditions: any[] = [];
+        if (staffEmail) staffUserConditions.push({ email: staffEmail });
+        if (staffPhone) staffUserConditions.push({ phone: staffPhone });
+
+        if (staffUserConditions.length > 0) {
+          user = await User.findOne({
+            $or: staffUserConditions,
+            ...(staff.instituteId ? { instituteId: staff.instituteId } : {}),
+          });
+        }
+      }
+    }
 
     if (user) {
       const match = await bcrypt.compare(String(password), user.password);

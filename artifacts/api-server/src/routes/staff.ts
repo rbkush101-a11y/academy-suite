@@ -16,6 +16,25 @@ function getInstituteIdForUser(req: any): string | null {
   return user?.instituteId ? String(user.instituteId) : null;
 }
 
+// Portal UI roles and auth User roles are intentionally different.
+// Keep the Staff form labels, but store only valid User.role values.
+function mapPortalRoleToUserRole(accessLevel: string | undefined):
+  "institute_admin" | "teacher" | "accountant" | "staff" {
+  switch (String(accessLevel || "staff").toLowerCase()) {
+    case "admin":
+      return "institute_admin";
+    case "teacher":
+      return "teacher";
+    case "accountant":
+      return "accountant";
+    case "manager":
+    case "receptionist":
+    case "staff":
+    default:
+      return "staff";
+  }
+}
+
 function getSubjectsTaught(staff: any): any[] {
   if (Array.isArray(staff.subjectsTaught)) return staff.subjectsTaught;
   const metadata = Array.isArray(staff.documents)
@@ -198,6 +217,7 @@ router.post("/staff", authenticate, authorize("super_admin", "institute_admin"),
 
     const data = cleanBody(req.body);
     const { loginEnabled, username, password, accessLevel } = req.body;
+    const portalEnabled = Boolean(loginEnabled);
 
     if (!data.name || !data.phone || !data.role || data.salary === undefined || !data.joinDate) {
       res.status(400).json({ error: "Name, mobile, role, salary and start date are required" });
@@ -206,6 +226,37 @@ router.post("/staff", authenticate, authorize("super_admin", "institute_admin"),
 
     if (data.staffType !== "academic" && data.staffType !== "computer") {
       data.staffType = "academic";
+    }
+
+    let portalLoginId = "";
+    let portalEmail = data.email ? String(data.email).toLowerCase().trim() : "";
+    let portalUserRole: ReturnType<typeof mapPortalRoleToUserRole> = "staff";
+
+    if (portalEnabled) {
+      portalLoginId = String(username || "").toLowerCase().trim();
+      if (!portalLoginId || !String(password || "").trim()) {
+        res.status(400).json({ error: "Portal username and password are required when portal access is enabled." });
+        return;
+      }
+      if (String(password).trim().length < 6) {
+        res.status(400).json({ error: "Portal password must be at least 6 characters long." });
+        return;
+      }
+      if (!portalEmail) portalEmail = `${portalLoginId}@institute.com`;
+      portalUserRole = mapPortalRoleToUserRole(accessLevel);
+
+      const [existingByLoginId, existingByEmail] = await Promise.all([
+        User.findOne({ loginId: portalLoginId }),
+        User.findOne({ email: portalEmail }),
+      ]);
+      if (existingByLoginId) {
+        res.status(409).json({ error: "This portal username is already in use." });
+        return;
+      }
+      if (existingByEmail) {
+        res.status(409).json({ error: "This email is already linked to another portal account." });
+        return;
+      }
     }
 
     // Auto-generate empId if missing
@@ -219,21 +270,18 @@ router.post("/staff", authenticate, authorize("super_admin", "institute_admin"),
     const staff = await Staff.create({
       ...data,
       instituteId,
-      loginEnabled: Boolean(loginEnabled),
-      username: username ? String(username).toLowerCase().trim() : "",
+      loginEnabled: portalEnabled,
+      username: portalLoginId,
     });
 
-    // Sync User table for login
-    if (loginEnabled && username && password) {
-      const hashedPassword = await bcrypt.hash(String(password), 10);
+    if (portalEnabled) {
+      const hashedPassword = await bcrypt.hash(String(password).trim(), 10);
       await User.create({
         name: data.name,
-        email: data.email
-          ? String(data.email).toLowerCase().trim()
-          : `${String(username).toLowerCase()}@institute.com`,
-        loginId: String(username).toLowerCase().trim(),
+        email: portalEmail,
+        loginId: portalLoginId,
         password: hashedPassword,
-        role: accessLevel || "teacher",
+        role: portalUserRole,
         instituteId,
         isApproved: true,
         phone: data.phone,
@@ -270,6 +318,19 @@ router.patch("/staff/:id", authenticate, authorize("super_admin", "institute_adm
 
     const updateData = cleanBody(req.body);
     const { loginEnabled, username, password, accessLevel } = req.body;
+    const portalEnabled = loginEnabled !== undefined ? Boolean(loginEnabled) : Boolean(oldStaff.loginEnabled);
+
+    if (portalEnabled) {
+      const requestedLoginId = String(username || oldStaff.username || "").toLowerCase().trim();
+      if (!requestedLoginId) {
+        res.status(400).json({ error: "Portal username is required when portal access is enabled." });
+        return;
+      }
+      if (password !== undefined && String(password).trim().length > 0 && String(password).trim().length < 6) {
+        res.status(400).json({ error: "Portal password must be at least 6 characters long." });
+        return;
+      }
+    }
 
     // Preserve existing empId if not provided
     if (!updateData.empId && oldStaff.empId) {
@@ -281,33 +342,73 @@ router.patch("/staff/:id", authenticate, authorize("super_admin", "institute_adm
       filter,
       {
         ...updateData,
-        loginEnabled: loginEnabled !== undefined ? Boolean(loginEnabled) : oldStaff.loginEnabled,
+        loginEnabled: portalEnabled,
         username: username ? String(username).toLowerCase().trim() : oldStaff.username,
       },
       { new: true, runValidators: true }
     );
 
-    // Sync User table
-    const searchUserFilter = oldStaff.username
-      ? { loginId: oldStaff.username.toLowerCase().trim() }
-      : { email: oldStaff.email ? oldStaff.email.toLowerCase().trim() : "" };
+    // Sync User table. This also creates the portal account when an older
+    // Staff record existed before portal-login support was added.
+    const oldLoginId = oldStaff.username ? oldStaff.username.toLowerCase().trim() : "";
+    const oldEmail = oldStaff.email ? oldStaff.email.toLowerCase().trim() : "";
+    const activeUsername = String(username || oldLoginId || user.email || "").toLowerCase().trim();
+    const activeEmail = String(updatedStaff?.email || oldStaff.email || `${activeUsername}@institute.com`).toLowerCase().trim();
 
-    const activeUsername = String(username || oldStaff.username || user.email).toLowerCase().trim();
+    const searchUserFilter = oldLoginId
+      ? { loginId: oldLoginId }
+      : oldEmail
+        ? { email: oldEmail }
+        : { loginId: activeUsername };
+
     const userPayload: any = {
       name: updatedStaff?.name ?? oldStaff.name,
-      email: updatedStaff?.email ?? oldStaff.email,
+      email: activeEmail,
       loginId: activeUsername,
       phone: updatedStaff?.phone ?? oldStaff.phone,
+      instituteId: updatedStaff?.instituteId ?? oldStaff.instituteId,
+      isApproved: portalEnabled,
     };
-    if (accessLevel) userPayload.role = accessLevel;
+
+    if (accessLevel) userPayload.role = mapPortalRoleToUserRole(accessLevel);
 
     if (password && String(password).trim().length > 0) {
       userPayload.password = await bcrypt.hash(String(password).trim(), 10);
     }
 
     const existingUser = await User.findOne(searchUserFilter);
-    if (existingUser) {
-      await User.findByIdAndUpdate(existingUser._id, userPayload);
+
+    if (portalEnabled) {
+      if (!activeUsername) {
+        res.status(400).json({ error: "Portal username is required when portal access is enabled." });
+        return;
+      }
+
+      // Avoid changing another user's unique loginId/email accidentally.
+      const conflictingUser = await User.findOne({
+        $or: [{ loginId: activeUsername }, { email: activeEmail }],
+        ...(existingUser?._id ? { _id: { $ne: existingUser._id } } : {}),
+      });
+      if (conflictingUser) {
+        res.status(409).json({ error: "Portal username or email is already used by another account." });
+        return;
+      }
+
+      if (existingUser) {
+        await User.findByIdAndUpdate(existingUser._id, userPayload, { runValidators: true });
+      } else {
+        if (!userPayload.password) {
+          res.status(400).json({ error: "Password is required to create portal login for this staff member." });
+          return;
+        }
+        await User.create({
+          ...userPayload,
+          password: userPayload.password,
+        });
+      }
+    } else if (existingUser) {
+      // Keep the User record but block login rather than deleting the account.
+      await User.findByIdAndUpdate(existingUser._id, { isApproved: false });
     }
 
     res.json(formatStaff(updatedStaff));

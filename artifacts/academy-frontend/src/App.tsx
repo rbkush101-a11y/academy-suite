@@ -45,6 +45,7 @@ import HR from "@/pages/hr";
 import Analytics from "@/pages/analytics";
 import Notifications from "@/pages/notifications";
 import Admissions from "@/pages/admissions";
+import OnlineAdmissions from "@/pages/online-admissions";
 import PTM from "@/pages/ptm";
 import AcademicYears from "@/pages/academic-years";
 
@@ -195,6 +196,18 @@ function Router() {
       <Route path="/admissions">
         <ProtectedRoute
           component={Admissions}
+          roles={["super_admin", "institute_admin", "staff"]}
+        />
+      </Route>
+
+      {/* Public online admission form — no admin portal/layout/auth wrapper */}
+      <Route path="/online-admission-form">
+        <Students />
+      </Route>
+
+      <Route path="/online-admissions">
+        <ProtectedRoute
+          component={OnlineAdmissions}
           roles={["super_admin", "institute_admin", "staff"]}
         />
       </Route>

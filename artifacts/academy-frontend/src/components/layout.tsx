@@ -23,6 +23,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
       { label: "Lead CRM", icon: Filter, href: "/admissions" },
+      { label: "Online Admissions", icon: UserPlus, href: "/online-admissions" },
       { label: "Academic Years", icon: CalendarDays, href: "/academic-years" },
       { label: "Reports", icon: BarChart3, href: "/analytics" },
     ],
@@ -32,7 +33,6 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Students", icon: GraduationCap, href: "/students" },
       { label: "Staff", icon: Users, href: "/staff" },
-      { label: "Online Admissions", icon: UserPlus, href: "/admissions" },
     ],
   },
   {
@@ -122,6 +122,7 @@ const navGroups: NavGroup[] = [
       { label: "PTM Meetings", icon: Users, href: "/ptm" },
     ],
   },
+  /*
   {
     title: "OPERATIONS",
     items: [
@@ -134,15 +135,16 @@ const navGroups: NavGroup[] = [
       { label: "Gamification", icon: Trophy, href: "/gamification" },
     ],
   },
+  */
   {
     title: "SETTINGS",
     items: [
       { label: "General Settings", icon: Settings, href: "/settings" },
       { label: "Branches", icon: Building2, href: "/branches" },
       { label: "Roles & Permissions", icon: Shield, href: "/roles" },
-      { label: "Mobile App Branding", icon: Smartphone, href: "/mobile-branding" },
-      { label: "Integrations", icon: Puzzle, href: "/integrations" },
-      { label: "AI Credits", icon: Cpu, href: "/ai-credits" },
+      //{ label: "Mobile App Branding", icon: Smartphone, href: "/mobile-branding" },
+      //{ label: "Integrations", icon: Puzzle, href: "/integrations" },
+      //{ label: "AI Credits", icon: Cpu, href: "/ai-credits" },
     ],
   },
   {
@@ -160,7 +162,7 @@ const collapsedItems: NavItem[] = [
   { label: "Reports", icon: BarChart3, href: "/analytics" },
   { label: "Students", icon: GraduationCap, href: "/students" },
   { label: "Staff", icon: Users, href: "/staff" },
-  { label: "Online Admissions", icon: UserPlus, href: "/admissions" },
+  { label: "Online Admissions", icon: UserPlus, href: "/online-admissions" },
   { label: "Courses", icon: GraduationCap, href: "/courses" },
   { label: "Batches", icon: Layers, href: "/batches" },
   { label: "PYQ Papers", icon: FileQuestion, href: "/pyq-papers" },

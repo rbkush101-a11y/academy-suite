@@ -1069,7 +1069,14 @@ export default function Staff() {
     setSaving(true); setMessage("");
     
     const finalDesignation = form.role === "Other" ? form.customRole : form.role;
-    let finalSystemRole = form.loginEnabled ? form.accessLevel : "staff";
+    const designationLower = finalDesignation.toLowerCase();
+    const inferredTeacherRole =
+      designationLower.includes("teacher") || designationLower.includes("faculty");
+    const effectiveAccessLevel =
+      form.loginEnabled && form.accessLevel === "staff" && inferredTeacherRole
+        ? "teacher"
+        : form.accessLevel;
+    let finalSystemRole = form.loginEnabled ? effectiveAccessLevel : "staff";
     
     if (!form.loginEnabled) {
       const lowerDesig = finalDesignation.toLowerCase();
@@ -1164,6 +1171,7 @@ export default function Staff() {
       employeeId: form.empId,          
       role: finalSystemRole,            
       positionTitle: finalDesignation,  
+      accessLevel: finalSystemRole,
       staffType: pageType ?? form.staffType ?? "academic",
       name: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
       salary: legacySalaryVal, 

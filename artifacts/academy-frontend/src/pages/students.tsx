@@ -365,8 +365,9 @@ function SearchableFilterDropdown({ value, options, onChange, placeholder, class
 // MAIN COMPONENT
 // ---------------------------------------------------------------------------
 
-export default function Students() {
+export default function Students({ preview = false }: { preview?: boolean }) {
   const [location] = useLocation();
+  const isOnlineAdmissionPreview = preview || location.split("?")[0] === "/online-admission-form";
   const studentCategory = new URLSearchParams(location.split("?")[1] ?? window.location.search).get("category");
   const pageTitle = studentCategory === "academic" ? "Academic Students" : studentCategory === "computer" ? "Computer Students" : "Students";
 
@@ -434,7 +435,7 @@ export default function Students() {
   const [resetParentPwd, setResetParentPwd] = useState(false);
 
   // Full-Page Form State (NEW - Replaced dialogOpen)
-  const [formPageOpen, setFormPageOpen] = useState(false);
+  const [formPageOpen, setFormPageOpen] = useState(isOnlineAdmissionPreview);
   
   // Other Dialogs State
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -749,6 +750,10 @@ export default function Students() {
   };
 
   const closeForm = () => {
+    if (isOnlineAdmissionPreview) {
+      window.close();
+      return;
+    }
     setFormPageOpen(false);
     setEditingStudent(null);
     setForm(blankForm);
@@ -996,57 +1001,86 @@ export default function Students() {
   // ---------------------------------------------------------------------------
   if (formPageOpen) {
     return (
-      <div className="max-w-6xl mx-auto pb-10">
+      <div className="max-w-6xl mx-auto pb-10 overflow-x-clip">
         
-        {/* 🌟 100% WORKING STICKY HEADER & PROGRESS BAR */}
-        <div className="sticky top-0 z-30 bg-[#f6f7f9] pt-1 pb-3 space-y-3">
-          
-          {/* Top Action Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="flex items-center gap-3">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="rounded-full bg-slate-50 border border-slate-200 hover:bg-slate-100 h-9 w-9 shrink-0" 
-                onClick={closeForm}
-              >
-                <ArrowLeft className="h-4 w-4 text-slate-700" />
-              </Button>
-              <div>
-                <h1 className="text-lg md:text-xl font-bold text-slate-800 tracking-tight leading-tight">
-                  {editingStudent ? "Edit Student Admission" : "New Student Admission Form"}
-                </h1>
-                <p className="text-[11px] text-slate-500">
-                  {studentCategory === "academic" ? "Academic Student" : studentCategory === "computer" ? "Computer Student" : "Fill all fields carefully"}
-                </p>
+        {/* Compact premium Online Admission header + sticky progress */}
+        {isOnlineAdmissionPreview ? (
+          <>
+            <div className="bg-[#f6f7f9] pt-2 pb-2">
+              <div className="relative mx-auto max-w-4xl overflow-hidden rounded-2xl border border-[#173a73] bg-[#0f2f66] shadow-md">
+                <div className="h-1 bg-[#2f66c9]" />
+                <div className="px-4 py-4 text-center md:px-6 md:py-5">
+                  <div className="mb-2 flex items-center justify-center gap-2">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/15 text-white ring-1 ring-white/20 shadow-sm">
+                      <GraduationCap className="h-5 w-5" />
+                    </div>
+                    <span className="rounded-full border border-white/25 bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
+                      Admissions 2026–27
+                    </span>
+                  </div>
+                  <h1 className="text-xl font-extrabold tracking-tight text-white md:text-2xl">
+                    Second School Classes
+                  </h1>
+                  <h2 className="mx-auto mt-1 text-base font-bold leading-snug text-white md:text-lg">
+                    Online Admission Applicatioin Form 2026-2027
+                  </h2>
+                  <p className="mt-1 text-xs font-bold text-white/90 md:text-sm">
+                    Please fill in all required details carefully.
+                  </p>
+                  <div className="mx-auto mt-3 flex w-full items-center justify-center rounded-lg border border-white/20 bg-white/10 px-4 py-2.5 shadow-sm">
+                    <div className="text-sm font-bold text-white md:text-base">Online Student Admission Form</div>
+                  </div>
+                </div>
               </div>
             </div>
-
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={closeForm} className="h-9 text-xs bg-white">Cancel</Button>
-              <Button onClick={saveStudent} disabled={saving} className="h-9 text-xs bg-[#4d7c0f] hover:bg-[#3f660c] text-white font-medium px-4 shadow-sm">
-                {saving ? "Saving..." : (editingStudent ? "Update Student" : "Save Admission")}
-              </Button>
+            <div className="sticky top-0 z-50 bg-[#f6f7f9] py-1.5 shadow-sm">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                <FormProgress steps={[
+                  { label: "Student", filled: section1Filled },
+                  { label: "Parents", filled: section2Filled },
+                  { label: "Address", filled: section3Filled },
+                  { label: "Docs", filled: !!(form.aadhaarCard || form.previousMarksheet) },
+                ]} />
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="sticky top-0 z-50 bg-[#f6f7f9] pt-1 pb-3 space-y-3 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" size="icon" className="rounded-full bg-slate-50 border border-slate-200 hover:bg-slate-100 h-9 w-9 shrink-0" onClick={closeForm}>
+                  <ArrowLeft className="h-4 w-4 text-slate-700" />
+                </Button>
+                <div>
+                  <h1 className="text-lg md:text-xl font-bold text-slate-800 tracking-tight leading-tight">
+                    {editingStudent ? "Edit Student Admission" : "New Student Admission Form"}
+                  </h1>
+                  <p className="text-[11px] text-slate-500">
+                    {studentCategory === "academic" ? "Academic Student" : studentCategory === "computer" ? "Computer Student" : "Fill all fields carefully"}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={closeForm} className="h-9 text-xs bg-white">Cancel</Button>
+                <Button onClick={saveStudent} disabled={saving} className="h-9 text-xs bg-[#4d7c0f] hover:bg-[#3f660c] text-white font-medium px-4 shadow-sm">
+                  {saving ? "Saving..." : (editingStudent ? "Update Student" : "Save Admission")}
+                </Button>
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+              <FormProgress steps={[
+                { label: "Student", filled: section1Filled },
+                { label: "Parents", filled: section2Filled },
+                { label: "Address", filled: section3Filled },
+                { label: "Docs", filled: !!(form.aadhaarCard || form.previousMarksheet) },
+                { label: "Login", filled: section4Filled }
+              ]} />
             </div>
           </div>
-
-          {/* 📍 PROGRESS BAR */}
-          <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
-            <FormProgress 
-              steps={[
-                { label: "Student", filled: section1Filled }, 
-                { label: "Parents", filled: section2Filled }, 
-                { label: "Address", filled: section3Filled }, 
-                { label: "Docs", filled: !!(form.aadhaarCard || form.previousMarksheet) }, 
-                { label: "Login", filled: section4Filled }
-              ]} 
-            />
-          </div>
-
-        </div>
+        )}
 
         {/* FORM BODY */}
-        <div className="space-y-5 pt-1">
+        <div className={isOnlineAdmissionPreview ? "space-y-5 pt-2" : "space-y-5 pt-1"}>
           
           {/* SECTION 1: STUDENT INFO */}
           <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white">
@@ -1307,6 +1341,8 @@ export default function Students() {
             </CardContent>
           </Card>
           
+          {!isOnlineAdmissionPreview && (
+          <>
           {/* SECTION 4: LOGIN */}
           <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white">
             <CardContent className="p-6 space-y-5">
@@ -1355,12 +1391,16 @@ export default function Students() {
               </div>
             </CardContent>
           </Card>
+          </>
+          )}
 
           {/* Save button at bottom */}
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={closeForm} className="h-11 px-6">Cancel</Button>
+            {!isOnlineAdmissionPreview && (
+              <Button variant="outline" onClick={closeForm} className="h-11 px-6">Cancel</Button>
+            )}
             <Button onClick={saveStudent} disabled={saving} className="h-11 bg-[#4d7c0f] hover:bg-[#3f660c] text-white font-medium px-6 shadow-sm">
-              {saving ? "Saving..." : (editingStudent ? "Update Student" : "Save Student Admission")}
+              {saving ? "Submitting..." : (isOnlineAdmissionPreview ? "Submit Application" : (editingStudent ? "Update Student" : "Save Student Admission"))}
             </Button>
           </div>
         </div>
