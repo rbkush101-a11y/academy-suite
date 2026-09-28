@@ -68,12 +68,6 @@ catalog:
 
 autoInstallPeers: false
 
-onlyBuiltDependencies:
-  - '@swc/core'
-  - esbuild
-  - msw
-  - unrs-resolver
-
 overrides:
   # Replit uses linux-x64 only, but local Windows development still needs win32 binaries.
   "esbuild>@esbuild/darwin-arm64": "-"
@@ -147,4 +141,4 @@ overrides:
   esbuild: "0.27.3"
 
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
