@@ -19,6 +19,7 @@ import Billing from "@/pages/billing";
 
 import Dashboard from "@/pages/dashboard";
 import Students from "@/pages/students";
+import OnlineAdmissionForm from "./pages/online-admission-form";
 import Courses from "@/pages/courses";
 import Batches from "@/pages/batches";
 import Staff from "@/pages/staff";
@@ -202,7 +203,7 @@ function Router() {
 
       {/* Public online admission form — no admin portal/layout/auth wrapper */}
       <Route path="/online-admission-form">
-        <Students />
+        <OnlineAdmissionForm />
       </Route>
 
       <Route path="/online-admissions">

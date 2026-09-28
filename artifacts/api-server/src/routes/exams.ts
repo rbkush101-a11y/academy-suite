@@ -48,7 +48,6 @@ async function formatExam(exam: any) {
     batchName: batch?.name ?? "",
     subjectId: String(exam.subjectId),
     subjectName: subject?.name ?? "",
-    teacherId: subject?.teacherId ? String(subject.teacherId) : "",
     teacherName: teacher?.name ?? "",
     date: exam.date,
     startTime: exam.startTime ?? "",
@@ -140,6 +139,172 @@ router.delete("/exam-series/:id", authenticate, authorize("super_admin","institu
     res.json({message:"Test session, subject papers and marks deleted."});
   } catch(error:any) {
     res.status(500).json({error:error?.message??"Unable to delete test session."});
+  }
+});
+
+
+// ----------------------------------------------------------------
+// TEACHER TEST COMPATIBILITY API
+// The Teacher Dashboard uses the older /tests contract. These routes
+// intentionally use the existing ExamSeries/Exam/ExamMark models so
+// there is only one source of truth for tests and marks.
+// ----------------------------------------------------------------
+router.get("/tests", authenticate, authorize("super_admin","institute_admin","teacher"), async (req, res): Promise<void> => {
+  try {
+    const batchId = clean(req.query.batchId);
+    const filter: any = {};
+    if (batchId) filter.batchId = batchId;
+
+    const exams = await Exam.find(filter).sort({ date: -1, createdAt: -1 });
+    const marks = exams.length
+      ? await ExamMark.find({ examId: { $in: exams.map((exam) => exam._id) } }).lean()
+      : [];
+    const marksByExam = new Map<string, Record<string, string>>();
+
+    for (const mark of marks as any[]) {
+      const key = String(mark.examId);
+      if (!marksByExam.has(key)) marksByExam.set(key, {});
+      marksByExam.get(key)![String(mark.studentId)] = String(mark.marksObtained);
+    }
+
+    res.json(await Promise.all(exams.map(async (exam: any) => {
+      const batch = await batchInfo(String(exam.batchId));
+      return {
+        id: String(exam._id),
+        _id: String(exam._id),
+        title: exam.name,
+        batchId: String(exam.batchId),
+        batchName: batch?.name ?? "",
+        maxMarks: Number(exam.totalMarks),
+        date: exam.date,
+        scores: marksByExam.get(String(exam._id)) ?? {},
+        status: exam.status,
+        subjectId: String(exam.subjectId),
+      };
+    })));
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message ?? "Unable to load tests." });
+  }
+});
+
+router.post("/tests", authenticate, authorize("super_admin","institute_admin","teacher"), async (req, res): Promise<void> => {
+  try {
+    const title = clean(req.body?.title);
+    const batchId = clean(req.body?.batchId);
+    const date = clean(req.body?.date) || new Date().toISOString().slice(0, 10);
+    const maxMarks = Number(req.body?.maxMarks);
+
+    if (!title || !batchId || !Number.isFinite(maxMarks) || maxMarks <= 0) {
+      res.status(400).json({ error: "Test title, batch and valid maximum marks are required." });
+      return;
+    }
+
+    const batch = await Batch.findById(batchId);
+    if (!batch) {
+      res.status(404).json({ error: "Selected batch not found." });
+      return;
+    }
+
+    // Prefer a subject assigned to the logged-in teacher; otherwise use
+    // the first subject belonging to the batch's course.
+    let subject = await Subject.findOne({ courseId: batch.courseId, teacherId: req.user!.userId });
+    if (!subject) subject = await Subject.findOne({ courseId: batch.courseId });
+    if (!subject) {
+      res.status(400).json({ error: "No subject is configured for this batch. Add a subject before creating a test." });
+      return;
+    }
+
+    const series = await ExamSeries.create({
+      title,
+      type: "weekly-test",
+      batchId,
+      testDate: date,
+      status: "scheduled",
+      instructions: "",
+    });
+
+    const exam = await Exam.create({
+      seriesId: series._id,
+      name: title,
+      type: "weekly-test",
+      batchId,
+      subjectId: subject._id,
+      date,
+      totalMarks: maxMarks,
+      passingMarks: Math.ceil(maxMarks * 0.33),
+      status: "scheduled",
+    });
+
+    res.status(201).json({
+      id: String(exam._id),
+      _id: String(exam._id),
+      title,
+      batchId,
+      batchName: batch.name,
+      maxMarks,
+      date,
+      scores: {},
+      status: exam.status,
+      subjectId: String(subject._id),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message ?? "Unable to create test." });
+  }
+});
+
+router.patch("/tests/:id", authenticate, authorize("super_admin","institute_admin","teacher"), async (req, res): Promise<void> => {
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const exam = await Exam.findById(id);
+    if (!exam) {
+      res.status(404).json({ error: "Test not found." });
+      return;
+    }
+
+    const scores = req.body?.scores;
+    if (!scores || typeof scores !== "object" || Array.isArray(scores)) {
+      res.status(400).json({ error: "Valid scores are required." });
+      return;
+    }
+
+    for (const [studentId, rawValue] of Object.entries(scores as Record<string, unknown>)) {
+      if (rawValue === "" || rawValue === null || rawValue === undefined) continue;
+      const marksObtained = Number(rawValue);
+      if (!Number.isFinite(marksObtained) || marksObtained < 0 || marksObtained > exam.totalMarks) {
+        res.status(400).json({ error: `Marks must be between 0 and ${exam.totalMarks}.` });
+        return;
+      }
+
+      const student = await Student.findById(studentId).select("name batchId");
+      if (!student) {
+        res.status(400).json({ error: "One or more selected students were not found." });
+        return;
+      }
+      if (String(student.batchId) !== String(exam.batchId)) {
+        res.status(400).json({ error: "A student does not belong to this test batch." });
+        return;
+      }
+
+      await ExamMark.findOneAndUpdate(
+        { examId: exam._id, studentId },
+        {
+          examId: exam._id,
+          studentId,
+          marksObtained,
+          grade: calculateGrade(marksObtained, exam.totalMarks),
+          remarks: "",
+        },
+        { upsert: true, new: true, runValidators: true }
+      );
+    }
+
+    const savedMarks = await ExamMark.find({ examId: exam._id }).lean();
+    const result: Record<string, string> = {};
+    for (const mark of savedMarks as any[]) result[String(mark.studentId)] = String(mark.marksObtained);
+
+    res.json({ id: String(exam._id), _id: String(exam._id), scores: result });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message ?? "Unable to save test marks." });
   }
 });
 

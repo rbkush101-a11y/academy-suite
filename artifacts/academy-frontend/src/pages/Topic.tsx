@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   ChevronDown,
@@ -41,44 +41,7 @@ interface SelectOption {
   label: string;
 }
 
-// ───────────────── Fallback Mock Data ─────────────────
-const FALLBACK_COURSES: Course[] = [
-  { id: "c1", name: "Class 10th Science" },
-  { id: "c2", name: "Class 12th Physics" },
-  { id: "c3", name: "Android App Development" },
-];
-
-const FALLBACK_SUBJECTS: Subject[] = [
-  { id: "s1", name: "Physics", courseId: "c1" },
-  { id: "s2", name: "Chemistry", courseId: "c1" },
-  { id: "s3", name: "Electrostatics", courseId: "c2" },
-  { id: "s4", name: "Java Core", courseId: "c3" },
-];
-
-const INITIAL_TOPICS: TopicItem[] = [
-  {
-    id: "t1",
-    name: "Android Architecture",
-    code: "JV",
-    subjectName: "Java Core",
-    status: "Active",
-  },
-  {
-    id: "t2",
-    name: "CCTV Topic 1",
-    code: "01",
-    subjectName: "— General —",
-    status: "Active",
-  },
-  {
-    id: "t3",
-    name: "Gravity",
-    code: "0022",
-    description: "Laws of Gravitation and Motion",
-    subjectName: "Physics",
-    status: "Inactive",
-  },
-];
+// ───────────────── API-backed data ─────────────────
 
 // ───────────────── Searchable Select ─────────────────
 function SearchableSelect({
@@ -223,15 +186,7 @@ function SearchableSelect({
 
 // ───────────────── Main Component ─────────────────
 export default function Topic() {
-  // Local Topics + localStorage
-  const [localTopics, setLocalTopics] = useState<TopicItem[]>(() => {
-    const saved = localStorage.getItem("academy_custom_topics");
-    return saved ? JSON.parse(saved) : INITIAL_TOPICS;
-  });
-
-  useEffect(() => {
-    localStorage.setItem("academy_custom_topics", JSON.stringify(localTopics));
-  }, [localTopics]);
+  const queryClient = useQueryClient();
 
   // Filter States
   const [selectedCourse, setSelectedCourse] = useState("");
@@ -276,7 +231,7 @@ export default function Topic() {
       return Array.isArray(data) && data.length > 0 ? data : [];
     },
   });
-  const courses = apiCourses.length > 0 ? apiCourses : FALLBACK_COURSES;
+  const courses = apiCourses;
 
   // ── Subjects ──
   const { data: apiSubjects = [], isLoading: isLoadingSubjects } = useQuery<
@@ -296,7 +251,7 @@ export default function Topic() {
       return Array.isArray(data) && data.length > 0 ? data : [];
     },
   });
-  const subjects = apiSubjects.length > 0 ? apiSubjects : FALLBACK_SUBJECTS;
+  const subjects = apiSubjects;
 
   // ── Topics API ──
   const { data: apiTopics = [], isLoading: isLoadingTopics } = useQuery<
@@ -321,7 +276,7 @@ export default function Topic() {
     },
   });
 
-  const allTopics = [...localTopics, ...apiTopics];
+  const allTopics = apiTopics;
 
   const filteredTopics = allTopics.filter((item) => {
     if (
@@ -353,33 +308,20 @@ export default function Topic() {
       subjectId: string;
     }) => {
       const token = localStorage.getItem("coach_sutra_token");
-      try {
-        await fetch("/api/topics", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ ...newTopic, status: "Active" }),
-        });
-      } catch (err) {}
-
-      const subObj = subjects.find(
-        (s) => String(s.id) === String(newTopic.subjectId)
-      );
-
-      return {
-        id: "loc_" + Date.now(),
-        name: newTopic.name,
-        description: newTopic.description,
-        courseId: newTopic.courseId,
-        subjectId: newTopic.subjectId,
-        subjectName: subObj ? subObj.name : "— General —",
-        status: "Active" as const,
-      };
+      const res = await fetch("/api/topics", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ...newTopic, status: "Active" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Unable to create topic.");
+      return data as TopicItem;
     },
-    onSuccess: (newTopicObj) => {
-      setLocalTopics((prev) => [newTopicObj, ...prev]);
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/topics"] });
       setIsModalOpen(false);
       setNewTopicName("");
       setNewTopicDescription("");
@@ -387,6 +329,7 @@ export default function Topic() {
       setNewSubjectId("");
       setFormError("");
     },
+    onError: (error: Error) => setFormError(error.message),
   });
 
   // ── Edit Topic ──
@@ -403,6 +346,68 @@ export default function Topic() {
     setIsEditModalOpen(true);
   };
 
+  const updateTopicMutation = useMutation({
+    mutationFn: async (payload: {
+      id: string | number;
+      name: string;
+      description: string;
+      courseId: string;
+      subjectId: string;
+      status: "Active" | "Inactive";
+    }) => {
+      const token = localStorage.getItem("coach_sutra_token");
+      const { id, ...body } = payload;
+      const res = await fetch(`/api/topics/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Unable to update topic.");
+      return data as TopicItem;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/topics"] });
+      setIsEditModalOpen(false);
+    },
+    onError: (error: Error) => setEditFormError(error.message),
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string | number; status: "Active" | "Inactive" }) => {
+      const token = localStorage.getItem("coach_sutra_token");
+      const res = await fetch(`/api/topics/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Unable to update topic status.");
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/topics"] }),
+  });
+
+  const deleteTopicMutation = useMutation({
+    mutationFn: async (id: string | number) => {
+      const token = localStorage.getItem("coach_sutra_token");
+      const res = await fetch(`/api/topics/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Unable to delete topic.");
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/topics"] }),
+  });
+
   const handleUpdateTopic = (e: React.FormEvent) => {
     e.preventDefault();
     setEditFormError("");
@@ -411,51 +416,32 @@ export default function Topic() {
       setEditFormError("Please enter a Topic Name.");
       return;
     }
+    if (!editCourseId || !editSubjectId) {
+      setEditFormError("Please select Course and Subject.");
+      return;
+    }
 
-    const subObj = subjects.find(
-      (s) => String(s.id) === String(editSubjectId)
-    );
-
-    setLocalTopics((prev) =>
-      prev.map((t) => {
-        if (t.id === editTopicId) {
-          return {
-            ...t,
-            name: editTopicName,
-            description: editTopicDescription,
-            courseId: editCourseId,
-            subjectId: editSubjectId,
-            subjectName: subObj
-              ? subObj.name
-              : t.subjectName || "— General —",
-            status: editStatus,
-          };
-        }
-        return t;
-      })
-    );
-
-    setIsEditModalOpen(false);
+    updateTopicMutation.mutate({
+      id: editTopicId!,
+      name: editTopicName.trim(),
+      description: editTopicDescription.trim(),
+      courseId: editCourseId,
+      subjectId: editSubjectId,
+      status: editStatus,
+    });
   };
 
-  // Toggle Status from table
-  const toggleTopicStatus = (id: string | number) => {
-    setLocalTopics((prev) =>
-      prev.map((t) => {
-        if (t.id === id) {
-          return {
-            ...t,
-            status: t.status === "Inactive" ? "Active" : "Inactive",
-          };
-        }
-        return t;
-      })
-    );
+  const toggleTopicStatus = (item: TopicItem) => {
+    statusMutation.mutate({
+      id: item.id,
+      status: item.status === "Inactive" ? "Active" : "Inactive",
+    });
   };
 
-  // Delete
   const handleDeleteTopic = (id: string | number) => {
-    setLocalTopics((prev) => prev.filter((t) => t.id !== id));
+    if (window.confirm("Delete this topic? This action cannot be undone.")) {
+      deleteTopicMutation.mutate(id);
+    }
   };
 
   // Filter handlers
@@ -668,7 +654,7 @@ export default function Topic() {
                         <td className="py-4 px-6 text-center">
                           <button
                             type="button"
-                            onClick={() => toggleTopicStatus(item.id)}
+                            onClick={() => toggleTopicStatus(item)}
                             title="Click to toggle status"
                             className={`text-xs font-semibold px-3 py-1 rounded-full transition cursor-pointer ${
                               isActive

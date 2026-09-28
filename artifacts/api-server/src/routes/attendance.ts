@@ -3,11 +3,38 @@ import { authenticate, authorize } from "../middlewares/auth";
 import { StudentAttendance, StaffAttendance } from "../models/Attendance";
 import { Student } from "../models/Student";
 import { Staff } from "../models/Staff";
+import { User } from "../models/User";
 
 const router: IRouter = Router();
 
 function toText(value: unknown) {
   return String(value ?? "").trim();
+}
+
+async function getTeacherAssignedBatchIds(req: any): Promise<string[] | null> {
+  if (req.user?.role !== "teacher") return null;
+
+  const user = await User.findById(req.user.userId).select("email phone loginId instituteId");
+  if (!user) return [];
+
+  const email = String((user as any).email ?? "").trim().toLowerCase();
+  const phone = String((user as any).phone ?? "").trim();
+  const loginId = String((user as any).loginId ?? "").trim().toLowerCase();
+  const conditions: any[] = [];
+  if (email) conditions.push({ email });
+  if (phone) conditions.push({ phone });
+  if (loginId) conditions.push({ username: loginId });
+
+  const staff = conditions.length
+    ? await Staff.findOne({
+        $or: conditions,
+        ...((user as any).instituteId ? { instituteId: (user as any).instituteId } : {}),
+      }).select("_id batches")
+    : null;
+
+  return Array.isArray((staff as any)?.batches)
+    ? (staff as any).batches.map((id: any) => String(id))
+    : [];
 }
 
 router.get(
@@ -22,7 +49,16 @@ router.get(
       const month = toText(req.query.month);
 
       const recordFilter: any = {};
-      if (batchId) recordFilter.batchId = batchId;
+      const teacherBatchIds = await getTeacherAssignedBatchIds(req);
+      if (teacherBatchIds !== null) {
+        if (batchId && !teacherBatchIds.includes(batchId)) {
+          res.status(403).json({ error: "You are not assigned to this batch." });
+          return;
+        }
+        recordFilter.batchId = batchId ? batchId : { $in: teacherBatchIds };
+      } else if (batchId) {
+        recordFilter.batchId = batchId;
+      }
       if (studentId) recordFilter.studentId = studentId;
       if (date) recordFilter.date = date;
       if (month) recordFilter.date = new RegExp("^" + month);
@@ -107,6 +143,12 @@ router.post(
 
       if (!["present", "absent", "late"].includes(status)) {
         res.status(400).json({ error: "Invalid attendance status." });
+        return;
+      }
+
+      const teacherBatchIds = await getTeacherAssignedBatchIds(req);
+      if (teacherBatchIds !== null && !teacherBatchIds.includes(batchId)) {
+        res.status(403).json({ error: "You are not assigned to this batch." });
         return;
       }
 

@@ -123,6 +123,19 @@ export default function Settings() {
   const [stagedPreviews, setStagedPreviews] = useState<Record<string, string | undefined>>({});
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
 
+  const [notificationPrefs, setNotificationPrefs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("coach_sutra_notification_prefs") || "null") || { announcements: true, feeReminders: true, attendanceAlerts: true, homeworkAlerts: true, examAlerts: true }; } catch { return { announcements: true, feeReminders: true, attendanceAlerts: true, homeworkAlerts: true, examAlerts: true }; }
+  });
+  const [emailSettings, setEmailSettings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("coach_sutra_email_settings") || "null") || { host: "", port: "587", username: "", fromEmail: "", secure: true }; } catch { return { host: "", port: "587", username: "", fromEmail: "", secure: true }; }
+  });
+  const [integrations, setIntegrations] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("coach_sutra_integrations") || "null") || { whatsapp: false, googleCalendar: false, razorpay: false, googleSheets: false }; } catch { return { whatsapp: false, googleCalendar: false, razorpay: false, googleSheets: false }; }
+  });
+  const [passwords, setPasswords] = useState({ password: "", confirm: "" });
+  const [securityMsg, setSecurityMsg] = useState("");
+
+
   const [form, setForm] = useState(() => {
     try {
       const savedInfo = localStorage.getItem("coach_sutra_general_info");
@@ -575,10 +588,79 @@ export default function Settings() {
           </form>
         </SimpleCard>
       )}
-      {activeTab === "notifications" && <SimpleCard title="Notifications" desc="Alert preferences" icon={Bell}><p className="text-sm text-slate-500">Coming soon.</p></SimpleCard>}
-      {activeTab === "email" && <SimpleCard title="Email Settings" desc="SMTP configuration" icon={Mail}><p className="text-sm text-slate-500">Coming soon.</p></SimpleCard>}
-      {activeTab === "integrations" && <SimpleCard title="Integrations" desc="Third-party tools" icon={Puzzle}><p className="text-sm text-slate-500">Coming soon.</p></SimpleCard>}
-      {activeTab === "security" && <SimpleCard title="Security" desc="Password and access" icon={Shield}><p className="text-sm text-slate-500">Coming soon.</p></SimpleCard>}
+      {activeTab === "notifications" && (
+        <SimpleCard title="Notifications" desc="Alert preferences" icon={Bell}>
+          <div className="space-y-3 max-w-2xl">
+            {[
+              ["announcements", "Announcements", "Institute announcements and broadcast alerts"],
+              ["feeReminders", "Fee Reminders", "Pending fee and payment reminder alerts"],
+              ["attendanceAlerts", "Attendance Alerts", "Attendance and absence notifications"],
+              ["homeworkAlerts", "Homework Alerts", "Homework assignment and submission alerts"],
+              ["examAlerts", "Exam Alerts", "Exam, test and result notifications"],
+            ].map(([key, label, desc]) => (
+              <label key={key} className="flex items-center justify-between rounded-xl border border-slate-200 p-4 cursor-pointer hover:bg-slate-50">
+                <span><span className="block text-sm font-bold text-slate-800">{label}</span><span className="block text-xs text-slate-500 mt-0.5">{desc}</span></span>
+                <input type="checkbox" checked={Boolean(notificationPrefs[key])} onChange={(e) => setNotificationPrefs((p: any) => ({ ...p, [key]: e.target.checked }))} className="h-4 w-4 accent-[#6b7d00]" />
+              </label>
+            ))}
+            <SaveButton isSaving={false} onClick={() => { localStorage.setItem("coach_sutra_notification_prefs", JSON.stringify(notificationPrefs)); setSaveMsg("Notification preferences saved!"); setSaved(true); setTimeout(() => setSaved(false), 2500); }} />
+          </div>
+        </SimpleCard>
+      )}
+      {activeTab === "email" && (
+        <SimpleCard title="Email Settings" desc="SMTP configuration" icon={Mail}>
+          <form className="space-y-4 max-w-2xl" onSubmit={(e) => { e.preventDefault(); localStorage.setItem("coach_sutra_email_settings", JSON.stringify(emailSettings)); setSaveMsg("Email settings saved locally. SMTP sending requires backend mail configuration."); setSaved(true); setTimeout(() => setSaved(false), 3000); }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="SMTP Host" value={emailSettings.host} onChange={(v) => setEmailSettings((p: any) => ({ ...p, host: v }))} />
+              <Field label="SMTP Port" value={emailSettings.port} onChange={(v) => setEmailSettings((p: any) => ({ ...p, port: v }))} />
+              <Field label="SMTP Username" value={emailSettings.username} onChange={(v) => setEmailSettings((p: any) => ({ ...p, username: v }))} />
+              <Field label="From Email" value={emailSettings.fromEmail} onChange={(v) => setEmailSettings((p: any) => ({ ...p, fromEmail: v }))} />
+            </div>
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={emailSettings.secure} onChange={(e) => setEmailSettings((p: any) => ({ ...p, secure: e.target.checked }))} className="h-4 w-4 accent-[#6b7d00]" /> Use secure SMTP connection</label>
+            <p className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">These values are saved in this browser only. They are not yet used by the backend to send email.</p>
+            <SaveButton isSaving={false} />
+          </form>
+        </SimpleCard>
+      )}
+      {activeTab === "integrations" && (
+        <SimpleCard title="Integrations" desc="Third-party tools" icon={Puzzle}>
+          <div className="space-y-3 max-w-2xl">
+            {[
+              ["whatsapp", "WhatsApp", "Prepare WhatsApp messaging integration"],
+              ["googleCalendar", "Google Calendar", "Calendar and timetable synchronization"],
+              ["razorpay", "Razorpay", "Online fee/payment gateway integration"],
+              ["googleSheets", "Google Sheets", "Spreadsheet import/export integration"],
+            ].map(([key, label, desc]) => (
+              <label key={key} className="flex items-center justify-between rounded-xl border border-slate-200 p-4 cursor-pointer hover:bg-slate-50">
+                <span><span className="block text-sm font-bold text-slate-800">{label}</span><span className="block text-xs text-slate-500 mt-0.5">{desc}</span></span>
+                <input type="checkbox" checked={Boolean(integrations[key])} onChange={(e) => setIntegrations((p: any) => ({ ...p, [key]: e.target.checked }))} className="h-4 w-4 accent-[#6b7d00]" />
+              </label>
+            ))}
+            <SaveButton isSaving={false} onClick={() => { localStorage.setItem("coach_sutra_integrations", JSON.stringify(integrations)); setSaveMsg("Integration preferences saved!"); setSaved(true); setTimeout(() => setSaved(false), 2500); }} />
+          </div>
+        </SimpleCard>
+      )}
+      {activeTab === "security" && (
+        <SimpleCard title="Security" desc="Password and access" icon={Shield}>
+          <form className="space-y-4 max-w-xl" onSubmit={async (e) => {
+            e.preventDefault(); setSecurityMsg("");
+            if (passwords.password.length < 6) return setSecurityMsg("Password minimum 6 characters hona chahiye.");
+            if (passwords.password !== passwords.confirm) return setSecurityMsg("Passwords do not match.");
+            try {
+              const token = localStorage.getItem("coach_sutra_token") || "";
+              const res = await fetch("/api/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ password: passwords.password }) });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(data?.error || "Password update failed");
+              setPasswords({ password: "", confirm: "" }); setSecurityMsg("Password updated successfully.");
+            } catch (err: any) { setSecurityMsg(err?.message || "Password update failed."); }
+          }}>
+            <Field label="New Password" value={passwords.password} onChange={(v) => setPasswords((p) => ({ ...p, password: v }))} type="password" />
+            <Field label="Confirm New Password" value={passwords.confirm} onChange={(v) => setPasswords((p) => ({ ...p, confirm: v }))} type="password" />
+            {securityMsg && <p className={`text-sm rounded-lg p-3 ${securityMsg.includes("successfully") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>{securityMsg}</p>}
+            <SaveButton isSaving={false} />
+          </form>
+        </SimpleCard>
+      )}
       {activeTab === "plan" && (
         <SimpleCard title="Plan & Limits" desc="Subscription and usage" icon={Gauge}>
           <Link href="/billing"><button className="bg-[#6272f2] text-[#ffffff] text-xs font-bold px-4 py-2.5 rounded-xl">View Plans</button></Link>
@@ -798,9 +880,9 @@ function SimpleCard({ title, desc, icon: Icon, children }: { title: string; desc
   );
 }
 
-function SaveButton({ isSaving }: { isSaving: boolean }) {
+function SaveButton({ isSaving, onClick }: { isSaving: boolean; onClick?: () => void }) {
   return (
-    <button type="submit" disabled={isSaving} className="bg-[#6272f2] hover:bg-[#4f5ee3] text-white px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-2 disabled:opacity-70 cursor-pointer">
+    <button type="submit" disabled={isSaving} onClick={onClick} className="bg-[#6272f2] hover:bg-[#4f5ee3] text-white px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-2 disabled:opacity-70 cursor-pointer">
       {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
       {isSaving ? "Saving..." : "Save Changes"}
     </button>

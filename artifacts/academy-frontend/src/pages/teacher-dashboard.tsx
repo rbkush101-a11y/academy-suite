@@ -292,6 +292,7 @@ export default function TeacherDashboard() {
   const [allBatches, setAllBatches] = useState<any[]>([]);
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [allAttendance, setAllAttendance] = useState<any[]>([]);
+  const [allTimetable, setAllTimetable] = useState<any[]>([]);
   const [allTests, setAllTests] = useState<any[]>([]);
 
   // Test & Marks state elements
@@ -346,10 +347,10 @@ export default function TeacherDashboard() {
       const studentsData = studentsRes.ok ? await studentsRes.json() : [];
       setAllStudents(studentsData);
 
-      // 4. Fetch Real Attendance Database
-      const attendanceRes = await fetch("/api/attendance", { headers: getAuthHeaders() });
-      const attendanceData = attendanceRes.ok ? await attendanceRes.json() : [];
-      setAllAttendance(attendanceData);
+      // 4. Fetch the real timetable. Backend already scopes teacher results to assigned batches/teacher.
+      const timetableRes = await fetch("/api/timetable", { headers: getAuthHeaders() });
+      const timetableData = timetableRes.ok ? await timetableRes.json() : [];
+      setAllTimetable(Array.isArray(timetableData) ? timetableData : []);
 
       // 5. Fetch Real Exams & Tests
       const testsRes = await fetch("/api/tests", { headers: getAuthHeaders() });
@@ -467,44 +468,12 @@ export default function TeacherDashboard() {
     }));
   }, [allBatches]);
 
-  // Timetable periods derived strictly from teacher's assigned batches
+  // Timetable comes from the real timetable API, not from batch.schedule fallback data.
   const myTimetable = useMemo(() => {
-    const timetableEntries: any[] = [];
-    const allDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-    myBatches.forEach((batch: any, index: number) => {
-      const bId = String(batch.id || batch._id);
-      const scheduleText = batch.schedule || "09:00 AM - 10:30 AM";
-      const parts = scheduleText.split(",");
-      
-      let assignedDays = [batch.scheduleDay || allDays[index % allDays.length]];
-      let timeString = scheduleText;
-
-      if (parts.length > 1) {
-        timeString = parts[1].trim();
-        const daysPart = parts[0].toLowerCase();
-        assignedDays = allDays.filter(d => daysPart.includes(d.slice(0, 3).toLowerCase()));
-      }
-
-      if (assignedDays.length === 0) {
-        assignedDays = [allDays[index % allDays.length]];
-      }
-
-      assignedDays.forEach((day) => {
-        timetableEntries.push({
-          day: day,
-          startTime: timeString.split("-")[0]?.trim() || "09:00 AM",
-          endTime: timeString.split("-")[1]?.trim() || "10:30 AM",
-          subject: batch.courseName || batch.name || batch.subject || "Subject Period",
-          batchName: batch.name,
-          room: batch.room || "Room 101",
-          batchId: bId,
-        });
-      });
-    });
-
-    return timetableEntries;
-  }, [myBatches]);
+    return allTimetable.filter((entry: any) =>
+      myBatchIds.has(String(entry.batchId ?? entry.batch?.id ?? entry.batch?._id ?? ""))
+    );
+  }, [allTimetable, myBatchIds]);
 
   const myTests = useMemo(() => {
     return allTests.filter((test: any) => myBatchIds.has(String(test.batchId)));
@@ -664,30 +633,47 @@ export default function TeacherDashboard() {
     setValue("qualification", updated.join(", "));
   };
 
-  // Sync Attendance Students for Selected Teacher's Batch
+  // Load real attendance for the selected assigned batch/date.
   useEffect(() => {
-    if (!selectedBatch) return;
-    const batchId = String(selectedBatch.id || selectedBatch._id);
-
-    const batchStudents = allStudents.filter((st: any) => 
-      String(st.batchId) === batchId || 
-      (Array.isArray(st.batches) && st.batches.map(String).includes(batchId))
-    );
-    
-    const existingLog = allAttendance.find((log: any) => 
-      String(log.batchId || log.batch) === batchId && 
-      (log.date?.slice(0, 10) === attendanceDate)
-    );
-    
-    if (existingLog && existingLog.records) {
-      setAttendanceStudents(batchStudents.map((st: any) => ({
-        ...st,
-        status: existingLog.records[st.id || st._id] || "unmarked"
-      })));
-    } else {
-      setAttendanceStudents(batchStudents.map((st: any) => ({ ...st, status: "unmarked" })));
+    if (!selectedBatch) {
+      setAttendanceStudents([]);
+      return;
     }
-  }, [selectedBatch, attendanceDate, allStudents, allAttendance]);
+
+    const batchId = String(selectedBatch.id || selectedBatch._id);
+    let cancelled = false;
+
+    const loadAttendance = async () => {
+      try {
+        const response = await fetch(
+          `/api/attendance/student?batchId=${encodeURIComponent(batchId)}&date=${encodeURIComponent(attendanceDate)}`,
+          { headers: getAuthHeaders() }
+        );
+        if (!response.ok) throw new Error(await getErrorText(response));
+        const records = await response.json();
+        if (cancelled) return;
+
+        const recordByStudent = new Map(
+          (Array.isArray(records) ? records : []).map((record: any) => [String(record.studentId), record])
+        );
+        const batchStudents = allStudents
+          .filter((st: any) => String(st.batchId) === batchId)
+          .map((st: any) => ({
+            ...st,
+            status: recordByStudent.get(String(st.id || st._id))?.status || "unmarked",
+          }));
+        setAttendanceStudents(batchStudents);
+      } catch (error: any) {
+        if (!cancelled) {
+          setAttendanceStudents([]);
+          showToast(error?.message || "Attendance load nahi ho saki.");
+        }
+      }
+    };
+
+    loadAttendance();
+    return () => { cancelled = true; };
+  }, [selectedBatch, attendanceDate, allStudents]);
 
   const markAttendance = (studentId: string, status: string) => {
     setAttendanceStudents(prev => prev.map(s => (s.id === studentId || s._id === studentId) ? { ...s, status } : s));
@@ -695,39 +681,41 @@ export default function TeacherDashboard() {
 
   // ======================== SUBMIT ATTENDANCE ========================
   const saveAttendanceLog = async () => {
-    if (!selectedBatch) return;
-    const batchId = selectedBatch.id || selectedBatch._id;
-    const recordsObj: Record<string, string> = {};
-    
-    attendanceStudents.forEach(st => { 
-      recordsObj[st.id || st._id] = st.status; 
-    });
+    if (!selectedBatch || attendanceStudents.length === 0) return;
+    const batchId = String(selectedBatch.id || selectedBatch._id);
+    const markedStudents = attendanceStudents.filter((st: any) => st.status !== "unmarked");
 
-    const payload = {
-      batchId: batchId,
-      batchName: selectedBatch.name,
-      date: attendanceDate,
-      markedBy: currentTeacher?.empId || currentTeacher?.id,
-      records: recordsObj
-    };
+    if (markedStudents.length === 0) {
+      showToast("Pehle attendance mark karo.");
+      return;
+    }
 
     try {
-      const response = await fetch("/api/attendance", {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify(payload),
-      });
+      const responses = await Promise.all(
+        markedStudents.map(async (st: any) => {
+          const studentId = String(st.id || st._id);
+          const response = await fetch("/api/attendance/student", {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+              studentId,
+              batchId,
+              date: attendanceDate,
+              status: st.status,
+            }),
+          });
+          if (!response.ok) throw new Error(await getErrorText(response));
+          return response.json();
+        })
+      );
 
-      if (!response.ok) {
-        showToast(await getErrorText(response));
-        return;
-      }
-
-      const resData = await response.json();
-      setAllAttendance(prev => [...prev.filter(l => !(String(l.batchId) === String(batchId) && l.date?.slice(0, 10) === attendanceDate)), resData || payload]);
-      showToast("Attendance saved to Admin database!");
-    } catch {
-      showToast("Attendance saved successfully!");
+      setAllAttendance((prev) => [
+        ...prev.filter((row: any) => !(String(row.batchId) === batchId && row.date === attendanceDate)),
+        ...responses,
+      ]);
+      showToast(`Attendance saved for ${responses.length} student(s)!`);
+    } catch (error: any) {
+      showToast(error?.message || "Attendance save nahi ho saki.");
     }
   };
 

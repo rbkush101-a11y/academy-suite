@@ -93,52 +93,35 @@ export default function Notifications() {
     isFetching: fetchingHomework,
   } = useListHomework();
 
-  // 🟢 Safe Query for Fees
+  // 🟢 Real Finance API for fee/payment notifications
+  // The backend exposes /api/finance/payments; /api/student-fees does not exist.
   const {
     data: feesData,
     isLoading: loadingFees,
     refetch: refetchFees,
     isFetching: fetchingFees,
   } = useQuery({
-    queryKey: ["notifications-student-fees"],
+    queryKey: ["notifications-finance-payments"],
     queryFn: async () => {
-      try {
-        const token = localStorage.getItem("coach_sutra_token");
-        const res = await fetch("/api/student-fees", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!res.ok) return [];
-        return await res.json();
-      } catch {
-        return [];
-      }
+      const token = localStorage.getItem("coach_sutra_token");
+      const res = await fetch("/api/finance/payments", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : data?.data || [];
     },
   });
 
-  // 🟢 Safe Query for Leaves
-  const {
-    data: leavesData,
-    isLoading: loadingLeaves,
-    refetch: refetchLeaves,
-    isFetching: fetchingLeaves,
-  } = useQuery({
-    queryKey: ["notifications-leaves"],
-    queryFn: async () => {
-      try {
-        const token = localStorage.getItem("coach_sutra_token");
-        const res = await fetch("/api/leaves", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!res.ok) return [];
-        return await res.json();
-      } catch {
-        return [];
-      }
-    },
-  });
+  // Leave requests are not implemented in the backend yet.
+  // Keep the tab available, but do not call a non-existent /api/leaves endpoint.
+  const leavesData: any[] = [];
+  const loadingLeaves = false;
+  const fetchingLeaves = false;
+  const refetchLeaves = () => Promise.resolve();
 
-  const isLoading = loadingLeads || loadingFees || loadingHomework || loadingLeaves;
-  const isFetching = fetchingLeads || fetchingFees || fetchingHomework || fetchingLeaves;
+  const isLoading = loadingLeads || loadingFees || loadingHomework;
+  const isFetching = fetchingLeads || fetchingFees || fetchingHomework;
 
   const notifications = useMemo(() => {
     const list: AppNotification[] = [];

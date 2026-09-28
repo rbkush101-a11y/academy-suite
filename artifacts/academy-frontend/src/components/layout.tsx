@@ -14,7 +14,7 @@ import {
 import TopHeader from "./TopHeader";
 import { getStoredRole } from "@/hooks/use-auth";
 
-type NavItem = { label: string; icon: any; href: string };
+type NavItem = { label: string; icon: any; href: string; disabled?: boolean };
 type NavGroup = { title: string; items: NavItem[] };
 
 const navGroups: NavGroup[] = [
@@ -42,8 +42,8 @@ const navGroups: NavGroup[] = [
       { label: "Subjects", icon: BookOpen, href: "/subjects" },
       { label: "Topics", icon: Tag, href: "/topics" },
       { label: "Batches", icon: Layers, href: "/batches" },
-      { label: "PYQ Papers", icon: FileQuestion, href: "/pyq-papers" },
-      { label: "Question Bank", icon: Package, href: "/question-bank" },
+      { label: "PYQ Papers", icon: FileQuestion, href: "/pyq-papers", disabled: true },
+      { label: "Question Bank", icon: Package, href: "/question-bank", disabled: true },
     ],
   },
   {
@@ -52,8 +52,8 @@ const navGroups: NavGroup[] = [
       { label: "Timetable", icon: Clock, href: "/timetable" },
       { label: "Attendance", icon: CheckSquare, href: "/attendance" },
       { label: "Homework", icon: Pencil, href: "/homework" },
-      { label: "Doubts", icon: MessageCircleQuestion, href: "/doubts" },
-      { label: "Leave & Holidays", icon: CalendarX, href: "/leaves" },
+      { label: "Doubts", icon: MessageCircleQuestion, href: "/doubts", disabled: true },
+      { label: "Leave & Holidays", icon: CalendarX, href: "/leaves", disabled: true },
     ],
   },
   {
@@ -61,64 +61,64 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Online Exams", icon: Monitor, href: "/exams?type=online" },
       { label: "Offline Exams", icon: FileEdit, href: "/exams?type=offline" },
-      { label: "Test Series", icon: Layers, href: "/test-series" },
+      { label: "Test Series", icon: Layers, href: "/test-series", disabled: true },
       { label: "Report Cards", icon: FileSpreadsheet, href: "/report-card" },
-      { label: "Certificates", icon: Award, href: "/certificates" },
-      { label: "ID Cards", icon: IdCard, href: "/id-cards" },
-      { label: "Proctoring", icon: Video, href: "/proctoring" },
+      { label: "Certificates", icon: Award, href: "/certificates", disabled: true },
+      { label: "ID Cards", icon: IdCard, href: "/id-cards", disabled: true },
+      { label: "Proctoring", icon: Video, href: "/proctoring", disabled: true },
     ],
   },
   {
     title: "CONTENT & MEDIA",
     items: [
-      { label: "Download Center", icon: Download, href: "/download-center" },
-      { label: "Video Lectures", icon: Video, href: "/video-lectures" },
-      { label: "Live Classes", icon: Radio, href: "/live-classes" },
-      { label: "Chapter Progress", icon: BookMarked, href: "/chapter-progress" },
+      { label: "Download Center", icon: Download, href: "/download-center", disabled: true },
+      { label: "Video Lectures", icon: Video, href: "/video-lectures", disabled: true },
+      { label: "Live Classes", icon: Radio, href: "/live-classes", disabled: true },
+      { label: "Chapter Progress", icon: BookMarked, href: "/chapter-progress", disabled: true },
     ],
   },
   {
     title: "FINANCE",
     items: [
       { label: "Fee Collection", icon: IndianRupee, href: "/finance" },
-      { label: "Fee Structures", icon: Grid3x3, href: "/finance/fee-structure" },
-      { label: "Discounts & Coupons", icon: Ticket, href: "/discounts" },
-      { label: "Late Fee Rules", icon: Clock3, href: "/late-fee" },
-      { label: "Payment Reminders", icon: Bell, href: "/payment-reminders" },
-      { label: "Deletion Audit Log", icon: ShieldCheck, href: "/audit-log" },
-      { label: "Accounting Export", icon: FileSpreadsheet, href: "/accounting-export" },
+      { label: "Fee Structures", icon: Grid3x3, href: "/finance/fee-structure", disabled: true },
+      { label: "Discounts & Coupons", icon: Ticket, href: "/discounts", disabled: true },
+      { label: "Late Fee Rules", icon: Clock3, href: "/late-fee", disabled: true },
+      { label: "Payment Reminders", icon: Bell, href: "/payment-reminders", disabled: true },
+      { label: "Deletion Audit Log", icon: ShieldCheck, href: "/audit-log", disabled: true },
+      { label: "Accounting Export", icon: FileSpreadsheet, href: "/accounting-export", disabled: true },
       { label: "Expenses", icon: Receipt, href: "/finance/daily-expense" },
-      { label: "Expense Heads", icon: Tag, href: "/expense-heads" },
+      { label: "Expense Heads", icon: Tag, href: "/expense-heads", disabled: true },
     ],
   },
   {
     title: "HR & STAFF",
     items: [
       { label: "Payroll", icon: Banknote, href: "/hr" },
-      { label: "Staff Attendance", icon: UserCheck, href: "/staff-attendance" },
-      { label: "Biometric", icon: Fingerprint, href: "/biometric" },
-      { label: "Faculty Performance", icon: TrendingUp, href: "/faculty-performance" },
+      { label: "Staff Attendance", icon: UserCheck, href: "/staff-attendance", disabled: true },
+      { label: "Biometric", icon: Fingerprint, href: "/biometric", disabled: true },
+      { label: "Faculty Performance", icon: TrendingUp, href: "/faculty-performance", disabled: true },
     ],
   },
   {
     title: "CRM & GROWTH",
     items: [
-      { label: "Lead Nurturing", icon: Users, href: "/lead-nurturing" },
-      { label: "Proposals", icon: FileSpreadsheet, href: "/proposals" },
-      { label: "Meta Lead Ads", icon: Facebook, href: "/meta-leads" },
-      { label: "Refer & Earn", icon: Gift, href: "/refer-earn" }, 
-      { label: "Alumni Wall", icon: GraduationCap, href: "/alumni" },
+      { label: "Lead Nurturing", icon: Users, href: "/lead-nurturing", disabled: true },
+      { label: "Proposals", icon: FileSpreadsheet, href: "/proposals", disabled: true },
+      { label: "Meta Lead Ads", icon: Facebook, href: "/meta-leads", disabled: true },
+      { label: "Refer & Earn", icon: Gift, href: "/refer-earn", disabled: true }, 
+      { label: "Alumni Wall", icon: GraduationCap, href: "/alumni", disabled: true },
     ],
   },
   {
     title: "COMMUNICATION",
     items: [
-      { label: "Bulk Messaging", icon: Megaphone, href: "/bulk-messaging" },
-      { label: "Inbox", icon: Inbox, href: "/inbox" },
-      { label: "SMS / WhatsApp Hub", icon: MessageSquare, href: "/whatsapp" },
-      { label: "Email Campaigns", icon: Mail, href: "/email-campaigns" },
-      { label: "Custom Forms", icon: SlidersHorizontal, href: "/custom-forms" },
-      { label: "Custom Columns", icon: Columns3, href: "/custom-columns" },
+      { label: "Bulk Messaging", icon: Megaphone, href: "/bulk-messaging", disabled: true },
+      { label: "Inbox", icon: Inbox, href: "/inbox", disabled: true },
+      { label: "SMS / WhatsApp Hub", icon: MessageSquare, href: "/whatsapp", disabled: true },
+      { label: "Email Campaigns", icon: Mail, href: "/email-campaigns", disabled: true },
+      { label: "Custom Forms", icon: SlidersHorizontal, href: "/custom-forms", disabled: true },
+      { label: "Custom Columns", icon: Columns3, href: "/custom-columns", disabled: true },
       { label: "PTM Meetings", icon: Users, href: "/ptm" },
     ],
   },
@@ -141,7 +141,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "General Settings", icon: Settings, href: "/settings" },
       { label: "Branches", icon: Building2, href: "/branches" },
-      { label: "Roles & Permissions", icon: Shield, href: "/roles" },
+      { label: "Roles & Permissions", icon: Shield, href: "/roles", disabled: true },
       //{ label: "Mobile App Branding", icon: Smartphone, href: "/mobile-branding" },
       //{ label: "Integrations", icon: Puzzle, href: "/integrations" },
       //{ label: "AI Credits", icon: Cpu, href: "/ai-credits" },
@@ -150,8 +150,8 @@ const navGroups: NavGroup[] = [
   {
     title: "HELP",
     items: [
-      { label: "Training Guide", icon: FileText, href: "/training-guide" },
-      { label: "Setup Wizard", icon: Rocket, href: "/setup-wizard" },
+      { label: "Training Guide", icon: FileText, href: "/training-guide", disabled: true },
+      { label: "Setup Wizard", icon: Rocket, href: "/setup-wizard", disabled: true },
     ],
   },
 ];
@@ -165,8 +165,8 @@ const collapsedItems: NavItem[] = [
   { label: "Online Admissions", icon: UserPlus, href: "/online-admissions" },
   { label: "Courses", icon: GraduationCap, href: "/courses" },
   { label: "Batches", icon: Layers, href: "/batches" },
-  { label: "PYQ Papers", icon: FileQuestion, href: "/pyq-papers" },
-  { label: "Question Bank", icon: Package, href: "/question-bank" },
+  { label: "PYQ Papers", icon: FileQuestion, href: "/pyq-papers", disabled: true },
+  { label: "Question Bank", icon: Package, href: "/question-bank", disabled: true },
   { label: "Fee Collection", icon: IndianRupee, href: "/finance" },
   { label: "Attendance", icon: CheckSquare, href: "/attendance" },
   { label: "Exams", icon: Monitor, href: "/exams" },
@@ -420,6 +420,17 @@ export function Layout({ children }: { children: ReactNode }) {
                         const active = isActive(item.href);
                         const isDashboard = item.label === "Dashboard";
                         return (
+                          item.disabled ? (
+                            <div
+                              key={item.label + item.href}
+                              title={`${item.label} — Coming Soon`}
+                              className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13px] font-medium text-slate-400 cursor-not-allowed"
+                            >
+                              <item.icon className="w-[17px] h-[17px] shrink-0 text-slate-300" />
+                              <span className="truncate">{item.label}</span>
+                              <span className="ml-auto rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-400">Soon</span>
+                            </div>
+                          ) : (
                           <Link key={item.label + item.href} href={item.href}>
                             <div
                               onClick={() => setMobileOpen(false)}
@@ -443,6 +454,7 @@ export function Layout({ children }: { children: ReactNode }) {
                               <span className="truncate">{item.label}</span>
                             </div>
                           </Link>
+                          )
                         );
                       })}
                     </div>
@@ -457,6 +469,15 @@ export function Layout({ children }: { children: ReactNode }) {
               {collapsedItems.map((item) => {
                 const active = isActive(item.href);
                 return (
+                  item.disabled ? (
+                    <div
+                      key={item.label + item.href}
+                      title={`${item.label} — Coming Soon`}
+                      className="w-11 h-11 rounded-2xl flex items-center justify-center text-slate-300 cursor-not-allowed"
+                    >
+                      <item.icon className="w-5 h-5" />
+                    </div>
+                  ) : (
                   <Link key={item.label + item.href} href={item.href}>
                     <div
                       title={item.label}
@@ -472,6 +493,7 @@ export function Layout({ children }: { children: ReactNode }) {
                       <item.icon className="w-5 h-5" strokeWidth={active ? 2.5 : 2} />
                     </div>
                   </Link>
+                  )
                 );
               })}
             </div>

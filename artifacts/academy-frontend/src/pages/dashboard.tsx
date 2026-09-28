@@ -77,7 +77,7 @@ export default function Dashboard() {
     queryFn: async () => {
       const token = localStorage.getItem("coach_sutra_token");
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      const endpoints = ["/api/students", "/api/academic/students", "/api/students/all"];
+      const endpoints = ["/api/students"];
       for (const ep of endpoints) {
         try {
           const res = await fetch(ep, { headers });
@@ -98,7 +98,7 @@ export default function Dashboard() {
     queryFn: async () => {
       const token = localStorage.getItem("coach_sutra_token");
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      const endpoints = ["/api/staff", "/api/academic/staff", "/api/staff/all"];
+      const endpoints = ["/api/staff"];
       for (const ep of endpoints) {
         try {
           const res = await fetch(ep, { headers });

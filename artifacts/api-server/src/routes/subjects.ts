@@ -31,9 +31,13 @@ router.get(
   "/subjects",
   authenticate,
   authorize("super_admin", "institute_admin", "staff"),
-  async (_req, res): Promise<void> => {
+  async (req, res): Promise<void> => {
     try {
-      const subjects = await Subject.find()
+      const filter: any = {};
+      const courseId = String(req.query.courseId ?? "").trim();
+      if (courseId) filter.courseId = courseId;
+
+      const subjects = await Subject.find(filter)
         .populate("courseId", "name")
         .populate("teacherId", "name")
         .sort({ createdAt: -1 });
