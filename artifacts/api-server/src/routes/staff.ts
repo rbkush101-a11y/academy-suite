@@ -167,7 +167,24 @@ router.get("/staff/me", authenticate, async (req, res): Promise<void> => {
       return;
     }
 
-    const staff = await Staff.findOne({ $or: conditions });
+    const instituteId = getInstituteIdForUser(req);
+
+    const staffQuery: any = {
+      $or: conditions,
+    };
+
+    if (user.role !== "super_admin") {
+      if (!instituteId) {
+        res.status(403).json({
+          error: "Your account is not linked to an institute",
+        });
+        return;
+      }
+
+      staffQuery.instituteId = instituteId;
+    }
+
+    const staff = await Staff.findOne(staffQuery);
     if (!staff) {
       res.status(404).json({ error: "Staff record not found" });
       return;
@@ -302,11 +319,14 @@ router.patch("/staff/:id", authenticate, authorize("super_admin", "institute_adm
     const filter: any = { _id: id };
     const user = getLoggedInUser(req);
     const instituteId = getInstituteIdForUser(req);
-    if (user.role !== "super_admin" && user.role !== "teacher" && user.role !== "staff") {
+    if (user.role !== "super_admin") {
       if (!instituteId) {
-        res.status(403).json({ error: "Your account is not linked to an institute" });
+        res.status(403).json({
+          error: "Your account is not linked to an institute",
+        });
         return;
       }
+
       filter.instituteId = instituteId;
     }
 
@@ -326,7 +346,17 @@ router.patch("/staff/:id", authenticate, authorize("super_admin", "institute_adm
       if ((user as any).loginId) ownConditions.push({ username: String((user as any).loginId).toLowerCase().trim() });
       if ((user as any).phone) ownConditions.push({ phone: String((user as any).phone) });
 
-      const ownStaff = ownConditions.length ? await Staff.findOne({ $or: ownConditions }) : null;
+      const ownStaffQuery: any = {
+        $or: ownConditions,
+      };
+
+      if (user.role !== "super_admin") {
+        ownStaffQuery.instituteId = instituteId;
+      }
+
+      const ownStaff = ownConditions.length
+        ? await Staff.findOne(ownStaffQuery)
+        : null;
       if (!ownStaff || String(ownStaff._id) !== String(id)) {
         res.status(403).json({ error: "Teachers can update only their own profile." });
         return;
@@ -380,11 +410,15 @@ router.patch("/staff/:id", authenticate, authorize("super_admin", "institute_adm
     const activeUsername = String(username || oldLoginId || user.email || "").toLowerCase().trim();
     const activeEmail = String(updatedStaff?.email || oldStaff.email || `${activeUsername}@institute.com`).toLowerCase().trim();
 
-    const searchUserFilter = oldLoginId
+    const searchUserFilter: any = oldLoginId
       ? { loginId: oldLoginId }
       : oldEmail
         ? { email: oldEmail }
         : { loginId: activeUsername };
+
+    if (user.role !== "super_admin") {
+      searchUserFilter.instituteId = instituteId;
+    }
 
     const userPayload: any = {
       name: updatedStaff?.name ?? oldStaff.name,
@@ -464,11 +498,27 @@ router.delete("/staff/:id", authenticate, authorize("super_admin", "institute_ad
       return;
     }
 
-    if (staff.username) {
-      await User.findOneAndDelete({ loginId: staff.username.toLowerCase().trim() });
-    } else if (staff.email) {
-      await User.findOneAndDelete({ email: staff.email.toLowerCase().trim() });
+   if (staff.username) {
+    const userFilter: any = {
+      loginId: staff.username.toLowerCase().trim(),
+    };
+
+    if (user.role !== "super_admin") {
+      userFilter.instituteId = instituteId;
     }
+
+    await User.findOneAndDelete(userFilter);
+  } else if (staff.email) {
+    const userFilter: any = {
+      email: staff.email.toLowerCase().trim(),
+    };
+
+    if (user.role !== "super_admin") {
+      userFilter.instituteId = instituteId;
+    }
+
+    await User.findOneAndDelete(userFilter);
+  }
 
     await Staff.findByIdAndDelete(id);
     res.sendStatus(204);
