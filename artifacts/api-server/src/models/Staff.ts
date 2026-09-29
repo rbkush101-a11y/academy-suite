@@ -32,7 +32,19 @@ export interface IStaff extends Document {
   email?: string;
   phone: string;
   homePhone?: string;
+
   instituteId?: Types.ObjectId;
+
+  /**
+   * Portal User account ka reference.
+   *
+   * User._id → Staff.userId
+   *
+   * Is relation ka use teacher ko securely
+   * logged-in User account se Staff record
+   * ke saath map karne ke liye hoga.
+   */
+  userId?: Types.ObjectId;
 
   role: string;
   staffType: "academic" | "computer";
@@ -59,6 +71,7 @@ export interface IStaff extends Document {
   // =========================
   // Address
   // =========================
+
   localAddress?: string;
   localState?: string;
   localDistrict?: string;
@@ -74,6 +87,7 @@ export interface IStaff extends Document {
   // =========================
   // Identity & Bank
   // =========================
+
   aadhaarNumber?: string;
   panNumber?: string;
   bloodGroup?: string;
@@ -88,28 +102,33 @@ export interface IStaff extends Document {
   // =========================
   // Photo & Documents
   // =========================
+
   photoDataUrl?: string;
   documents?: IStaffDocument[];
 
   // =========================
   // TEACHING DETAILS
   // =========================
+
   subjectsTaught?: ISubjectTaught[];
 
   // =========================
   // Assigned Teaching Batches
   // =========================
+
   batches?: Types.ObjectId[];
 
   // =========================
   // Employee Code
   // =========================
+
   empId?: string;
   employeeId?: string;
 
   // =========================
   // Portal Login
   // =========================
+
   loginEnabled: boolean;
   username?: string;
   accessLevel?: string;
@@ -117,7 +136,12 @@ export interface IStaff extends Document {
   // =========================
   // Payroll
   // =========================
-  employmentType?: "full_time" | "contractual" | "hybrid" | "hourly";
+
+  employmentType?:
+    | "full_time"
+    | "contractual"
+    | "hybrid"
+    | "hourly";
 
   monthlySalary?: number;
   perClassRate?: number;
@@ -163,7 +187,7 @@ const staffDocumentSchema = new Schema<IStaffDocument>(
   },
   {
     _id: false,
-  }
+  },
 );
 
 
@@ -221,7 +245,7 @@ const subjectTaughtSchema = new Schema<ISubjectTaught>(
   },
   {
     _id: false,
-  }
+  },
 );
 
 
@@ -274,6 +298,31 @@ const staffSchema = new Schema<IStaff>(
       index: true,
     },
 
+    /**
+     * ==================================================
+     * PORTAL USER RELATION
+     * ==================================================
+     *
+     * User._id
+     *    ↓
+     * Staff.userId
+     *
+     * Teacher login ke baad JWT ka userId
+     * isi field se Staff record ke saath
+     * securely map kiya jayega.
+     *
+     * Isse:
+     *
+     * User → Staff → Subject → Test
+     *
+     * permission chain establish hoti hai.
+     */
+    userId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
+    },
+
     role: {
       type: String,
       required: true,
@@ -305,6 +354,7 @@ const staffSchema = new Schema<IStaff>(
       type: String,
       trim: true,
     },
+
 
     // =========================
     // Salary
@@ -467,49 +517,16 @@ const staffSchema = new Schema<IStaff>(
     // TEACHING DETAILS
     // ==================================================
 
-    /**
-     * Teacher ke subjects/classes yahan save honge.
-     *
-     * Example:
-     *
-     * Ram Sir:
-     *
-     * [
-     *   {
-     *     course: "Class 7 CBSE",
-     *     subject: "Mathematics",
-     *     batch: ""
-     *   },
-     *   {
-     *     course: "Class 7 ICSE",
-     *     subject: "Mathematics",
-     *     batch: ""
-     *   },
-     *   {
-     *     course: "Class 8 CBSE",
-     *     subject: "Mathematics",
-     *     batch: ""
-     *   }
-     * ]
-     *
-     * Karuna Ma'am:
-     *
-     * [
-     *   {
-     *     course: "Class 9 CBSE",
-     *     subject: "Mathematics",
-     *     batch: ""
-     *   }
-     * ]
-     */
     subjectsTaught: {
       type: [subjectTaughtSchema],
       default: [],
     },
 
+
     // =========================
     // Assigned Teaching Batches
     // =========================
+
     batches: [
       {
         type: Schema.Types.ObjectId,
@@ -603,8 +620,28 @@ const staffSchema = new Schema<IStaff>(
 
   {
     timestamps: true,
-  }
+  },
 );
+
+
+// ======================================================
+// INDEXES
+// ======================================================
+
+/**
+ * Teacher/User relationship lookup.
+ *
+ * Example:
+ *
+ * Staff.findOne({
+ *   userId: loggedInUserId,
+ *   instituteId,
+ * })
+ */
+staffSchema.index({
+  userId: 1,
+  instituteId: 1,
+});
 
 
 // ======================================================
@@ -613,5 +650,5 @@ const staffSchema = new Schema<IStaff>(
 
 export const Staff = mongoose.model<IStaff>(
   "Staff",
-  staffSchema
+  staffSchema,
 );
