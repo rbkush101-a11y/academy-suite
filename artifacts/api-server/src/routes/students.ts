@@ -351,49 +351,105 @@ router.get("/students/edit-logs", authenticate, authorize("super_admin", "instit
   }
 });
 
-router.post("/students/edit-logs/:logId/review", authenticate, authorize("super_admin", "institute_admin"), async (req: any, res): Promise<void> => {
-  try {
-    const adminId = req.user?.id || req.user?._id;
-    const { logId } = req.params;
-    const { action, note } = req.body as { action?: string; note?: string };
+router.post(
+  "/students/edit-logs/:logId/review",
+  authenticate,
+  authorize("super_admin", "institute_admin"),
+  async (req: any, res): Promise<void> => {
+    try {
+      const adminId = req.user?.userId;
+      const { logId } = req.params;
+      const { action, note } = req.body as {
+        action?: string;
+        note?: string;
+      };
 
-    if (!["approve", "reject"].includes(String(action))) {
-      res.status(400).json({ error: "Invalid action. Use approve or reject." });
-      return;
-    }
+      if (!["approve", "reject"].includes(String(action))) {
+        res.status(400).json({
+          error: "Invalid action. Use approve or reject.",
+        });
+        return;
+      }
 
-    const log = await StudentEditLog.findById(logId);
-    if (!log) {
-      res.status(404).json({ error: "Log entry not found" });
-      return;
-    }
+      const instituteId = getInstituteIdForUser(req);
 
-    if (log.status !== "pending") {
-      res.status(400).json({ error: "This request is already reviewed" });
-      return;
-    }
+      const logQuery: any = {
+        _id: logId,
+      };
 
-    if (action === "approve") {
-      const student = await Student.findById(log.studentId);
-      if (student) {
+      // Super admin can manage logs across institutes.
+      // Institute admin can only access logs from their own institute.
+      if (req.user?.role !== "super_admin") {
+        if (!instituteId) {
+          res.status(403).json({
+            error: "Your account is not linked to an institute",
+          });
+          return;
+        }
+
+        logQuery.instituteId = instituteId;
+      }
+
+      const log = await StudentEditLog.findOne(logQuery);
+
+      if (!log) {
+        res.status(404).json({
+          error: "Log entry not found",
+        });
+        return;
+      }
+
+      if (log.status !== "pending") {
+        res.status(400).json({
+          error: "This request is already reviewed",
+        });
+        return;
+      }
+
+      if (action === "approve") {
+        const studentQuery: any = {
+          _id: log.studentId,
+        };
+
+        // Keep student lookup inside the same tenant.
+        if (req.user?.role !== "super_admin") {
+          studentQuery.instituteId = instituteId;
+        }
+
+        const student = await Student.findOne(studentQuery);
+
+        if (!student) {
+          res.status(404).json({
+            error: "Student not found in your institute",
+          });
+          return;
+        }
+
         (student as any)[log.fieldName] = log.newValue;
         await student.save();
+
+        log.status = "approved";
+      } else {
+        log.status = "rejected";
       }
-      log.status = "approved";
-    } else {
-      log.status = "rejected";
+
+      log.reviewedBy = adminId;
+      log.reviewedAt = new Date();
+      log.reviewNote = note || "";
+
+      await log.save();
+
+      res.json({
+        success: true,
+        message: `Request ${action}d successfully.`,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        error: "Review failed",
+      });
     }
-
-    log.reviewedBy = adminId;
-    log.reviewedAt = new Date();
-    log.reviewNote = note || "";
-    await log.save();
-
-    res.json({ success: true, message: `Request ${action}d successfully.` });
-  } catch (error: any) {
-    res.status(500).json({ error: "Review failed" });
-  }
-});
+  },
+);
 
 
 // =====================================================================
