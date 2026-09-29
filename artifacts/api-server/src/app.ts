@@ -44,6 +44,7 @@ app.use(
 );
 
 const allowedOrigins = [
+  "http://localhost:23980",
   "http://localhost:5173",
   "http://localhost:3000",
   "https://www.parikshadrishti.com",

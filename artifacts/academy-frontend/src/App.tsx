@@ -41,6 +41,8 @@ import StudentFeeManagement from "@/pages/student-fee-management";
 import Timetable from "@/pages/timetable";
 import Homework from "@/pages/homework";
 import Exams from "@/pages/exams";
+import Tests from "@/pages/tests";
+import TestSeries from "@/pages/test-series";
 import ReportCard from "@/pages/report-card";
 import HR from "@/pages/hr";
 import Analytics from "@/pages/analytics";
@@ -255,6 +257,31 @@ function Router() {
           roles={["super_admin", "institute_admin", "teacher"]}
         />
       </Route>
+      
+      {/* Tests & Results */}
+
+      <Route path="/tests">
+        <ProtectedRoute
+          component={Tests}
+          roles={["super_admin", "institute_admin", "teacher"]}
+        />
+      </Route>
+
+      <Route path="/test-series">
+        <ProtectedRoute
+          component={TestSeries}
+          roles={["super_admin", "institute_admin", "teacher"]}
+        />
+      </Route>
+
+      <Route path="/test-report">
+        <ProtectedRoute
+          component={ReportCard}
+          roles={["super_admin", "institute_admin", "teacher"]}
+        />
+      </Route>
+
+      {/* Old routes - kept for compatibility */}
 
       <Route path="/exams">
         <ProtectedRoute
@@ -269,6 +296,7 @@ function Router() {
           roles={["super_admin", "institute_admin", "teacher"]}
         />
       </Route>
+
 
       {/* Finance */}
       <Route path="/finance/student-fee-management">
