@@ -105,12 +105,36 @@ export async function recordAudit(
   const requestInstituteId = (req.body?.instituteId || req.query?.instituteId) as string | undefined;
   const instituteId = current?.instituteId || actor?.instituteId || requestInstituteId;
   const branchId = current?.activeBranchId || actor?.activeBranchId;
+  const actorRole = current?.role || actor?.role || "";
+  const isPlatformActor = ["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"].includes(actorRole);
   await AuditLog.create({
+    scope: isPlatformActor ? "platform" : instituteId ? "institute" : undefined,
     instituteId: instituteId && Types.ObjectId.isValid(instituteId) ? instituteId : undefined,
     branchId: branchId && Types.ObjectId.isValid(branchId) ? branchId : undefined,
     actorId: current?.userId || actor?.userId || "",
     actorEmail: current?.email || actor?.email || "",
-    actorRole: current?.role || actor?.role || "",
+    actorRole,
+    action,
+    targetType,
+    targetId,
+    ...requestAuditDetails(req),
+    details,
+  });
+}
+
+export async function recordPlatformAudit(
+  req: Request,
+  action: string,
+  targetType = "",
+  targetId = "",
+  details: Record<string, unknown> = {},
+): Promise<void> {
+  const current = req.user;
+  await AuditLog.create({
+    scope: "platform",
+    actorId: current?.userId || "",
+    actorEmail: current?.email || "",
+    actorRole: current?.role || "",
     action,
     targetType,
     targetId,

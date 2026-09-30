@@ -1,6 +1,7 @@
 import { useLocation } from "wouter";
 
 export const routeByRole = (role?: string | null) => {
+  if (["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"].includes(role ?? "")) return "/super-admin";
   if (role === "student") return "/student-dashboard";
   if (role === "teacher") return "/teacher-dashboard";
   if (role === "accountant") return "/accountant-dashboard";

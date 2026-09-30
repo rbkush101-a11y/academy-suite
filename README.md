@@ -186,8 +186,13 @@ Create a `.env` file inside the backend folder and add:
 ```env
 PORT=5000
 MONGODB_URI=your_mongodb_connection_string
-JWT_SECRET=your_secret_key
+JWT_SECRET=replace_with_a_random_secret_of_at_least_32_characters
+SUPER_ADMIN_EMAIL=admin@example.com
+SUPER_ADMIN_PASSWORD=use_a_unique_password_at_least_12_chars
+SUPER_ADMIN_NAME=Platform Administrator
 ```
+
+The API requires a JWT secret of at least 32 characters. To create the first platform account, configure the three `SUPER_ADMIN_*` values and run `pnpm --filter @workspace/api-server create-super-admin`. The command never prints or resets an existing account's password.
 
 For the frontend, create a `.env` file inside the frontend folder:
 

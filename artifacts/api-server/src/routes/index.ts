@@ -20,10 +20,12 @@ import notificationsRouter from "./notifications";
 import admissionsRouter from "./admissions";
 import ptmRouter from "./ptm";
 import foundationRouter from "./foundation";
+import platformRouter from "./platform";
 
 const router: IRouter = Router();
 
 router.use(institutesRouter);
+router.use(platformRouter);
 router.use(healthRouter);
 router.use(authRouter);
 router.use(dashboardRouter);

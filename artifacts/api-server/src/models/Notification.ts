@@ -1,6 +1,7 @@
-import mongoose, { Document, Schema } from "mongoose";
+import mongoose, { Document, Schema, Types } from "mongoose";
 
 export interface INotification extends Document {
+  instituteId: Types.ObjectId;
   title: string;
   message: string;
   type: "sms" | "whatsapp" | "email" | "internal";
@@ -14,6 +15,7 @@ export interface INotification extends Document {
 
 const notificationSchema = new Schema<INotification>(
   {
+    instituteId: { type: Schema.Types.ObjectId, ref: "Institute", required: true, index: true },
     title: { type: String, required: true },
     message: { type: String, required: true },
     type: { type: String, enum: ["sms", "whatsapp", "email", "internal"], required: true },

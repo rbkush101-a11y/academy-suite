@@ -1,6 +1,8 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
-import { authenticate, authorize } from "../middlewares/auth";
+import { authenticate } from "../middlewares/auth";
+import { authorizePlatform } from "../lib/platform-rbac";
+import { recordPlatformAudit } from "../lib/foundation";
 import { Institute } from "../models/Institute";
 import { User } from "../models/User";
 
@@ -27,7 +29,7 @@ updatedAt: institute.updatedAt?.toISOString?.() ?? null,
 router.get(
 "/institutes",
 authenticate,
-authorize("super_admin"),
+authorizePlatform("platform.institutes.view"),
 async (_req, res): Promise<void> => {
 const institutes = await Institute.find().sort({ createdAt: -1 });
 
@@ -39,7 +41,7 @@ res.json(institutes.map(formatInstitute));
 router.post(
 "/institutes",
 authenticate,
-authorize("super_admin"),
+authorizePlatform("platform.institutes.create"),
 async (req, res): Promise<void> => {
 const {
 instituteName,
@@ -75,6 +77,8 @@ const institute = await Institute.create({
   maxStudents,
 });
 
+await recordPlatformAudit(req, "platform.institute.create", "institute", String(institute._id), { instituteName: institute.instituteName });
+
 res.status(201).json(formatInstitute(institute));
 
 }
@@ -83,12 +87,13 @@ res.status(201).json(formatInstitute(institute));
 router.patch(
 "/institutes/:id",
 authenticate,
-authorize("super_admin"),
+authorizePlatform("platform.institutes.update"),
 async (req, res): Promise<void> => {
 const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
 const institute = await Institute.findByIdAndUpdate(id, req.body, {
   new: true,
+  runValidators: true,
 });
 
 if (!institute) {
@@ -98,6 +103,8 @@ if (!institute) {
   return;
 }
 
+await recordPlatformAudit(req, "platform.institute.update", "institute", id, { changedFields: Object.keys(req.body ?? {}) });
+
 res.json(formatInstitute(institute));
 
 }
@@ -106,7 +113,7 @@ res.json(formatInstitute(institute));
 router.delete(
 "/institutes/:id",
 authenticate,
-authorize("super_admin"),
+authorizePlatform("platform.institutes.delete"),
 async (req, res): Promise<void> => {
 const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
@@ -119,6 +126,8 @@ if (!institute) {
   return;
 }
 
+await recordPlatformAudit(req, "platform.institute.delete", "institute", id, { instituteName: institute.instituteName });
+
 res.sendStatus(204);
 
 }
@@ -127,7 +136,7 @@ res.sendStatus(204);
 router.post(
 "/institutes/:id/admin",
 authenticate,
-authorize("super_admin"),
+authorizePlatform("platform.users.create"),
 async (req, res): Promise<void> => {
 const instituteId = Array.isArray(req.params.id)
 ? req.params.id[0]
@@ -174,6 +183,8 @@ const user = await User.create({
   instituteId: institute._id,
   isApproved: true,
 });
+
+await recordPlatformAudit(req, "platform.institute_admin.create", "user", String(user._id), { instituteId, email: cleanEmail });
 
 res.status(201).json({
   id: String(user._id),

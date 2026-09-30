@@ -2,6 +2,7 @@ import { config } from "dotenv";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { connectMongoDB } from "./lib/mongodb";
+import { assertJwtSecret } from "./lib/jwt";
 
 config();
 config({ path: new URL("../.env", import.meta.url) });
@@ -21,6 +22,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function start() {
+  assertJwtSecret();
   await connectMongoDB();
 
   app.listen(port, "0.0.0.0", () => {

@@ -1,8 +1,15 @@
 import jwt from "jsonwebtoken";
 
 function getSecret(): string {
-  const secret = process.env.SESSION_SECRET ?? process.env.JWT_SECRET ?? "coach_sutra_secret_key_2024";
+  const secret = process.env.SESSION_SECRET ?? process.env.JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error("SESSION_SECRET or JWT_SECRET must be configured with at least 32 characters.");
+  }
   return secret;
+}
+
+export function assertJwtSecret(): void {
+  getSecret();
 }
 
 export interface JwtPayload {

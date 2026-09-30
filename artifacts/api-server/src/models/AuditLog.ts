@@ -1,6 +1,7 @@
 import mongoose, { Schema, type Document, type Types } from "mongoose";
 
 export interface IAuditLog extends Document {
+  scope?: "platform" | "institute";
   instituteId?: Types.ObjectId;
   actorId?: string;
   actorEmail?: string;
@@ -17,6 +18,7 @@ export interface IAuditLog extends Document {
 
 const auditLogSchema = new Schema<IAuditLog>(
   {
+    scope: { type: String, enum: ["platform", "institute"], index: true },
     instituteId: { type: Schema.Types.ObjectId, ref: "Institute", index: true },
     actorId: { type: String, default: "" },
     actorEmail: { type: String, default: "" },

@@ -1,7 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyToken, JwtPayload } from "../lib/jwt";
 import { UserSession } from "../models/UserSession";
-import { resolvePermission } from "../lib/foundation";
+import { recordPlatformAudit, resolvePermission } from "../lib/foundation";
+import { isPlatformRole } from "../lib/platform-rbac";
+import { logger } from "../lib/logger";
 
 declare global {
   namespace Express {
@@ -90,6 +92,27 @@ export function authorize(...roles: string[]) {
         res.status(403).json({ error: "Forbidden: Your role does not have this permission" });
         return;
       }
+    }
+
+    // Keep audit coverage for platform owners using legacy institute modules.
+    // New platform APIs and the foundation/institute admin APIs write richer events themselves.
+    const path = req.originalUrl.split("?", 1)[0].replace(/^\/api\/?/, "");
+    const method = req.method.toUpperCase();
+    if (
+      isPlatformRole(req.user.role) && ["POST", "PUT", "PATCH", "DELETE"].includes(method) &&
+      !path.startsWith("v1/platform/") && !path.startsWith("institutes") && !path.startsWith("foundation/")
+    ) {
+      const segments = path.split("/").filter(Boolean);
+      const targetType = segments[0] ?? "legacy_resource";
+      const targetId = segments[1] && /^[a-f\d]{24}$/i.test(segments[1]) ? segments[1] : "";
+      res.once("finish", () => {
+        if (res.statusCode >= 200 && res.statusCode < 400) {
+          void recordPlatformAudit(req, `platform.legacy.${targetType}.${method.toLowerCase()}`, targetType, targetId, {
+            method,
+            statusCode: res.statusCode,
+          }).catch((error: unknown) => logger.error({ error, targetType, targetId }, "Failed to record platform audit event"));
+        }
+      });
     }
 
     next();

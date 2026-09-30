@@ -118,11 +118,14 @@ function Router() {
         />
       </Route>
 
+      <Route path="/super-admin">
+        <ProtectedRoute component={SuperAdminDashboard} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} />
+      </Route>
+      <Route path="/super-admin/:section">
+        <ProtectedRoute component={SuperAdminDashboard} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} />
+      </Route>
       <Route path="/super-admin-dashboard">
-        <ProtectedRoute
-          component={SuperAdminDashboard}
-          roles={["super_admin"]}
-        />
+        <Redirect to="/super-admin" />
       </Route>
 
       <Route path="/teacher-dashboard">

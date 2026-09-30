@@ -389,7 +389,7 @@ router.patch("/foundation/roles/:id", async (req, res): Promise<void> => {
       res.status(400).json({ error: "One or more permission keys are invalid" });
       return;
     }
-    role.permissions = [...new Set(req.body.permissions)];
+    role.permissions = [...new Set(req.body.permissions as string[])];
   }
   if (role.isSystem && !hasAdminControls(role.key, role.permissions)) {
     res.status(400).json({ error: "Administrator roles must retain the permissions needed to manage users, roles, settings, sessions, and the audit log" });
@@ -434,7 +434,8 @@ router.post("/foundation/users", async (req, res): Promise<void> => {
   const name = String(req.body.name ?? "").trim();
   const email = String(req.body.email ?? "").trim().toLowerCase();
   const password = String(req.body.password ?? "");
-  const role = String(req.body.role ?? "staff");
+  type InstituteUserRole = Extract<import("../models/User").UserRole, "institute_admin" | "teacher" | "staff" | "accountant" | "parent">;
+  const role = String(req.body.role ?? "staff") as InstituteUserRole;
   if (!name || !email || !password) {
     res.status(400).json({ error: "Name, email, and password are required" });
     return;
@@ -443,7 +444,7 @@ router.post("/foundation/users", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Use at least 8 characters with a lowercase letter, uppercase letter, and number" });
     return;
   }
-  const validRoles = ["institute_admin", "teacher", "staff", "accountant", "parent"];
+  const validRoles: InstituteUserRole[] = ["institute_admin", "teacher", "staff", "accountant", "parent"];
   if (!validRoles.includes(role)) {
     res.status(400).json({ error: "Select a valid institute role" });
     return;
@@ -458,10 +459,8 @@ router.post("/foundation/users", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Select valid roles and branches" });
     return;
   }
-  const [roleDoc, branches] = await Promise.all([
-    requestedRole ? Role.findOne({ _id: requestedRole, instituteId }) : null,
-    Branch.find({ _id: { $in: branchIds }, instituteId }).select("_id"),
-  ]);
+  const roleDoc = requestedRole ? await Role.findOne({ _id: requestedRole, instituteId }) : null;
+  const branches = await Branch.find({ _id: { $in: branchIds }, instituteId }).select("_id");
   if (requestedRole && !roleDoc) {
     res.status(400).json({ error: "The selected role does not belong to this institute" });
     return;

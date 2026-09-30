@@ -2,6 +2,10 @@ import mongoose, { Document, Schema, Types } from "mongoose";
 
 export type UserRole =
   | "super_admin"
+  | "platform_admin"
+  | "support_admin"
+  | "finance_admin"
+  | "read_only_admin"
   | "institute_admin"
   | "teacher"
   | "student"
@@ -60,6 +64,10 @@ const userSchema = new Schema(
       type: String,
       enum: [
         "super_admin",
+        "platform_admin",
+        "support_admin",
+        "finance_admin",
+        "read_only_admin",
         "institute_admin",
         "teacher",
         "student",
@@ -87,5 +95,19 @@ const userSchema = new Schema(
   },
   { timestamps: true }
 );
+
+const PLATFORM_ROLES: UserRole[] = [
+  "super_admin",
+  "platform_admin",
+  "support_admin",
+  "finance_admin",
+  "read_only_admin",
+];
+
+userSchema.pre("validate", function enforcePlatformScope() {
+  if (PLATFORM_ROLES.includes(this.role) && (this.instituteId || this.activeBranchId || this.customRoleId || this.branchIds?.length)) {
+    this.invalidate("instituteId", "Platform administrators cannot be assigned institute, branch, or institute-role scope.");
+  }
+});
 
 export const User = mongoose.model<IUser>("User", userSchema);
