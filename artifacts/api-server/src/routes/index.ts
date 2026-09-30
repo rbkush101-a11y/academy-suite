@@ -19,6 +19,7 @@ import analyticsRouter from "./analytics";
 import notificationsRouter from "./notifications";
 import admissionsRouter from "./admissions";
 import ptmRouter from "./ptm";
+import foundationRouter from "./foundation";
 
 const router: IRouter = Router();
 
@@ -42,5 +43,6 @@ router.use(analyticsRouter);
 router.use(notificationsRouter);
 router.use(admissionsRouter);
 router.use(ptmRouter);
+router.use(foundationRouter);
 
 export default router;

@@ -525,7 +525,14 @@ export default function TeacherDashboard() {
   useEffect(() => () => { streamRef.current?.getTracks().forEach((t) => t.stop()); }, []);
 
   const handleLogout = () => {
+    const currentToken = localStorage.getItem("coach_sutra_token");
+    if (currentToken) void fetch("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${currentToken}` } }).catch(() => {});
     localStorage.removeItem("coach_sutra_token");
+    localStorage.removeItem("coach_sutra_user_role");
+    localStorage.removeItem("foundation_branches");
+    localStorage.removeItem("foundation_institute_id");
+    localStorage.removeItem("active_branch_id");
+    localStorage.removeItem("active_branch_name");
     setLocation("/login");
   };
 

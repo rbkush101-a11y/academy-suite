@@ -16,6 +16,9 @@ export interface IUser extends Document {
   password: string;
   role: UserRole;
   instituteId?: Types.ObjectId;
+  activeBranchId?: Types.ObjectId;
+  branchIds?: Types.ObjectId[];
+  customRoleId?: Types.ObjectId;
   isApproved: boolean;
   createdAt: Date;
   phone?: string;
@@ -72,6 +75,10 @@ const userSchema = new Schema(
       ref: "Institute",
       required: false
     },
+
+    activeBranchId: { type: Schema.Types.ObjectId, ref: "Branch" },
+    branchIds: [{ type: Schema.Types.ObjectId, ref: "Branch" }],
+    customRoleId: { type: Schema.Types.ObjectId, ref: "Role" },
 
     isApproved: {
       type: Boolean,

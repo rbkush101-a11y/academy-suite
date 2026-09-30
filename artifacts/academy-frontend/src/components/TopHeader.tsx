@@ -19,6 +19,7 @@ import {
 
 function getTitle(path: string) {
   const p = path.toLowerCase();
+  if (p.includes("foundation")) return "Institute Foundation";
   if (p.includes("dashboard")) return "Dashboard";
   if (p.includes("branch")) return "Branches";
   if (p.includes("admission") || p.includes("enquir") || p.includes("lead")) return "Enquiry";
@@ -49,8 +50,8 @@ export default function TopHeader({ onMenuClick }: { onMenuClick?: () => void })
   const [location, setLocation] = useLocation();
   const title = useMemo(() => getTitle(location), [location]);
   const [branchOpen, setBranchOpen] = useState(false);
-  const [branch, setBranch] = useState("Main Branch");
-  const [branchList, setBranchList] = useState<string[]>(["Main Branch"]);
+  const [branch, setBranch] = useState("");
+  const [branchList, setBranchList] = useState<Array<{ id: string; name: string }>>([]);
 
   // 🔍 Search States
   const [searchQuery, setSearchQuery] = useState("");
@@ -233,16 +234,47 @@ export default function TopHeader({ onMenuClick }: { onMenuClick?: () => void })
   }, []);
 
   const loadBranches = () => {
-    const savedName = localStorage.getItem("active_branch_name") || "Main Branch";
-    setBranch(savedName);
-    const raw = localStorage.getItem("branch_list");
-    let list: string[] = [];
+    const activeId = localStorage.getItem("active_branch_id") || "";
+    const raw = localStorage.getItem("foundation_branches");
+    let list: Array<{ id: string; name: string }> = [];
     try {
-      if (raw) list = JSON.parse(raw);
+      if (raw) list = JSON.parse(raw).filter((item: any) => item?.id && item?.name && item.status === "active");
     } catch {}
-    if (list.length === 0) list = ["Main Branch", "Sadhan enclave"];
-    list = Array.from(new Set(list));
+    list = list.filter((item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index);
     setBranchList(list);
+    setBranch(list.find((item) => item.id === activeId)?.name || "");
+
+    const token = localStorage.getItem("coach_sutra_token") || "";
+    if (!token) return;
+    let isSuperAdmin = localStorage.getItem("coach_sutra_user_role") === "super_admin";
+    try {
+      const encoded = token.split(".")[1];
+      if (encoded) isSuperAdmin = JSON.parse(atob(encoded.replace(/-/g, "+").replace(/_/g, "/"))).role === "super_admin";
+    } catch {}
+    const instituteId = isSuperAdmin ? localStorage.getItem("foundation_institute_id") : "";
+    const suffix = instituteId ? `?instituteId=${encodeURIComponent(instituteId)}` : "";
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    void fetch(`/api/foundation/branch-context${suffix}`, { headers })
+      .then(async (response) => {
+        if (!response.ok) {
+          localStorage.removeItem("foundation_branches");
+          localStorage.removeItem("active_branch_id");
+          setBranchList([]);
+          setBranch("");
+          return null;
+        }
+        return response.json();
+      })
+      .then((result) => {
+        if (!result) return;
+        const branches = Array.isArray(result.branches) ? result.branches.filter((item: any) => item?.id && item?.name) : [];
+        localStorage.setItem("foundation_branches", JSON.stringify(branches));
+        if (result.activeBranchId) localStorage.setItem("active_branch_id", result.activeBranchId);
+        else localStorage.removeItem("active_branch_id");
+        setBranchList(branches);
+        setBranch(branches.find((item: any) => item.id === result.activeBranchId)?.name || "");
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -255,19 +287,32 @@ export default function TopHeader({ onMenuClick }: { onMenuClick?: () => void })
     };
   }, []);
 
-  const selectBranch = (name: string) => {
-    setBranch(name);
-    localStorage.setItem("active_branch_name", name);
-    const dataRaw = localStorage.getItem("branch_data");
-    if (dataRaw) {
-      try {
-        const data = JSON.parse(dataRaw);
-        const found = data.find((b: any) => b.name === name);
-        if (found) localStorage.setItem("active_branch_id", found.id);
-      } catch {}
+  const selectBranch = async (selected: { id: string; name: string }) => {
+    const token = localStorage.getItem("coach_sutra_token") || "";
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let isSuperAdmin = localStorage.getItem("coach_sutra_user_role") === "super_admin";
+    try {
+      const encoded = token.split(".")[1];
+      if (encoded) isSuperAdmin = JSON.parse(atob(encoded.replace(/-/g, "+").replace(/_/g, "/"))).role === "super_admin";
+    } catch {}
+    const instituteId = isSuperAdmin ? localStorage.getItem("foundation_institute_id") : "";
+    try {
+      const response = await fetch("/api/foundation/active-branch", {
+        method: "PATCH", headers,
+        body: JSON.stringify({ branchId: selected.id, ...(instituteId ? { instituteId } : {}) }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not switch branch");
+      if (result.token) localStorage.setItem("coach_sutra_token", result.token);
+      localStorage.setItem("active_branch_id", selected.id);
+      localStorage.setItem("active_branch_name", selected.name);
+      setBranch(selected.name);
+      setBranchOpen(false);
+      window.dispatchEvent(new Event("branchChanged"));
+    } catch (error) {
+      console.error("Branch switch failed:", error);
     }
-    setBranchOpen(false);
-    window.dispatchEvent(new Event("branchChanged"));
   };
 
   const handleMarkAllRead = () => {
@@ -277,9 +322,15 @@ export default function TopHeader({ onMenuClick }: { onMenuClick?: () => void })
   };
 
   const handleLogout = () => {
+    const token = localStorage.getItem("coach_sutra_token") || "";
+    if (token) void fetch("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
     localStorage.removeItem("coach_sutra_token");
     localStorage.removeItem("coach_sutra_user");
     localStorage.removeItem("user");
+    localStorage.removeItem("foundation_branches");
+    localStorage.removeItem("foundation_institute_id");
+    localStorage.removeItem("active_branch_id");
+    localStorage.removeItem("active_branch_name");
     window.location.href = "/login";
   };
 
@@ -292,20 +343,20 @@ export default function TopHeader({ onMenuClick }: { onMenuClick?: () => void })
         <h1 className="text-[15px] font-bold text-slate-800">{title}</h1>
         
         {/* Hidden Branch Dropdown */}
-        <div style={{ display: 'none' }} className="relative hidden md:block ml-4">
+        {branchList.length > 0 && <div className="relative hidden md:block ml-2">
           <button onClick={() => setBranchOpen(!branchOpen)} className="flex items-center gap-2 bg-[#e6f3fa] text-[#0a4a5a] px-4 py-1.5 rounded-full text-[13px] font-bold border border-[#d6eaf5]">
-            <MapPin className="w-4 h-4" /> {branch} <ChevronDown className="w-3 h-3" />
+            <MapPin className="w-4 h-4" /> {branch || "Select branch"} <ChevronDown className="w-3 h-3" />
           </button>
           {branchOpen && (
             <div className="absolute top-full mt-2 left-0 bg-white border rounded-xl shadow-lg w-48 overflow-hidden z-50">
-              {branchList.map((b) => (
-                <button key={b} onClick={() => selectBranch(b)} className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 ${b === branch ? "bg-[#f8f6ec] font-bold text-[#6b7d00]" : ""}`}>
-                  {b}
+              {branchList.map((item) => (
+                <button key={item.id} onClick={() => void selectBranch(item)} className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 ${item.name === branch ? "bg-[#f8f6ec] font-bold text-[#6b7d00]" : ""}`}>
+                  {item.name}
                 </button>
               ))}
             </div>
           )}
-        </div>
+        </div>}
       </div>
 
       <div className="flex items-center gap-2">

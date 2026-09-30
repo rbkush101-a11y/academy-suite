@@ -23,7 +23,6 @@ import OnlineAdmissionForm from "./pages/online-admission-form";
 import Courses from "@/pages/courses";
 import Batches from "@/pages/batches";
 import Staff from "@/pages/staff";
-import Branches from "@/pages/branches";
 import Subjects from "@/pages/subjects";
 import Topic from "@/pages/Topic";
 import Attendance from "@/pages/attendance";
@@ -49,6 +48,7 @@ import Admissions from "@/pages/admissions";
 import OnlineAdmissions from "@/pages/online-admissions";
 import PTM from "@/pages/ptm";
 import AcademicYears from "@/pages/academic-years";
+import Foundation from "@/pages/foundation";
 
 const queryClient = new QueryClient();
 
@@ -95,6 +95,10 @@ function Router() {
 
       <Route path="/settings">
         <ProtectedRoute component={Settings} />
+      </Route>
+
+      <Route path="/foundation">
+        <ProtectedRoute component={Foundation} roles={["super_admin", "institute_admin"]} />
       </Route>
 
       <Route path="/billing">
@@ -155,7 +159,7 @@ function Router() {
         />
       </Route>
       <Route path="/branches">
-        <ProtectedRoute component={Branches} roles={["super_admin", "institute_admin"]} />
+        <Redirect to="/foundation?tab=branches" />
       </Route>
 
       <Route path="/courses">

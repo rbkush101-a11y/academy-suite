@@ -139,9 +139,10 @@ const navGroups: NavGroup[] = [
   {
     title: "SETTINGS",
     items: [
+      { label: "Foundation", icon: ShieldCheck, href: "/foundation" },
       { label: "General Settings", icon: Settings, href: "/settings" },
-      { label: "Branches", icon: Building2, href: "/branches" },
-      { label: "Roles & Permissions", icon: Shield, href: "/roles", disabled: true },
+      { label: "Branches", icon: Building2, href: "/foundation?tab=branches" },
+      { label: "Roles & Permissions", icon: Shield, href: "/foundation?tab=roles" },
       //{ label: "Mobile App Branding", icon: Smartphone, href: "/mobile-branding" },
       //{ label: "Integrations", icon: Puzzle, href: "/integrations" },
       //{ label: "AI Credits", icon: Cpu, href: "/ai-credits" },
@@ -170,7 +171,7 @@ const collapsedItems: NavItem[] = [
   { label: "Fee Collection", icon: IndianRupee, href: "/finance" },
   { label: "Attendance", icon: CheckSquare, href: "/attendance" },
   { label: "Exams", icon: Monitor, href: "/exams" },
-  { label: "Settings", icon: Settings, href: "/settings" },
+  { label: "Foundation", icon: ShieldCheck, href: "/foundation" },
 ];
 
 function getRoleLabel(role: string | null) {
@@ -294,7 +295,8 @@ export function Layout({ children }: { children: ReactNode }) {
   }, [search]);
 
   const isActive = (href: string) => {
-    const cleanHref = href.split("?")[0];
+    const [cleanHref, query] = href.split("?");
+    if (query && window.location.search.slice(1) !== query) return false;
     return (
       location === cleanHref ||
       location.startsWith(cleanHref + "/") ||

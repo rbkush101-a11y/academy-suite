@@ -360,8 +360,14 @@ export default function StudentDashboard() {
   }, []);
 
   const logout = () => {
+    const currentToken = localStorage.getItem("coach_sutra_token");
+    if (currentToken) void fetch("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${currentToken}` } }).catch(() => {});
     localStorage.removeItem("coach_sutra_token");
     localStorage.removeItem("coach_sutra_user_role");
+    localStorage.removeItem("foundation_branches");
+    localStorage.removeItem("foundation_institute_id");
+    localStorage.removeItem("active_branch_id");
+    localStorage.removeItem("active_branch_name");
     window.dispatchEvent(new Event("storage"));
     setLocation("/login");
   };

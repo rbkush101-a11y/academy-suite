@@ -7,6 +7,8 @@ import { signToken } from "../lib/jwt";
 import { authenticate } from "../middlewares/auth";
 import { Course } from "../models/Course";
 import { Batch } from "../models/Batch";
+import { UserSession } from "../models/UserSession";
+import { createUserSession, recordAudit } from "../lib/foundation";
 
 const router: IRouter = Router();
 
@@ -15,6 +17,17 @@ router.post("/auth/signup", async (_req, res): Promise<void> => {
   res.status(403).json({
     error: "Public signup is disabled. Please contact administrator.",
   });
+});
+
+router.post("/auth/logout", authenticate, async (req, res): Promise<void> => {
+  if (req.user?.sessionId) {
+    await UserSession.updateOne(
+      { _id: req.user.sessionId, userId: req.user.userId, revokedAt: null },
+      { $set: { revokedAt: new Date() } },
+    );
+  }
+  await recordAudit(req, "auth.logout", "session", req.user?.sessionId || "");
+  res.sendStatus(204);
 });
 
 // 2. GET CURRENT LOGGED-IN USER PROFILE (/auth/me)
@@ -144,6 +157,8 @@ router.get("/auth/me", authenticate, async (req, res): Promise<void> => {
       logoDataUrl: (user as any).logoDataUrl ?? "",
       role: user.role,
       instituteId: user.instituteId ? String(user.instituteId) : null,
+      activeBranchId: user.activeBranchId ? String(user.activeBranchId) : null,
+      customRoleId: user.customRoleId ? String(user.customRoleId) : null,
       isApproved: user.isApproved,
       createdAt: user.createdAt,
     });
@@ -224,11 +239,27 @@ router.post("/auth/login", async (req, res): Promise<void> => {
         return;
       }
 
+      const activeBranchId = user.activeBranchId ? String(user.activeBranchId) : null;
+      const customRoleId = user.customRoleId ? String(user.customRoleId) : null;
+      const session = await createUserSession(req, {
+        userId: String(user._id), role: user.role,
+        instituteId: user.instituteId ? String(user.instituteId) : null,
+        branchId: activeBranchId,
+      });
       const token = signToken({
         userId: String(user._id),
         email: user.email,
         role: user.role,
         instituteId: user.instituteId ? String(user.instituteId) : null,
+        activeBranchId,
+        customRoleId,
+        sessionId: String(session._id),
+      });
+
+      await recordAudit(req, "auth.login", "session", String(session._id), {}, {
+        userId: String(user._id), email: user.email, role: user.role,
+        instituteId: user.instituteId ? String(user.instituteId) : null,
+        activeBranchId,
       });
 
       res.json({
@@ -240,6 +271,8 @@ router.post("/auth/login", async (req, res): Promise<void> => {
           loginId: user.loginId ?? "",
           role: user.role,
           instituteId: user.instituteId ? String(user.instituteId) : null,
+          activeBranchId,
+          customRoleId,
           isApproved: user.isApproved,
         },
       });
@@ -274,11 +307,19 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       return;
     }
 
+    const studentSession = await createUserSession(req, {
+      userId: String(student._id), role: "student", instituteId: String(student.instituteId), principalType: "student",
+    });
     const token = signToken({
       userId: String(student._id),
       email: student.email ?? "",
       role: "student",
       instituteId: String(student.instituteId),
+      sessionId: String(studentSession._id),
+    });
+
+    await recordAudit(req, "auth.login", "session", String(studentSession._id), {}, {
+      userId: String(student._id), email: student.email ?? "", role: "student", instituteId: String(student.instituteId),
     });
 
     res.json({
@@ -342,11 +383,19 @@ router.post("/auth/student-login", async (req, res): Promise<void> => {
       return;
     }
 
+    const studentSession = await createUserSession(req, {
+      userId: String(student._id), role: "student", instituteId: String(student.instituteId), principalType: "student",
+    });
     const token = signToken({
       userId: String(student._id),
       email: student.email ?? "",
       role: "student",
       instituteId: String(student.instituteId),
+      sessionId: String(studentSession._id),
+    });
+
+    await recordAudit(req, "auth.login", "session", String(studentSession._id), {}, {
+      userId: String(student._id), email: student.email ?? "", role: "student", instituteId: String(student.instituteId),
     });
 
     res.json({
@@ -375,6 +424,7 @@ router.patch("/auth/me", authenticate, async (req, res): Promise<void> => {
     const role = req.user!.role;
 
     const updateData: any = {};
+    let passwordChanged = false;
 
     if (req.body.name !== undefined) {
       updateData.name = String(req.body.name).trim();
@@ -420,6 +470,7 @@ router.patch("/auth/me", authenticate, async (req, res): Promise<void> => {
       } else {
         updateData.password = await bcrypt.hash(plainPassword, 10);
       }
+      passwordChanged = true;
     }
 
     if (role === "student") {
@@ -431,6 +482,14 @@ router.patch("/auth/me", authenticate, async (req, res): Promise<void> => {
       if (!student) {
         res.status(404).json({ error: "Student not found" });
         return;
+      }
+
+      if (passwordChanged) {
+        await UserSession.updateMany(
+          { userId, principalType: "student", revokedAt: null, ...(req.user!.sessionId ? { _id: { $ne: req.user!.sessionId } } : {}) },
+          { $set: { revokedAt: new Date() } },
+        );
+        await recordAudit(req, "auth.password_change", "student", userId);
       }
 
       res.json({
@@ -454,6 +513,14 @@ router.patch("/auth/me", authenticate, async (req, res): Promise<void> => {
       return;
     }
 
+    if (passwordChanged) {
+      await UserSession.updateMany(
+        { userId, principalType: "user", revokedAt: null, ...(req.user!.sessionId ? { _id: { $ne: req.user!.sessionId } } : {}) },
+        { $set: { revokedAt: new Date() } },
+      );
+      await recordAudit(req, "auth.password_change", "user", userId);
+    }
+
     res.json({
       id: String(user._id),
       name: user.name,
@@ -466,6 +533,8 @@ router.patch("/auth/me", authenticate, async (req, res): Promise<void> => {
       logoDataUrl: (user as any).logoDataUrl ?? "",
       role: user.role,
       instituteId: user.instituteId ? String(user.instituteId) : null,
+      activeBranchId: user.activeBranchId ? String(user.activeBranchId) : null,
+      customRoleId: user.customRoleId ? String(user.customRoleId) : null,
       isApproved: user.isApproved,
       createdAt: user.createdAt,
     });
