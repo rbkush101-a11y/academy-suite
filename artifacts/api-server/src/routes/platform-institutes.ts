@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { Router, type Request } from "express";
 import bcrypt from "bcryptjs";
 import { Types } from "mongoose";
@@ -225,6 +225,16 @@ function instituteAdminResetUrl(token: string) {
   return url.toString();
 }
 
+function generateTemporaryPassword() {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "@#$%";
+  const pick = (chars: string) => chars[randomInt(chars.length)];
+  const core = randomBytes(18).toString("base64url").replace(/[-_]/g, "").slice(0, 18);
+  return `${pick(upper)}${pick(lower)}${pick(digits)}${pick(symbols)}${core}`;
+}
+
 async function queueAdminPasswordSetup(user: any, req: Request, isInvite: boolean) {
   if (!await isAuthEmailDeliveryConfigured()) return false;
   await AuthToken.deleteMany({ userId: user._id, purpose: "password_reset", consumedAt: { $exists: false } });
@@ -328,7 +338,7 @@ router.post(ROOT, authenticate, authorizePlatform("platform.institutes.create"),
       maxStudents: plan.maxStudents,
     });
     createdBranch = await Branch.create({ instituteId: createdInstitute._id, name: branchName, code: branchCode, address, status: "active", isMain: true });
-    const initialPassword = randomBytes(48).toString("base64url");
+    const initialPassword = generateTemporaryPassword();
     createdAdmin = await User.create({
       name: initialAdminName, email: initialAdminEmail, phone, password: await bcrypt.hash(initialPassword, 12), role: "institute_admin",
       instituteId: createdInstitute._id, activeBranchId: createdBranch._id, branchIds: [createdBranch._id], isApproved: true,
@@ -347,7 +357,17 @@ router.post(ROOT, authenticate, authorizePlatform("platform.institutes.create"),
       instituteName, initialAdminId: String(createdAdmin._id), initialAdminEmail, planId, trialDays, status,
     });
     const emailSetup = await queueAdminPasswordSetup(createdAdmin, req, true).catch(() => false);
-    res.status(201).json({ institute: formatInstitute(refreshedInstitute), adminPasswordSetupEmailQueued: emailSetup });
+    res.status(201).json({
+      institute: formatInstitute(refreshedInstitute),
+      adminPasswordSetupEmailQueued: emailSetup,
+      initialAdmin: {
+        id: String(createdAdmin._id),
+        name: createdAdmin.name,
+        email: createdAdmin.email,
+        role: createdAdmin.role,
+        temporaryPassword: initialPassword,
+      },
+    });
   } catch (error) {
     if (createdInstitute?._id) {
       await Promise.allSettled([
@@ -454,26 +474,37 @@ router.post(`${ROOT}/:id/status`, authenticate, authorizePlatform("platform.inst
   if (!institute) { res.status(404).json({ error: "Institute not found." }); return; }
   const previousStatus = lowerStatus(institute.status);
   const now = new Date();
-  const latestSubscription = action === "resume"
+  if (["resume", "restore"].includes(action) && institute.expiryDate && institute.expiryDate <= now) {
+    res.status(409).json({ error: "This institute subscription has expired. Change or renew its plan before restoring access." }); return;
+  }
+  const latestResumeSubscription = ["resume", "restore"].includes(action)
     ? await PlatformSubscription.findOne({ instituteId: institute._id }).sort({ createdAt: -1 }).select("status endsAt").lean()
     : null;
-  if (action === "resume" && institute.expiryDate && institute.expiryDate <= now) {
-    res.status(409).json({ error: "This institute subscription has expired. Change or renew its plan before resuming access." }); return;
-  }
-  if (action === "resume" && latestSubscription && (["expired", "canceled"].includes(latestSubscription.status) || (latestSubscription.endsAt && latestSubscription.endsAt <= now))) {
-    res.status(409).json({ error: "This institute subscription has expired or was cancelled. Change or renew its plan before resuming access." }); return;
+  if (["resume", "restore"].includes(action) && latestResumeSubscription && (["expired", "canceled"].includes(latestResumeSubscription.status) || (latestResumeSubscription.endsAt && latestResumeSubscription.endsAt <= now))) {
+    res.status(409).json({ error: "This institute subscription has expired or was cancelled. Change or renew its plan before restoring access." }); return;
   }
   const currentStatus = lowerStatus(institute.status);
   if (action === "activate" && currentStatus !== "pending") { res.status(409).json({ error: "Only a pending institute can be activated. Use Resume for a suspended institute." }); return; }
   if (action === "suspend" && !["active", "trial"].includes(currentStatus)) { res.status(409).json({ error: "Only an active or trial institute can be suspended." }); return; }
   if (action === "resume" && !["suspended", "inactive"].includes(currentStatus)) { res.status(409).json({ error: "Only a suspended institute can be resumed." }); return; }
   if (action === "archive" && currentStatus === "archived") { res.status(409).json({ error: "This institute is already archived." }); return; }
-  const states: Record<string, string> = { activate: "active", suspend: "suspended", resume: "active", archive: "archived" };
+  if (action === "restore" && currentStatus !== "archived") { res.status(409).json({ error: "Only an archived institute can be restored." }); return; }
+  const restoredStatus = institute.archivedFromStatus || "active";
+  if (action === "restore" && ["expired", "cancelled"].includes(restoredStatus)) {
+    res.status(409).json({ error: "This institute was archived from an expired or cancelled state. Change or renew its plan before restoring access." }); return;
+  }
+  const states: Record<string, string> = { activate: "active", suspend: "suspended", resume: "active", archive: "archived", restore: restoredStatus };
   const nextStatus = states[action];
-  if (!nextStatus) { res.status(400).json({ error: "Choose Activate, Suspend, Resume, or Archive." }); return; }
+  if (!nextStatus) { res.status(400).json({ error: "Choose Activate, Suspend, Resume, Archive, or Restore." }); return; }
   institute.status = nextStatus as any;
-  if (action === "archive") institute.archivedAt = now;
-  if (action === "resume" || action === "activate") institute.archivedAt = undefined;
+  if (action === "archive") {
+    institute.archivedAt = now;
+    institute.archivedFromStatus = currentStatus as any;
+  }
+  if (["restore", "resume", "activate"].includes(action)) {
+    institute.archivedAt = undefined;
+    if (action === "restore") institute.archivedFromStatus = undefined;
+  }
   await institute.save();
   if (["suspend", "archive"].includes(action)) {
     await UserSession.updateMany({ instituteId: institute._id, revokedAt: null }, { $set: { revokedAt: now, revokeReason: action === "archive" ? "institute_archived" : "institute_suspended" } });
@@ -564,12 +595,63 @@ router.post(`${ROOT}/:id/admins/:adminId/password-reset`, authenticate, authoriz
   const id = idOf(req);
   const adminId = idOf(req, "adminId");
   if (!objectId(id) || !objectId(adminId)) { res.status(400).json({ error: "Invalid institute or administrator id." }); return; }
-  const admin = await User.findOne({ _id: adminId, instituteId: id, role: "institute_admin" }).select("name email role instituteId");
+
+  const admin = await User.findOne({ _id: adminId, instituteId: id, role: "institute_admin" });
   if (!admin) { res.status(404).json({ error: "Institute administrator not found." }); return; }
-  const queued = await queueAdminPasswordSetup(admin, req, false);
-  if (!queued) { res.status(503).json({ error: "Password reset email is not configured. Configure the auth email provider and try again." }); return; }
-  await recordPlatformAudit(req, "platform.institute_admin.password_reset.request", "user", adminId, { instituteId: id, email: admin.email, delivery: "queued" });
-  res.status(202).json({ message: "A secure, single-use password reset link was queued for the administrator." });
+
+  const temporaryPassword = generateTemporaryPassword();
+  admin.password = await bcrypt.hash(temporaryPassword, 12);
+  await admin.save();
+
+  const passwordSavedCorrectly = await bcrypt.compare(
+  temporaryPassword,
+  admin.password,
+);
+
+  console.log("=== INSTITUTE PASSWORD RESET VERIFY ===", {
+    adminId: String(admin._id),
+    email: admin.email,
+    temporaryPasswordLength: temporaryPassword.length,
+    hashLength: admin.password.length,
+    bcryptVerifyAfterSave: passwordSavedCorrectly,
+  });
+
+
+  // A new temporary password invalidates all existing institute-admin sessions.
+  await UserSession.updateMany(
+    {
+      userId: String(admin._id),
+      instituteId: String(id),
+      revokedAt: null,
+    },
+    {
+      $set: {
+        revokedAt: new Date(),
+        revokeReason: "admin_password_reset",
+      },
+    },
+  );
+
+  const emailSetup = await queueAdminPasswordSetup(admin, req, false).catch(() => false);
+
+  await recordPlatformAudit(req, "platform.institute_admin.password_reset", "user", adminId, {
+    instituteId: id,
+    email: admin.email,
+    delivery: emailSetup ? "queued" : "not_configured",
+    method: "temporary_password",
+  });
+
+  res.status(200).json({
+    message: "A new temporary password was generated. Existing administrator sessions were revoked.",
+    admin: {
+      id: String(admin._id),
+      name: admin.name,
+      email: admin.email,
+      role: admin.role,
+      temporaryPassword,
+      passwordSetupEmailQueued: emailSetup,
+    },
+  });
 });
 
 router.post(`${ROOT}/:id/announcements`, authenticate, authorizePlatform("platform.notifications.create"), async (req, res) => {

@@ -2,8 +2,8 @@ import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useRoute } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Activity, ArrowLeft, ArrowRight, Building2, Check, ChevronDown, ExternalLink,
-  FilePlus2, Filter, LoaderCircle, Mail, Plus, RefreshCw, Search, ShieldCheck,
+  Activity, ArrowLeft, ArrowRight, Building2, Check, ChevronDown, Copy, ExternalLink,
+  FilePlus2, Filter, KeyRound, LoaderCircle, Mail, Plus, RefreshCw, Search, ShieldCheck,
   ShieldOff, Archive, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -58,7 +58,8 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 async function getPlans(): Promise<Plan[]> {
   const result = await api<PlanPayload>("/plans");
-  return Array.isArray(result) ? result : result.items ?? [];
+  const items = Array.isArray(result) ? result : result.items ?? [];
+  return items.filter((plan) => plan.status === "active");
 }
 
 function normalizeInstitutePage(result: unknown): InstitutePage {
@@ -242,14 +243,30 @@ export function SuperAdminInstituteCreate() {
   const plans = useQuery({ queryKey: ["platform", "institute-management", "plans"], queryFn: getPlans });
   const [logoDataUrl, setLogoDataUrl] = useState("");
   const [logoError, setLogoError] = useState("");
+  const [createdCredentials, setCreatedCredentials] = useState<{ instituteId: string; instituteName: string; adminName: string; email: string; temporaryPassword: string; setupEmailQueued: boolean } | null>(null);
+  const [credentialsCopied, setCredentialsCopied] = useState(false);
   const create = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api<{ institute: InstituteProfile; adminPasswordSetupEmailQueued: boolean }>("/institutes", { method: "POST", body: JSON.stringify(body) }),
+    mutationFn: (body: Record<string, unknown>) => api<{ institute: InstituteProfile; adminPasswordSetupEmailQueued: boolean; initialAdmin: { id: string; name: string; email: string; role: string; temporaryPassword: string } }>("/institutes", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ["platform", "institute-management"] });
       await queryClient.invalidateQueries({ queryKey: ["platform", "dashboard"] });
-      setLocation(`/super-admin/institutes/${result.institute.id}?created=1&setup=${result.adminPasswordSetupEmailQueued ? "queued" : "unavailable"}`);
+      setCredentialsCopied(false);
+      setCreatedCredentials({
+        instituteId: result.institute.id,
+        instituteName: result.institute.instituteName,
+        adminName: result.initialAdmin.name,
+        email: result.initialAdmin.email,
+        temporaryPassword: result.initialAdmin.temporaryPassword,
+        setupEmailQueued: result.adminPasswordSetupEmailQueued,
+      });
     },
   });
+  async function copyCreatedCredentials() {
+    if (!createdCredentials) return;
+    const text = `Institute: ${createdCredentials.instituteName}\nLogin ID: ${createdCredentials.email}\nTemporary Password: ${createdCredentials.temporaryPassword}`;
+    await navigator.clipboard.writeText(text);
+    setCredentialsCopied(true);
+  }
   async function chooseLogo(file?: File) {
     setLogoError("");
     if (!file) { setLogoDataUrl(""); return; }
@@ -292,7 +309,7 @@ export function SuperAdminInstituteCreate() {
     <Card><CardHeader><CardTitle className="text-base">Owner and initial admin account</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Field label="Owner name" name="ownerName" required /><Field label="Owner email" name="ownerEmail" type="email" required /><Field label="Owner phone" name="ownerPhone" type="tel" required />
       <Field label="Initial admin name" name="initialAdminName" required /><Field label="Initial admin email" name="initialAdminEmail" type="email" required />
-      <p className="sm:col-span-2 lg:col-span-3 text-xs text-muted-foreground">The initial administrator receives a single-use password setup link when mail delivery is configured. Passwords are never shown to platform operators.</p>
+      <p className="sm:col-span-2 lg:col-span-3 text-xs text-muted-foreground">A temporary password is generated when the institute is created and shown once to the Super Admin. The admin can change it using the password setup link when email delivery is configured.</p>
     </CardContent></Card>
     <Card><CardHeader><CardTitle className="text-base">Address and default branch</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Field label="Address" name="address" required /><Field label="City" name="city" required /><Field label="State" name="state" required /><Field label="Country" name="country" required /><Field label="Pincode" name="pincode" required />
@@ -306,7 +323,34 @@ export function SuperAdminInstituteCreate() {
       <p className="self-end text-xs text-muted-foreground sm:col-span-1 lg:col-span-2">A positive trial duration starts a trial subscription and sets the institute status to TRIAL.</p>
     </CardContent></Card>
     <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => setLocation("/super-admin/institutes")}>Cancel</Button><Button type="submit" disabled={create.isPending || plans.isPending || !options.length || Boolean(logoError)}>{create.isPending ? <><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Creating…</> : <><FilePlus2 className="mr-2 h-4 w-4" />Create institute</>}</Button></div>
-  </form></PageShell>;
+  </form>
+  <Dialog open={Boolean(createdCredentials)} onOpenChange={(open) => { if (!open) setCreatedCredentials(null); }}>
+    <DialogContent className="sm:max-w-lg">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" />Institute Admin credentials</DialogTitle>
+        <DialogDescription>Save these credentials now. The temporary password is shown only in this response and cannot be recovered from the database later.</DialogDescription>
+      </DialogHeader>
+      {createdCredentials && <div className="space-y-4">
+        <div className="rounded-lg border bg-muted/40 p-4">
+          <p className="text-xs text-muted-foreground">Institute</p><p className="font-semibold">{createdCredentials.instituteName}</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div><p className="text-xs text-muted-foreground">Admin name</p><p className="text-sm font-medium">{createdCredentials.adminName}</p></div>
+            <div><p className="text-xs text-muted-foreground">Login ID</p><p className="break-all text-sm font-medium">{createdCredentials.email}</p></div>
+          </div>
+        </div>
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+          <p className="text-xs font-medium text-muted-foreground">Temporary Password</p>
+          <div className="mt-2 flex items-center gap-2"><code className="min-w-0 flex-1 break-all rounded-md bg-background px-3 py-2 font-mono text-sm">{createdCredentials.temporaryPassword}</code><Button type="button" size="sm" variant="outline" onClick={() => void copyCreatedCredentials()}><Copy className="mr-2 h-4 w-4" />{credentialsCopied ? "Copied" : "Copy"}</Button></div>
+        </div>
+        <p className="text-xs text-muted-foreground">{createdCredentials.setupEmailQueued ? "A password setup email was also queued for the administrator." : "Email delivery is not configured, so no password setup email was sent."}</p>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setCreatedCredentials(null)}>Close</Button>
+          <Button type="button" onClick={() => { setCreatedCredentials(null); setLocation(`/super-admin/institutes/${createdCredentials.instituteId}`); }}>Open institute</Button>
+        </DialogFooter>
+      </div>}
+    </DialogContent>
+  </Dialog>
+  </PageShell>;
 }
 
 function Required() { return <span className="text-destructive">*</span>; }
@@ -341,7 +385,7 @@ function DetailRows({ tab, rows, onReset, canReset }: { tab: DetailTab; rows: an
     "Audit Logs": ["createdAt", "actorEmail", "actorRole", "action", "targetType", "targetId", "ipAddress"],
   };
   const columns = desired[tab] ?? Object.keys(rows[0]).filter((key) => key !== "id").slice(0, 7);
-  return <Card><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b bg-muted/40 text-xs uppercase text-muted-foreground"><tr>{columns.map((column) => <th key={column} className="px-4 py-3 font-semibold">{humanize(column)}</th>)}{tab === "Admins" && canReset && <th className="px-4 py-3">Security</th>}</tr></thead><tbody className="divide-y">{rows.map((row, index) => <tr key={row.id ?? row._id ?? index} className="align-top">{columns.map((column) => <td key={column} className="max-w-72 break-words px-4 py-3">{column === "status" ? <StatusBadge status={String(row[column] ?? "")} /> : column.toLowerCase().includes("at") || column === "createdAt" || column === "updatedAt" || column === "paidAt" || column === "dueAt" || column === "endsAt" || column === "startsAt" ? formatDateTime(row[column]) : showValue(row[column])}</td>)}{tab === "Admins" && canReset && <td className="px-4 py-3"><Button size="sm" variant="outline" onClick={() => onReset?.(String(row.id ?? row._id))}><Mail className="mr-2 h-3.5 w-3.5" />Send reset</Button></td>}</tr>)}</tbody></table></div><div className="border-t px-4 py-3 text-xs text-muted-foreground">Showing up to {rows.length} records returned by the platform API.</div></Card>;
+  return <Card><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b bg-muted/40 text-xs uppercase text-muted-foreground"><tr>{columns.map((column) => <th key={column} className="px-4 py-3 font-semibold">{humanize(column)}</th>)}{tab === "Admins" && canReset && <th className="px-4 py-3">Security</th>}</tr></thead><tbody className="divide-y">{rows.map((row, index) => <tr key={row.id ?? row._id ?? index} className="align-top">{columns.map((column) => <td key={column} className="max-w-72 break-words px-4 py-3">{column === "status" ? <StatusBadge status={String(row[column] ?? "")} /> : column.toLowerCase().includes("at") || column === "createdAt" || column === "updatedAt" || column === "paidAt" || column === "dueAt" || column === "endsAt" || column === "startsAt" ? formatDateTime(row[column]) : showValue(row[column])}</td>)}{tab === "Admins" && canReset && <td className="px-4 py-3"><Button size="sm" variant="outline" onClick={() => onReset?.(String(row.id ?? row._id))}><KeyRound className="mr-2 h-3.5 w-3.5" />Reset password</Button></td>}</tr>)}</tbody></table></div><div className="border-t px-4 py-3 text-xs text-muted-foreground">Showing up to {rows.length} records returned by the platform API.</div></Card>;
 }
 
 export function SuperAdminInstituteDetail() {
@@ -354,6 +398,8 @@ export function SuperAdminInstituteDetail() {
   const [trialDays, setTrialDays] = useState("14");
   const [planId, setPlanId] = useState("");
   const [profileEditing, setProfileEditing] = useState(false);
+  const [resetCredentials, setResetCredentials] = useState<{ name: string; email: string; temporaryPassword: string; passwordSetupEmailQueued: boolean } | null>(null);
+  const [resetCredentialsCopied, setResetCredentialsCopied] = useState(false);
   const queryClient = useQueryClient();
   const detail = useQuery({ queryKey: ["platform", "institute-management", "detail", id], queryFn: () => api<InstituteDetail>(`/institutes/${id}`), enabled: Boolean(id) });
   const plans = useQuery({ queryKey: ["platform", "institute-management", "plans"], queryFn: getPlans });
@@ -370,7 +416,19 @@ export function SuperAdminInstituteDetail() {
   const statusMutation = useMutation({ mutationFn: (action: string) => api(`/institutes/${id}/status`, { method: "POST", body: JSON.stringify({ action }) }), onSuccess: invalidate });
   const trialMutation = useMutation({ mutationFn: ({ action, days }: { action: "start" | "extend"; days: number }) => api(`/institutes/${id}/trial`, { method: "POST", body: JSON.stringify({ action, days, ...(planId ? { planId } : {}) }) }), onSuccess: invalidate });
   const planMutation = useMutation({ mutationFn: () => api(`/institutes/${id}/subscription`, { method: "PATCH", body: JSON.stringify({ planId }) }), onSuccess: invalidate });
-  const resetMutation = useMutation({ mutationFn: (adminId: string) => api(`/institutes/${id}/admins/${adminId}/password-reset`, { method: "POST", body: "{}" }), onSuccess: invalidate });
+  const resetMutation = useMutation({
+    mutationFn: (adminId: string) => api<{ message: string; admin: { id: string; name: string; email: string; role: string; temporaryPassword: string; passwordSetupEmailQueued: boolean } }>(`/institutes/${id}/admins/${adminId}/password-reset`, { method: "POST", body: "{}" }),
+    onSuccess: async (result) => {
+      setResetCredentialsCopied(false);
+      setResetCredentials(result.admin);
+      await invalidate();
+    },
+  });
+  async function copyResetCredentials() {
+    if (!resetCredentials) return;
+    await navigator.clipboard.writeText(`Login ID: ${resetCredentials.email}\nTemporary Password: ${resetCredentials.temporaryPassword}`);
+    setResetCredentialsCopied(true);
+  }
   const announceMutation = useMutation({ mutationFn: (body: { title: string; message: string }) => api(`/institutes/${id}/announcements`, { method: "POST", body: JSON.stringify(body) }), onSuccess: async () => { setAnnouncementOpen(false); setAnnouncementError(""); await invalidate(); } });
   const profileMutation = useMutation({ mutationFn: (body: Record<string, unknown>) => api(`/institutes/${id}`, { method: "PATCH", body: JSON.stringify(body) }), onSuccess: async () => { setProfileEditing(false); await invalidate(); } });
   const data = detail.data;
@@ -389,7 +447,23 @@ export function SuperAdminInstituteDetail() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const body: Record<string, unknown> = {};
-    ["instituteName", "legalName", "instituteType", "ownerName", "email", "phone", "address", "city", "state", "country", "pincode", "website", "domain", "academicYear"].forEach((key) => { body[key] = String(form.get(key) ?? "").trim(); });
+    ["instituteName", "legalName", "instituteType", "ownerName", "email", "phone", "address", "city", "state", "country", "pincode", "website", "domain", "academicYear"].forEach((key) => {
+      body[key] = String(form.get(key) ?? "").trim();
+    });
+
+    const requiredFields: Array<[string, string]> = [
+      ["Institute name", String(body.instituteName ?? "")],
+      ["Owner name", String(body.ownerName ?? "")],
+      ["Owner email", String(body.email ?? "")],
+      ["Owner phone", String(body.phone ?? "")],
+    ];
+    const missing = requiredFields.find(([, value]) => !value);
+    if (missing) {
+      profileMutation.reset();
+      window.alert(`${missing[0]} is required.`);
+      return;
+    }
+
     profileMutation.mutate(body);
   }
 
@@ -422,15 +496,30 @@ export function SuperAdminInstituteDetail() {
     ].map(([label, value, icon]) => <DetailMetric key={String(label)} label={String(label)} value={Number(value)} icon={icon as typeof Users} />)}</div><div className="grid gap-4 lg:grid-cols-2"><Card><CardHeader><CardTitle className="text-base">Institute overview</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2">{[["Status", <StatusBadge status={status} />], ["Plan", data.overview.currentSubscription?.planId?.name ?? institute.plan ?? "—"], ["Academic year", institute.academicYear], ["Created", formatDate(institute.createdAt)], ["Expires", formatDate(institute.expiryDate)], ["Last activity", formatDateTime(data.sections.activity?.[0]?.createdAt)]].map(([label, value]) => <div key={String(label)}><p className="text-xs text-muted-foreground">{label}</p><div className="mt-1 text-sm font-medium">{value as ReactNode}</div></div>)}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">Current subscription</CardTitle></CardHeader><CardContent>{data.overview.currentSubscription ? <div className="grid gap-3 sm:grid-cols-2">{Object.entries(data.overview.currentSubscription).filter(([key]) => key !== "_id").map(([key, value]) => <div key={key}><p className="text-xs text-muted-foreground">{humanize(key)}</p><p className="mt-1 text-sm font-medium">{showValue(value)}</p></div>)}</div> : <p className="text-sm text-muted-foreground">No subscription record found.</p>}</CardContent></Card></div></div>}
 
     {tab === "Profile" && <Card><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">Institute profile</CardTitle>{canManage && !profileEditing && <Button size="sm" variant="outline" onClick={() => setProfileEditing(true)}>Edit profile</Button>}</CardHeader><CardContent>{profileEditing ? <form onSubmit={submitProfile} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[
-      ["Institute name", "instituteName"], ["Legal name", "legalName"], ["Owner name", "ownerName"], ["Owner email", "email"], ["Owner phone", "phone"],
-      ["Address", "address"], ["City", "city"], ["State", "state"], ["Country", "country"], ["Pincode", "pincode"], ["Website", "website"], ["Domain", "domain"], ["Academic year", "academicYear"],
-    ].map(([label, name]) => <label key={name} className="grid gap-1.5 text-sm"><span>{label}</span><Input name={name} defaultValue={(institute as any)[name] ?? ""} required={name === "instituteName" || name === "email" || name === "ownerName" || name === "phone"} /></label>)}<div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-3"><Button type="button" variant="outline" onClick={() => setProfileEditing(false)}>Cancel</Button><Button type="submit" disabled={profileMutation.isPending}>{profileMutation.isPending ? "Saving…" : "Save profile"}</Button></div></form> : <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(institute).filter(([key]) => !["id", "initialAdminId", "defaultBranchId", "archivedAt", "logoDataUrl"].includes(key)).map(([key, value]) => <div key={key}><p className="text-xs text-muted-foreground">{humanize(key)}</p><p className="mt-1 break-words text-sm font-medium">{key.endsWith("At") || key === "createdAt" || key === "updatedAt" || key === "expiryDate" ? formatDateTime(value as string) : key === "status" ? <StatusBadge status={String(value)} /> : showValue(value)}</p></div>)}{institute.website && <a className="text-sm text-primary underline" href={institute.website} target="_blank" rel="noreferrer">Open website</a>}</div>}</CardContent></Card>}
+      ["Institute name", "instituteName", ""], ["Legal name", "legalName", ""], ["Institute type", "instituteType", ""], ["Owner name", "ownerName", ""], ["Owner email", "email", "ownerEmail"], ["Owner phone", "phone", "ownerPhone"],
+      ["Address", "address", ""], ["City", "city", ""], ["State", "state", ""], ["Country", "country", ""], ["Pincode", "pincode", ""], ["Website", "website", ""], ["Domain", "domain", ""], ["Academic year", "academicYear", ""],
+    ].map(([label, name, fallbackName]) => { const value = String((institute as any)[name] ?? (fallbackName ? (institute as any)[fallbackName] : "") ?? ""); return <label key={name} className="grid gap-1.5 text-sm"><span>{label}</span><Input name={name} type={name === "email" ? "email" : "text"} defaultValue={value} required={name === "instituteName" || name === "email" || name === "ownerName" || name === "phone"} /></label>; })}<div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-3">{profileMutation.error && <p role="alert" className="w-full rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{(profileMutation.error as Error).message}</p>}<Button type="button" variant="outline" onClick={() => { profileMutation.reset(); setProfileEditing(false); }}>Cancel</Button><Button type="submit" disabled={profileMutation.isPending}>{profileMutation.isPending ? "Saving…" : "Save profile"}</Button></div></form> : <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(institute).filter(([key]) => !["id", "initialAdminId", "defaultBranchId", "archivedAt", "logoDataUrl"].includes(key)).map(([key, value]) => <div key={key}><p className="text-xs text-muted-foreground">{humanize(key)}</p><p className="mt-1 break-words text-sm font-medium">{key.endsWith("At") || key === "createdAt" || key === "updatedAt" || key === "expiryDate" ? formatDateTime(value as string) : key === "status" ? <StatusBadge status={String(value)} /> : showValue(value)}</p></div>)}{institute.website && <a className="text-sm text-primary underline" href={institute.website} target="_blank" rel="noreferrer">Open website</a>}</div>}</CardContent></Card>}
 
     {tab === "Owner" && <Card><CardHeader><CardTitle className="text-base">Institute owner</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[["Name", institute.ownerName], ["Email", institute.ownerEmail], ["Phone", institute.ownerPhone], ["Initial administrator", institute.initialAdminId ?? "—"]].map(([label, value]) => <div key={String(label)}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 break-words text-sm font-medium">{showValue(value)}</p></div>)}</CardContent></Card>}
 
     {tab === "Usage" && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{Object.entries(data.sections.usage as Record<string, { used: number; limit: number | null }> ?? {}).map(([key, item]) => <Card key={key}><CardContent className="p-5"><p className="text-sm text-muted-foreground">{humanize(key)}</p><p className="mt-2 text-2xl font-semibold">{new Intl.NumberFormat().format(item.used)} <span className="text-sm font-normal text-muted-foreground">/ {item.limit === null ? "unlimited" : new Intl.NumberFormat().format(item.limit)}</span></p>{item.limit !== null && <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, item.limit ? item.used / item.limit * 100 : 0)}%` }} /></div>}</CardContent></Card>)}</div>}
 
-    {tab === "Profile" || tab === "Owner" || tab === "Overview" || tab === "Usage" ? null : <DetailRows tab={tab} rows={rows} canReset={canReset} onReset={(adminId) => { if (window.confirm("Send a single-use password reset link to this administrator?")) resetMutation.mutate(adminId); }} />}
+    {tab === "Profile" || tab === "Owner" || tab === "Overview" || tab === "Usage" ? null : <DetailRows tab={tab} rows={rows} canReset={canReset} onReset={(adminId) => { if (window.confirm("Generate a new temporary password for this administrator? Existing administrator sessions will be signed out.")) resetMutation.mutate(adminId); }} />}
+
+    <Dialog open={Boolean(resetCredentials)} onOpenChange={(open) => { if (!open) setResetCredentials(null); }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" />New temporary password</DialogTitle>
+          <DialogDescription>The old password is no longer valid. Save this temporary password securely and give it to the institute administrator.</DialogDescription>
+        </DialogHeader>
+        {resetCredentials && <div className="space-y-4">
+          <div className="grid gap-3 rounded-lg border bg-muted/40 p-4 sm:grid-cols-2"><div><p className="text-xs text-muted-foreground">Admin</p><p className="text-sm font-medium">{resetCredentials.name}</p></div><div><p className="text-xs text-muted-foreground">Login ID</p><p className="break-all text-sm font-medium">{resetCredentials.email}</p></div></div>
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"><p className="text-xs font-medium text-muted-foreground">Temporary Password</p><div className="mt-2 flex items-center gap-2"><code className="min-w-0 flex-1 break-all rounded-md bg-background px-3 py-2 font-mono text-sm">{resetCredentials.temporaryPassword}</code><Button type="button" size="sm" variant="outline" onClick={() => void copyResetCredentials()}><Copy className="mr-2 h-4 w-4" />{resetCredentialsCopied ? "Copied" : "Copy"}</Button></div></div>
+          <p className="text-xs text-muted-foreground">{resetCredentials.passwordSetupEmailQueued ? "A password setup email was also queued for this administrator." : "Email delivery is not configured, so no password setup email was sent."}</p>
+          <DialogFooter><Button type="button" onClick={() => setResetCredentials(null)}>Done</Button></DialogFooter>
+        </div>}
+      </DialogContent>
+    </Dialog>
 
     <Dialog open={announcementOpen} onOpenChange={setAnnouncementOpen}><DialogContent><DialogHeader><DialogTitle>Send institute announcement</DialogTitle><DialogDescription>This in-app notice is saved for this institute and will appear in its notification list.</DialogDescription></DialogHeader><form onSubmit={submitAnnouncement} className="space-y-4"><label className="grid gap-1.5 text-sm"><span>Title</span><Input name="title" required maxLength={160} /></label><label className="grid gap-1.5 text-sm"><span>Message</span><textarea name="message" required maxLength={5000} rows={5} className="resize-y rounded-md border border-input bg-background px-3 py-2 text-sm" /></label>{(announcementError || announceMutation.error) && <p role="alert" className="text-sm text-destructive">{announcementError || (announceMutation.error as Error).message}</p>}<DialogFooter><Button type="button" variant="outline" onClick={() => setAnnouncementOpen(false)}>Cancel</Button><Button type="submit" disabled={announceMutation.isPending}>{announceMutation.isPending ? "Sending…" : "Send announcement"}</Button></DialogFooter></form></DialogContent></Dialog>
   </PageShell>;

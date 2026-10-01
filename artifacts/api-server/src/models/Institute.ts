@@ -33,6 +33,7 @@ export interface IInstitute extends Document {
   status: InstituteStatus;
   expiryDate?: Date;
   archivedAt?: Date;
+  archivedFromStatus?: Exclude<InstituteStatus, "archived">;
   maxStudents: number;
   createdAt: Date;
   updatedAt: Date;
@@ -114,6 +115,10 @@ const instituteSchema = new Schema(
     },
 
     archivedAt: { type: Date },
+    archivedFromStatus: {
+      type: String,
+      enum: ["pending", "active", "trial", "inactive", "suspended", "expired", "cancelled"],
+    },
 
     maxStudents: {
       type: Number,

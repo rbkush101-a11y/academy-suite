@@ -39,6 +39,7 @@ import SuperAdminDashboard from "@/pages/super-admin-dashboard";
 import { SuperAdminForgotPassword, SuperAdminLogin, SuperAdminResetPassword } from "@/pages/super-admin-auth";
 import { SuperAdminLoginHistory, SuperAdminSecurityHome, SuperAdminSessions } from "@/pages/super-admin-security";
 import { InstituteAdminResetPassword, SuperAdminInstituteCreate, SuperAdminInstituteDetail, SuperAdminInstituteList } from "@/pages/super-admin-institutes";
+import SuperAdminPlans from "@/pages/super-admin-plans";
 
 import DailyExpense from "@/pages/daily-expense";
 import StudentFeeManagement from "@/pages/student-fee-management";
@@ -215,6 +216,9 @@ function Router() {
       </Route>
       <Route path="/super-admin/institutes">
         <ProtectedRoute component={SuperAdminInstituteList} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} platformOnly />
+      </Route>
+      <Route path="/super-admin/plans">
+        <ProtectedRoute component={SuperAdminPlans} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} platformOnly />
       </Route>
       <Route path="/super-admin">
         <ProtectedRoute component={SuperAdminDashboard} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} platformOnly />
