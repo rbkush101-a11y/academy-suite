@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"seriesId":{"$numberInt":"1"},"subjectId":{"$numberInt":"1"}},"name":"seriesId_1_subjectId_1"}],"uuid":"bbcaa9ebde17472b84ad690f99f69a44","collectionName":"exams","type":"collection"}

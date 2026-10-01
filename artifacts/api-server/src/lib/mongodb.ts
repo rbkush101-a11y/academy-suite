@@ -13,7 +13,7 @@ export async function connectMongoDB(): Promise<void> {
 
   try {
     await mongoose.connect(mongodbUri, {
-      dbName: "coach_sutra",
+      dbName: "universal_saas",
     });
     isConnected = true;
     logger.info("MongoDB connected successfully");

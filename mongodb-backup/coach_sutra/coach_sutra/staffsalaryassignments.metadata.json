@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"staffId":{"$numberInt":"1"}},"name":"staffId_1","unique":true}],"uuid":"5576214d81a2472ea7545b0958bb2d18","collectionName":"staffsalaryassignments","type":"collection"}

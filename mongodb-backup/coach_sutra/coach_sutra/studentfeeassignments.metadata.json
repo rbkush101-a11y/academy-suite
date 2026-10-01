@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"studentId":{"$numberInt":"1"},"feeStructureId":{"$numberInt":"1"}},"name":"studentId_1_feeStructureId_1","unique":true}],"uuid":"520dcde94d674ae0a12a7ebf89aa98da","collectionName":"studentfeeassignments","type":"collection"}
