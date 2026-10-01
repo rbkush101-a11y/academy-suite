@@ -61,6 +61,39 @@ async function getPlans(): Promise<Plan[]> {
   return Array.isArray(result) ? result : result.items ?? [];
 }
 
+function normalizeInstitutePage(result: unknown): InstitutePage {
+  if (Array.isArray(result)) {
+    const items = result as InstituteRow[];
+    return {
+      items,
+      page: 1,
+      limit: items.length || 20,
+      total: items.length,
+      pages: items.length ? 1 : 0,
+    };
+  }
+
+  const data = (result && typeof result === "object"
+    ? result
+    : {}) as Partial<InstitutePage>;
+
+  const items = Array.isArray(data.items) ? data.items : [];
+  const page = Number.isFinite(data.page) && Number(data.page) > 0 ? Number(data.page) : 1;
+  const limit = Number.isFinite(data.limit) && Number(data.limit) > 0 ? Number(data.limit) : 20;
+  const total = Number.isFinite(data.total) && Number(data.total) >= 0 ? Number(data.total) : items.length;
+  const pages = Number.isFinite(data.pages) && Number(data.pages) >= 0
+    ? Number(data.pages)
+    : Math.ceil(total / limit);
+
+  return {
+    items,
+    page,
+    limit,
+    total,
+    pages,
+  };
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "—";
   const date = new Date(value);
@@ -141,10 +174,16 @@ export function SuperAdminInstituteList() {
       if (plan !== "all") params.set("plan", plan);
       if (createdFrom) params.set("createdFrom", createdFrom);
       if (createdTo) params.set("createdTo", createdTo);
-      return api<InstitutePage>(`/institutes?${params.toString()}`);
+      return api<unknown>(`/institutes?${params.toString()}`).then(normalizeInstitutePage);
     },
   });
-  const pageData = query.data;
+  const pageData: InstitutePage = query.data ?? {
+    items: [],
+    page: 1,
+    limit,
+    total: 0,
+    pages: 1,
+  };
   const planItems = plans.data ?? [];
 
   return <PageShell title="Institute management" trailing={<Button onClick={() => setLocation("/super-admin/institutes/new")}><Plus className="mr-2 h-4 w-4" />Create institute</Button>}>
@@ -165,7 +204,7 @@ export function SuperAdminInstituteList() {
       <label className="space-y-1 text-xs text-muted-foreground"><span>Direction / rows</span><div className="flex gap-2"><select aria-label="Sort direction" className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-foreground" value={direction} onChange={(event) => setDirection(event.target.value)}><option value="desc">Descending</option><option value="asc">Ascending</option></select><select aria-label="Rows per page" className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground" value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setPage(1); }}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></div></label>
     </CardContent></Card>
 
-    {query.isPending ? <LoadingRows /> : query.error ? <ErrorPanel error={query.error} retry={() => void query.refetch()} /> : !pageData?.items?.length ? (
+    {query.isPending ? <LoadingRows /> : query.error ? <ErrorPanel error={query.error} retry={() => void query.refetch()} /> : !pageData.items.length ? (
       <Card><CardContent className="flex flex-col items-center gap-2 p-10 text-center"><Building2 className="h-8 w-8 text-muted-foreground" /><p className="font-medium">No institutes found</p><p className="text-sm text-muted-foreground">Try changing your filters or create an institute to begin.</p><Button variant="outline" onClick={() => setLocation("/super-admin/institutes/new")}>Create institute</Button></CardContent></Card>
     ) : <Card>
       <div className="overflow-x-auto"><table className="w-full min-w-[1180px] text-left text-sm">
