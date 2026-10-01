@@ -1,13 +1,16 @@
 import { Router, type Request } from "express";
-import mongoose, { Types } from "mongoose";
+import { Types } from "mongoose";
 import bcrypt from "bcryptjs";
 import { authenticate } from "../middlewares/auth";
 import { authorizePlatform, canAssignPlatformRole, isPlatformRole, PLATFORM_PERMISSION_CATALOG, PLATFORM_ROLE_CATALOG, PLATFORM_ROLE_PERMISSIONS, type PlatformRole } from "../lib/platform-rbac";
 import { recordPlatformAudit } from "../lib/foundation";
+import { getPlatformDashboard, getPlatformSystemHealth } from "../lib/platform-dashboard";
 import { Institute } from "../models/Institute";
 import { User } from "../models/User";
 import { UserSession } from "../models/UserSession";
 import { AuditLog } from "../models/AuditLog";
+import { AuthSecurityEvent } from "../models/AuthSecurity";
+import { clearRefreshCookie, recordSecurityEvent } from "../lib/auth-security";
 import { PlatformAnnouncement, PlatformFeature, PlatformInvoice, PlatformNotification, PlatformPayment, PlatformPlan, PlatformSetting, PlatformSubscription, PlatformSupportTicket } from "../models/Platform";
 
 const router = Router();
@@ -15,6 +18,8 @@ const ROOT = "/v1/platform";
 const idOf = (req: Request, key = "id") => Array.isArray(req.params[key]) ? req.params[key][0] : req.params[key];
 const isValidId = (value: string) => Types.ObjectId.isValid(value);
 const cleanText = (value: unknown) => String(value ?? "").trim();
+const hasStrongPassword = (password: string) =>
+  Buffer.byteLength(password, "utf8") <= 72 && password.length >= 12 && /[a-z]/.test(password) && /[A-Z]/.test(password) && /\d/.test(password);
 const PLATFORM_ROLE_KEYS: PlatformRole[] = ["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"];
 const ALLOWED_PLATFORM_SETTINGS = new Set(["platformName", "supportEmail", "supportUrl", "maintenanceMode", "defaultCurrency", "defaultLocale", "billingContactEmail"]);
 
@@ -60,24 +65,16 @@ router.get(`${ROOT}/permissions`, authenticate, authorizePlatform("platform.user
   res.json(PLATFORM_PERMISSION_CATALOG);
 });
 
-router.get(`${ROOT}/dashboard`, authenticate, authorizePlatform("platform.dashboard.view"), async (_req, res) => {
-  const [institutes, activeInstitutes, platformUsers, activeSubscriptions, openTickets, issuedInvoices, successfulPayments] = await Promise.all([
-    Institute.countDocuments(),
-    Institute.countDocuments({ status: "active" }),
-    User.countDocuments({ role: { $in: PLATFORM_ROLE_KEYS }, instituteId: { $exists: false } }),
-    PlatformSubscription.countDocuments({ status: { $in: ["trialing", "active"] } }),
-    PlatformSupportTicket.countDocuments({ status: { $in: ["open", "in_progress", "waiting"] } }),
-    PlatformInvoice.countDocuments({ status: { $in: ["issued", "overdue"] } }),
-    PlatformPayment.aggregate([{ $match: { status: "succeeded" } }, { $group: { _id: null, amount: { $sum: "$amount" } } }]),
-  ]);
-  res.json({
-    institutes: { total: institutes, active: activeInstitutes },
-    platformUsers,
-    activeSubscriptions,
-    openTickets,
-    outstandingInvoices: issuedInvoices,
-    collectedAmount: successfulPayments[0]?.amount ?? 0,
-  });
+router.get(`${ROOT}/dashboard`, authenticate, authorizePlatform("platform.dashboard.view"), async (req, res) => {
+  try {
+    res.json(await getPlatformDashboard(req.query.startDate, req.query.endDate));
+  } catch (error) {
+    if (error instanceof RangeError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
 });
 
 router.get(`${ROOT}/institutes`, authenticate, authorizePlatform("platform.institutes.view"), async (req, res) => {
@@ -163,8 +160,8 @@ router.post(`${ROOT}/users`, authenticate, authorizePlatform("platform.users.cre
   const email = cleanText(req.body.email).toLowerCase();
   const password = String(req.body.password ?? "");
   const role = cleanText(req.body.role);
-  if (!name || !email || password.length < 10 || !isPlatformRole(role)) {
-    res.status(400).json({ error: "name, email, a platform role, and a password of at least 10 characters are required" });
+  if (!name || !email || !hasStrongPassword(password) || !isPlatformRole(role)) {
+    res.status(400).json({ error: "name, email, a platform role, and a 12+ character password with upper/lowercase letters and a number are required" });
     return;
   }
   if (!canAssignPlatformRole(req.platformRole!, role)) { res.status(403).json({ error: "You cannot assign this platform role" }); return; }
@@ -180,8 +177,14 @@ router.patch(`${ROOT}/users/:id`, authenticate, authorizePlatform("platform.user
   const user = await User.findById(id);
   if (!user || user.instituteId || !isPlatformRole(user.role)) { res.status(404).json({ error: "Platform user not found" }); return; }
   const update: Record<string, unknown> = {};
+  let emailChanged = false;
+  let roleChanged = false;
   if (req.body.name !== undefined) update.name = cleanText(req.body.name);
-  if (req.body.email !== undefined) update.email = cleanText(req.body.email).toLowerCase();
+  if (req.body.email !== undefined) {
+    update.email = cleanText(req.body.email).toLowerCase();
+    emailChanged = update.email !== user.email;
+    if (emailChanged) update.emailVerifiedAt = null;
+  }
   if (req.body.isApproved !== undefined) update.isApproved = Boolean(req.body.isApproved);
   if (req.body.role !== undefined) {
     if (!isPlatformRole(cleanText(req.body.role)) || !PLATFORM_ROLE_PERMISSIONS[req.platformRole!].includes("platform.users.manage_roles")) {
@@ -189,13 +192,15 @@ router.patch(`${ROOT}/users/:id`, authenticate, authorizePlatform("platform.user
     }
     const nextRole = cleanText(req.body.role) as PlatformRole;
     if (!canAssignPlatformRole(req.platformRole!, nextRole)) { res.status(403).json({ error: "You cannot assign this platform role" }); return; }
+    roleChanged = nextRole !== user.role;
     update.role = nextRole;
   }
   if (!Object.keys(update).length) { res.status(400).json({ error: "No supported user fields were provided" }); return; }
   Object.assign(user, update);
   await user.save();
-  if (update.role !== undefined || update.email !== undefined || update.isApproved === false) {
-    await UserSession.updateMany({ userId: id, principalType: "user", revokedAt: null }, { $set: { revokedAt: new Date() } });
+  if (roleChanged || emailChanged || update.isApproved === false) {
+    const revokeReason = roleChanged ? "role_changed" : emailChanged ? "email_changed" : "account_deactivated";
+    await UserSession.updateMany({ userId: id, principalType: "user", revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason } });
   }
   await recordPlatformAudit(req, "platform.user.update", "user", id, { changedFields: Object.keys(update), role: user.role });
   res.json(formatPlatformUser(user));
@@ -210,7 +215,7 @@ router.delete(`${ROOT}/users/:id`, authenticate, authorizePlatform("platform.use
   if (user.role === "platform_admin" && req.platformRole !== "super_admin") { res.status(403).json({ error: "Only SUPER_ADMIN can deactivate a PLATFORM_ADMIN" }); return; }
   user.isApproved = false;
   await user.save();
-  await UserSession.updateMany({ userId: id, principalType: "user", revokedAt: null }, { $set: { revokedAt: new Date() } });
+  await UserSession.updateMany({ userId: id, principalType: "user", revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: "account_deactivated" } });
   await recordPlatformAudit(req, "platform.user.deactivate", "user", id, { email: user.email, role: user.role });
   res.sendStatus(204);
 });
@@ -491,27 +496,67 @@ router.get(`${ROOT}/audit`, authenticate, authorizePlatform("platform.audit.view
   res.json({ items, page, limit, total });
 });
 
-router.get(`${ROOT}/security/sessions`, authenticate, authorizePlatform("platform.security.view"), async (_req, res) => {
-  const platformUsers = await User.find({ role: { $in: PLATFORM_ROLE_KEYS }, instituteId: { $exists: false } }).select("_id name email role").lean();
+router.get(`${ROOT}/security/profile`, authenticate, authorizePlatform("platform.security.view"), async (req, res) => {
+  const user = await User.findById(req.user!.userId).select("email emailVerifiedAt twoFactorEnabled createdAt").lean();
+  if (!user) { res.status(404).json({ error: "Platform account not found" }); return; }
+  res.json({ email: user.email, emailVerifiedAt: user.emailVerifiedAt ?? null, twoFactorEnabled: user.twoFactorEnabled, accountCreatedAt: user.createdAt });
+});
+
+router.get(`${ROOT}/security/sessions`, authenticate, authorizePlatform("platform.security.view"), async (req, res) => {
+  const possiblePlatformUsers = await User.find({ role: { $in: PLATFORM_ROLE_KEYS }, instituteId: { $exists: false } }).select("_id name email role activeBranchId branchIds customRoleId").lean();
+  const platformUsers = possiblePlatformUsers.filter((user) => !user.activeBranchId && !user.customRoleId && !user.branchIds?.length);
   const userIds = platformUsers.map((user) => String(user._id));
   const sessions = userIds.length ? await UserSession.find({ userId: { $in: userIds }, principalType: "user", instituteId: { $exists: false }, revokedAt: null, expiresAt: { $gt: new Date() } }).sort({ lastSeenAt: -1 }).limit(500).lean() : [];
   const usersById = new Map(platformUsers.map((user) => [String(user._id), user]));
-  await recordPlatformAudit(_req, "platform.security.sessions_view", "session", "", { count: sessions.length });
-  res.json(sessions.map((session) => ({ ...session, user: usersById.get(session.userId) ?? null })));
+  await recordPlatformAudit(req, "platform.security.sessions_view", "session", "", { count: sessions.length });
+  res.json(sessions.map((session) => ({
+    ...session,
+    current: String(session._id) === req.user!.sessionId,
+    user: usersById.get(session.userId) ?? null,
+  })));
 });
 router.post(`${ROOT}/security/sessions/:id/revoke`, authenticate, authorizePlatform("platform.security.manage"), async (req, res) => {
   const id = idOf(req);
   if (!isValidId(id)) { res.status(400).json({ error: "Invalid session id" }); return; }
-  const platformUsers = await User.find({ role: { $in: PLATFORM_ROLE_KEYS }, instituteId: { $exists: false } }).select("_id").lean();
+  const possiblePlatformUsers = await User.find({ role: { $in: PLATFORM_ROLE_KEYS }, instituteId: { $exists: false } }).select("_id activeBranchId branchIds customRoleId").lean();
+  const platformUsers = possiblePlatformUsers.filter((user) => !user.activeBranchId && !user.customRoleId && !user.branchIds?.length);
   const userIds = platformUsers.map((user) => String(user._id));
-  const session = await UserSession.findOneAndUpdate({ _id: id, userId: { $in: userIds }, principalType: "user", instituteId: { $exists: false }, revokedAt: null }, { $set: { revokedAt: new Date() } }, { new: true });
+  const session = await UserSession.findOneAndUpdate({ _id: id, userId: { $in: userIds }, principalType: "user", instituteId: { $exists: false }, revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: "platform_admin_revoke" } }, { new: true });
   if (!session) { res.status(404).json({ error: "Active platform session not found" }); return; }
+  if (String(session._id) === req.user!.sessionId) clearRefreshCookie(res);
+  await recordSecurityEvent(req, "session.revoked_by_admin", "success", { targetUserId: session.userId }, {
+    userId: req.user!.userId, email: req.user!.email, role: req.user!.role, sessionId: String(session._id), scope: "platform",
+  });
   await recordPlatformAudit(req, "platform.security.session_revoke", "session", id, { userId: session.userId });
   res.json({ id: String(session._id), revokedAt: session.revokedAt });
 });
 
-router.get(`${ROOT}/system-health`, authenticate, authorizePlatform("platform.system_health.view"), (_req, res) => {
-  res.json({ status: mongoose.connection.readyState === 1 ? "healthy" : "degraded", database: mongoose.connection.readyState === 1 ? "connected" : "disconnected", uptimeSeconds: Math.floor(process.uptime()), checkedAt: new Date().toISOString() });
+router.post(`${ROOT}/security/logout-all`, authenticate, authorizePlatform("platform.security.manage"), async (req, res) => {
+  clearRefreshCookie(res);
+  const result = await UserSession.updateMany(
+    { userId: req.user!.userId, principalType: "user", instituteId: { $exists: false }, revokedAt: null },
+    { $set: { revokedAt: new Date(), revokeReason: "logout_all" } },
+  );
+  await recordSecurityEvent(req, "logout_all", "success", { revokedSessions: result.modifiedCount, source: "platform_security" }, {
+    userId: req.user!.userId, email: req.user!.email, role: req.user!.role, sessionId: req.user!.sessionId, scope: "platform",
+  });
+  res.sendStatus(204);
+});
+
+router.get(`${ROOT}/security/login-history`, authenticate, authorizePlatform("platform.security.view"), async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+  const filter = { scope: "platform" as const, userId: req.user!.userId };
+  const [items, total] = await Promise.all([
+    AuthSecurityEvent.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).select("event outcome ipAddress userAgent deviceName sessionId details createdAt").lean(),
+    AuthSecurityEvent.countDocuments(filter),
+  ]);
+  await recordPlatformAudit(req, "platform.security.login_history_view", "auth_security_event", "", { page, limit });
+  res.json({ items, page, limit, total });
+});
+
+router.get(`${ROOT}/system-health`, authenticate, authorizePlatform("platform.system_health.view"), async (_req, res) => {
+  res.json(await getPlatformSystemHealth());
 });
 
 router.get(`${ROOT}/settings`, authenticate, authorizePlatform("platform.settings.view"), async (_req, res) => {

@@ -5,6 +5,7 @@ import { authorizePlatform, isPlatformRole } from "../lib/platform-rbac";
 import { recordAudit, recordPlatformAudit } from "../lib/foundation";
 import { Institute } from "../models/Institute";
 import { Notification } from "../models/Notification";
+import { PlatformAnnouncement } from "../models/Platform";
 
 const router: IRouter = Router();
 
@@ -36,6 +37,43 @@ sentAt: n.sentAt ?? null,
 createdAt: n.createdAt.toISOString()
 };
 }
+
+router.get(
+"/notifications/platform-announcements",
+authenticate,
+authorize("institute_admin", "teacher", "student", "parent", "staff", "accountant"),
+async (_req, res): Promise<void> => {
+  const instituteId = _req.user?.instituteId;
+  const [announcements, instituteNotices] = await Promise.all([PlatformAnnouncement.find({
+    audience: "all_institutes",
+    status: "published",
+    publishedAt: { $lte: new Date() },
+  })
+    .sort({ publishedAt: -1 })
+    .limit(100)
+    .select("title message publishedAt createdAt")
+    .lean(), instituteId ? Notification.find({ instituteId, type: "internal", target: "all-students", status: "sent" })
+      .sort({ createdAt: -1 }).limit(100).select("title message sentAt createdAt").lean() : Promise.resolve([])]);
+
+  const all = [
+    ...announcements.map((announcement) => ({
+    id: String(announcement._id),
+    title: announcement.title,
+    message: announcement.message,
+    publishedAt: announcement.publishedAt ?? announcement.createdAt,
+    createdAt: announcement.createdAt,
+    })),
+    ...instituteNotices.map((notice) => ({
+      id: `institute:${String(notice._id)}`,
+      title: notice.title,
+      message: notice.message,
+      publishedAt: notice.sentAt ?? notice.createdAt,
+      createdAt: notice.createdAt,
+    })),
+  ].sort((left, right) => new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime()).slice(0, 100);
+  res.json(all);
+},
+);
 
 router.get(
 "/notifications",

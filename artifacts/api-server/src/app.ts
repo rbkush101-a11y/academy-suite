@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import cookieParser from "cookie-parser";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
@@ -27,6 +28,7 @@ app.use(
 );
 
 app.use(cors());
+app.use(cookieParser());
 
 // Student and Staff photo/document uploads are sent as base64 data.
 // 10mb prevents "Payload Too Large" errors when saving or updating them.

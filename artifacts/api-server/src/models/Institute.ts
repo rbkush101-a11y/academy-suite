@@ -1,4 +1,4 @@
-import mongoose, { Document, Schema } from "mongoose";
+import mongoose, { Document, Schema, Types } from "mongoose";
 
 export type InstituteType =
   | "school"
@@ -7,9 +7,9 @@ export type InstituteType =
   | "tuition_center"
   | "academy";
 
-export type InstitutePlan = "basic" | "standard" | "premium";
+export type InstitutePlan = string;
 
-export type InstituteStatus = "active" | "inactive" | "expired";
+export type InstituteStatus = "pending" | "active" | "trial" | "inactive" | "suspended" | "expired" | "cancelled" | "archived";
 
 export interface IInstitute extends Document {
   instituteName: string;
@@ -17,10 +17,22 @@ export interface IInstitute extends Document {
   ownerName: string;
   email: string;
   phone: string;
+  legalName?: string;
   address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  pincode?: string;
+  logoDataUrl?: string;
+  website?: string;
+  domain?: string;
+  defaultBranchId?: Types.ObjectId;
+  academicYear?: string;
+  initialAdminId?: Types.ObjectId;
   plan: InstitutePlan;
   status: InstituteStatus;
   expiryDate?: Date;
+  archivedAt?: Date;
   maxStudents: number;
   createdAt: Date;
   updatedAt: Date;
@@ -65,27 +77,43 @@ const instituteSchema = new Schema(
       trim: true
     },
 
+    legalName: { type: String, trim: true, default: "" },
+
     address: {
       type: String,
       default: ""
     },
 
+    city: { type: String, trim: true, default: "" },
+    state: { type: String, trim: true, default: "" },
+    country: { type: String, trim: true, default: "" },
+    pincode: { type: String, trim: true, default: "" },
+    logoDataUrl: { type: String, default: "" },
+    website: { type: String, trim: true, default: "" },
+    domain: { type: String, trim: true, lowercase: true, default: undefined },
+    defaultBranchId: { type: Schema.Types.ObjectId, ref: "Branch" },
+    academicYear: { type: String, trim: true, default: "" },
+    initialAdminId: { type: Schema.Types.ObjectId, ref: "User" },
+
     plan: {
       type: String,
-      enum: ["basic", "standard", "premium"],
+      trim: true,
       default: "basic"
     },
 
     status: {
       type: String,
-      enum: ["active", "inactive", "expired"],
-      default: "active"
+      enum: ["pending", "active", "trial", "inactive", "suspended", "expired", "cancelled", "archived"],
+      default: "pending",
+      index: true,
     },
 
     expiryDate: {
       type: Date,
       required: false
     },
+
+    archivedAt: { type: Date },
 
     maxStudents: {
       type: Number,
@@ -94,6 +122,8 @@ const instituteSchema = new Schema(
   },
   { timestamps: true }
 );
+
+instituteSchema.index({ domain: 1 }, { unique: true, partialFilterExpression: { domain: { $type: "string", $gt: "" } } });
 
 export const Institute = mongoose.model<IInstitute>(
   "Institute",

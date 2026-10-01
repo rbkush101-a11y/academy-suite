@@ -4,34 +4,88 @@ import bcrypt from "bcryptjs";
 import { User } from "../models/User";
 
 async function createSuperAdmin() {
-const mongoUri = process.env.MONGODB_URI;
-const email = String(process.env.SUPER_ADMIN_EMAIL ?? "").trim().toLowerCase();
-const plainPassword = String(process.env.SUPER_ADMIN_PASSWORD ?? "");
-const name = String(process.env.SUPER_ADMIN_NAME ?? "Platform Administrator").trim();
+  const mongoUri = process.env.MONGODB_URI;
 
-if (!mongoUri || !email || plainPassword.length < 12) {
-throw new Error("Set MONGODB_URI, SUPER_ADMIN_EMAIL, and SUPER_ADMIN_PASSWORD (at least 12 characters) before provisioning.");
-}
-
-await mongoose.connect(mongoUri);
-
-const existing = await User.findOne({ email });
-if (existing) {
-  if (existing.role !== "super_admin" || existing.instituteId || existing.activeBranchId || existing.branchIds?.length || existing.customRoleId) {
-    throw new Error("The configured email belongs to a non-platform or scoped user; refusing to change or delete that account.");
+  if (!mongoUri) {
+    console.error("MONGODB_URI is missing in .env file");
+    process.exit(1);
   }
-  console.log("A platform Super Admin account already exists for the configured email; no changes made.");
-} else {
-  const password = await bcrypt.hash(plainPassword, 12);
-  const user = await User.create({ name, email, password, role: "super_admin", isApproved: true });
-  console.log(`Created platform Super Admin account ${user.email}.`);
-}
 
-await mongoose.disconnect();
+  const email = String(process.env.SUPER_ADMIN_EMAIL || "").trim().toLowerCase();
+  const plainPassword = String(process.env.SUPER_ADMIN_PASSWORD || "");
+  const name = String(
+    process.env.SUPER_ADMIN_NAME || "Platform Administrator",
+  ).trim();
+
+  if (!email) {
+    console.error("SUPER_ADMIN_EMAIL is missing in .env file");
+    process.exit(1);
+  }
+
+  if (!plainPassword) {
+    console.error("SUPER_ADMIN_PASSWORD is missing in .env file");
+    process.exit(1);
+  }
+
+  if (plainPassword.length < 12) {
+    console.error(
+      "SUPER_ADMIN_PASSWORD must be at least 12 characters long",
+    );
+    process.exit(1);
+  }
+
+  await mongoose.connect(mongoUri);
+
+  try {
+    const hashedPassword = await bcrypt.hash(plainPassword, 12);
+
+    // Remove an existing account with this email so we can
+    // create a clean platform administrator account.
+    const deleteResult = await User.deleteMany({
+      email,
+    });
+
+    console.log("Deleted existing matching users:", deleteResult.deletedCount);
+
+    const user = await User.create({
+      name,
+      email,
+      password: hashedPassword,
+      role: "super_admin",
+      isApproved: true,
+    });
+
+    const isPasswordCorrect = await bcrypt.compare(
+      plainPassword,
+      user.password,
+    );
+
+    console.log("");
+    console.log("==========================================");
+    console.log("Fresh Super Admin created successfully");
+    console.log("==========================================");
+    console.log("Email:", user.email);
+    console.log("Role:", user.role);
+    console.log("Approved:", user.isApproved);
+    console.log(
+      "Password Test:",
+      isPasswordCorrect ? "PASS" : "FAIL",
+    );
+    console.log("==========================================");
+    console.log("");
+  } finally {
+    await mongoose.disconnect();
+  }
 }
 
 createSuperAdmin().catch(async (error) => {
-console.error("Failed to provision Super Admin:", error instanceof Error ? error.message : error);
-await mongoose.disconnect();
-process.exit(1);
+  console.error("Error creating Super Admin:", error);
+
+  try {
+    await mongoose.disconnect();
+  } catch {
+    // Ignore disconnect errors.
+  }
+
+  process.exit(1);
 });

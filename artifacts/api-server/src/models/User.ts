@@ -30,6 +30,12 @@ export interface IUser extends Document {
   businessType?: string;
   promoCode?: string;
   logoDataUrl?: string;
+  failedLoginAttempts: number;
+  failedLoginWindowStartedAt?: Date;
+  lockedUntil?: Date;
+  emailVerifiedAt?: Date;
+  twoFactorEnabled: boolean;
+  twoFactorSecretEncrypted?: string;
 }
 
 const userSchema = new Schema(
@@ -91,7 +97,13 @@ const userSchema = new Schema(
     isApproved: {
       type: Boolean,
       default: false
-    }
+    },
+    failedLoginAttempts: { type: Number, default: 0, min: 0 },
+    failedLoginWindowStartedAt: { type: Date },
+    lockedUntil: { type: Date },
+    emailVerifiedAt: { type: Date },
+    twoFactorEnabled: { type: Boolean, default: false },
+    twoFactorSecretEncrypted: { type: String, select: false },
   },
   { timestamps: true }
 );

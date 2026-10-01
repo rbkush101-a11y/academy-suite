@@ -4,6 +4,7 @@ import { UserSession } from "../models/UserSession";
 import { recordPlatformAudit, resolvePermission } from "../lib/foundation";
 import { isPlatformRole } from "../lib/platform-rbac";
 import { logger } from "../lib/logger";
+import { getInstituteAccessBlockReasonById } from "../lib/institute-access";
 
 declare global {
   namespace Express {
@@ -22,28 +23,53 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   const token = header.slice(7);
   try {
     const payload = verifyToken(token);
-    if (payload.sessionId) {
-      const session = await UserSession.findOne({
-        _id: payload.sessionId,
-        userId: payload.userId,
-        revokedAt: null,
-        expiresAt: { $gt: new Date() },
-      }).select("lastSeenAt branchId instituteId");
-      if (!session) {
-        res.status(401).json({ error: "This session has expired or was revoked. Please sign in again." });
+    if (!payload.sessionId) {
+      res.status(401).json({ error: "A valid session is required. Please sign in again." });
+      return;
+    }
+    const session = await UserSession.findOne({
+      _id: payload.sessionId,
+      userId: payload.userId,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() },
+    }).select("lastSeenAt branchId instituteId role principalType");
+    if (!session) {
+      res.status(401).json({ error: "This session has expired or was revoked. Please sign in again." });
+      return;
+    }
+    const sessionBranchId = session.branchId ? String(session.branchId) : "";
+    const tokenBranchId = payload.activeBranchId ?? "";
+    const sessionInstituteId = session.instituteId ? String(session.instituteId) : "";
+    const tokenInstituteId = payload.instituteId ?? "";
+    const expectedPrincipalType = payload.role === "student" ? "student" : "user";
+    if (
+      sessionBranchId !== tokenBranchId || sessionInstituteId !== tokenInstituteId ||
+      session.role !== payload.role || session.principalType !== expectedPrincipalType
+    ) {
+      res.status(401).json({ error: "Your account, institute, branch, or session context changed. Please sign in again." });
+      return;
+    }
+
+    const requestPath = req.originalUrl.split("?", 1)[0];
+    const platformApi = /^\/api\/v1\/platform(?:\/|$)/.test(requestPath);
+    const platformSessionSupport = /^\/api\/auth\/(?:me|logout|logout-all)$/.test(requestPath);
+    if (isPlatformRole(payload.role) && !platformApi && !platformSessionSupport) {
+      res.status(403).json({ error: "Platform administrator accounts cannot access institute-scoped APIs." });
+      return;
+    }
+    if (!isPlatformRole(payload.role) && platformApi) {
+      res.status(403).json({ error: "Platform administrator scope required." });
+      return;
+    }
+    if (!isPlatformRole(payload.role) && sessionInstituteId) {
+      const accessBlockReason = await getInstituteAccessBlockReasonById(sessionInstituteId);
+      if (accessBlockReason) {
+        res.status(403).json({ error: accessBlockReason, code: "INSTITUTE_ACCESS_BLOCKED" });
         return;
       }
-      const sessionBranchId = session.branchId ? String(session.branchId) : "";
-      const tokenBranchId = payload.activeBranchId ?? "";
-      const sessionInstituteId = session.instituteId ? String(session.instituteId) : "";
-      const tokenInstituteId = payload.instituteId ?? "";
-      if (sessionBranchId !== tokenBranchId || sessionInstituteId !== tokenInstituteId) {
-        res.status(401).json({ error: "Your institute or branch context changed. Please sign in again." });
-        return;
-      }
-      if (!session.lastSeenAt || Date.now() - session.lastSeenAt.getTime() > 5 * 60 * 1000) {
-        void UserSession.updateOne({ _id: payload.sessionId }, { $set: { lastSeenAt: new Date() } }).catch(() => {});
-      }
+    }
+    if (!session.lastSeenAt || Date.now() - session.lastSeenAt.getTime() > 5 * 60 * 1000) {
+      void UserSession.updateOne({ _id: payload.sessionId }, { $set: { lastSeenAt: new Date() } }).catch(() => {});
     }
     req.user = payload;
     next();

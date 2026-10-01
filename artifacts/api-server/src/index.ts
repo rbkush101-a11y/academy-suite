@@ -3,9 +3,18 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { connectMongoDB } from "./lib/mongodb";
 import { assertJwtSecret } from "./lib/jwt";
+import { isAuthEmailDeliveryConfigured, processAuthEmailOutbox } from "./lib/auth-security";
 
 config();
 config({ path: new URL("../.env", import.meta.url) });
+
+if (process.env.TRUST_PROXY_HOPS) {
+  const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS);
+  if (!Number.isInteger(trustProxyHops) || trustProxyHops < 1 || trustProxyHops > 10) {
+    throw new Error("TRUST_PROXY_HOPS must be an integer from 1 to 10 when configured.");
+  }
+  app.set("trust proxy", trustProxyHops);
+}
 
 const rawPort = process.env["PORT"];
 
@@ -24,6 +33,13 @@ if (Number.isNaN(port) || port <= 0) {
 async function start() {
   assertJwtSecret();
   await connectMongoDB();
+
+  if (await isAuthEmailDeliveryConfigured()) {
+    const emailWorker = setInterval(() => {
+      void processAuthEmailOutbox().catch((err: unknown) => logger.error({ err }, "Auth email outbox worker failed"));
+    }, 15_000);
+    emailWorker.unref();
+  }
 
   app.listen(port, "0.0.0.0", () => {
     logger.info({ port }, "Server listening");

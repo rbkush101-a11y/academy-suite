@@ -17,9 +17,11 @@ import {
   Loader2,
   RefreshCw,
   ExternalLink,
+  Megaphone,
 } from "lucide-react";
 
-type NotifType = "lead" | "payment" | "homework" | "leave";
+type NotifType = "lead" | "payment" | "homework" | "leave" | "announcement";
+type PlatformAnnouncementItem = { id: string; title: string; message: string; publishedAt: string; createdAt: string };
 
 type AppNotification = {
   id: string;
@@ -93,6 +95,23 @@ export default function Notifications() {
     isFetching: fetchingHomework,
   } = useListHomework();
 
+  const platformRole = localStorage.getItem("coach_sutra_user_role") || "";
+  const isPlatformRole = ["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"].includes(platformRole);
+  const platformAnnouncementsQuery = useQuery({
+    queryKey: ["notifications-platform-announcements"],
+    enabled: !isPlatformRole && Boolean(localStorage.getItem("coach_sutra_token")),
+    queryFn: async (): Promise<PlatformAnnouncementItem[]> => {
+      const token = localStorage.getItem("coach_sutra_token");
+      const response = await fetch("/api/notifications/platform-announcements", {
+        credentials: "same-origin",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) throw new Error(`Could not load platform announcements (${response.status})`);
+      const data = await response.json();
+      return Array.isArray(data) ? data as PlatformAnnouncementItem[] : [];
+    },
+  });
+
   // 🟢 Real Finance API for fee/payment notifications
   // The backend exposes /api/finance/payments; /api/student-fees does not exist.
   const {
@@ -120,8 +139,8 @@ export default function Notifications() {
   const fetchingLeaves = false;
   const refetchLeaves = () => Promise.resolve();
 
-  const isLoading = loadingLeads || loadingFees || loadingHomework;
-  const isFetching = fetchingLeads || fetchingFees || fetchingHomework;
+  const isLoading = loadingLeads || loadingFees || loadingHomework || platformAnnouncementsQuery.isLoading;
+  const isFetching = fetchingLeads || fetchingFees || fetchingHomework || platformAnnouncementsQuery.isFetching;
 
   const notifications = useMemo(() => {
     const list: AppNotification[] = [];
@@ -226,8 +245,22 @@ export default function Notifications() {
       });
     });
 
+    (platformAnnouncementsQuery.data ?? []).forEach((item) => {
+      const id = `platform-announcement-${item.id}`;
+      const publishedAt = item.publishedAt || item.createdAt;
+      list.push({
+        id,
+        type: "announcement",
+        title: item.title,
+        message: item.message,
+        time: timeAgo(publishedAt),
+        sortAt: safeDate(publishedAt)?.getTime() || 0,
+        isRead: readIds.has(id),
+      });
+    });
+
     return list.sort((a, b) => b.sortAt - a.sortAt);
-  }, [admissionsData, feesData, homeworksData, leavesData, readIds]);
+  }, [admissionsData, feesData, homeworksData, leavesData, platformAnnouncementsQuery.data, readIds]);
 
   const filtered = notifications.filter(
     (n) => activeTab === "all" || n.type === activeTab
@@ -266,6 +299,7 @@ export default function Notifications() {
     refetchFees();
     refetchHomework();
     refetchLeaves();
+    void platformAnnouncementsQuery.refetch();
   };
 
   const tabs = [
@@ -274,6 +308,7 @@ export default function Notifications() {
     { key: "payment" as const, label: "Payments", icon: IndianRupee, activeBg: "bg-green-600 text-white", color: "text-green-600" },
     { key: "homework" as const, label: "Homework", icon: BookOpen, activeBg: "bg-blue-600 text-white", color: "text-blue-600" },
     { key: "leave" as const, label: "Leaves", icon: CalendarX, activeBg: "bg-orange-500 text-white", color: "text-orange-600" },
+    { key: "announcement" as const, label: "Announcements", icon: Megaphone, activeBg: "bg-amber-500 text-white", color: "text-amber-600" },
   ];
 
   return (
@@ -388,6 +423,11 @@ export default function Notifications() {
                   Icon = CalendarX;
                   iconColor = "text-orange-500";
                   iconBg = "bg-orange-50 border-orange-100";
+                }
+                if (notif.type === "announcement") {
+                  Icon = Megaphone;
+                  iconColor = "text-amber-600";
+                  iconBg = "bg-amber-50 border-amber-100";
                 }
 
                 return (

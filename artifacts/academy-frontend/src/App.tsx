@@ -3,7 +3,9 @@ import {
   Route,
   Router as WouterRouter,
   Redirect,
+  useLocation,
 } from "wouter";
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -34,6 +36,9 @@ import StudentDashboard from "@/pages/student-dashboard";
 import TeacherDashboard from "@/pages/teacher-dashboard";
 import AccountantDashboard from "@/pages/accountant-dashboard";
 import SuperAdminDashboard from "@/pages/super-admin-dashboard";
+import { SuperAdminForgotPassword, SuperAdminLogin, SuperAdminResetPassword } from "@/pages/super-admin-auth";
+import { SuperAdminLoginHistory, SuperAdminSecurityHome, SuperAdminSessions } from "@/pages/super-admin-security";
+import { InstituteAdminResetPassword, SuperAdminInstituteCreate, SuperAdminInstituteDetail, SuperAdminInstituteList } from "@/pages/super-admin-institutes";
 
 import DailyExpense from "@/pages/daily-expense";
 import StudentFeeManagement from "@/pages/student-fee-management";
@@ -56,19 +61,22 @@ function ProtectedRoute({
   component: Component,
   roles,
   withLayout = true,
+  platformOnly = false,
 }: {
   component: React.ComponentType<any>;
   roles?: string[];
   withLayout?: boolean;
+  platformOnly?: boolean;
 }) {
   const token = localStorage.getItem("coach_sutra_token");
   const role = getStoredRole();
 
   if (!token) {
-    return <Redirect to="/login" />;
+    return <Redirect to={platformOnly ? "/super-admin/login" : "/login"} />;
   }
 
   if (roles?.length && (!role || !roles.includes(role))) {
+    if (platformOnly) return <Redirect to="/super-admin/login" />;
     return <Redirect to={routeByRole(role)} />;
   }
 
@@ -83,10 +91,82 @@ function ProtectedRoute({
   );
 }
 
+function SessionKeeper() {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    let active = true;
+    let request: Promise<void> | null = null;
+    let lastSuccessfulRefresh = 0;
+    let collisionRetries = 0;
+    let collisionRetryTimer: number | undefined;
+
+    const refresh = (force = false): Promise<void> => {
+      if (request) return request;
+      if (!localStorage.getItem("coach_sutra_token")) return Promise.resolve();
+      if (!force && Date.now() - lastSuccessfulRefresh < 8 * 60 * 1000) return Promise.resolve();
+      request = (async () => {
+        try {
+          const response = await fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" });
+          if (response.ok) {
+            const body = await response.json() as { token?: string };
+            if (active && typeof body.token === "string" && body.token.length > 0) {
+              localStorage.setItem("coach_sutra_token", body.token);
+              lastSuccessfulRefresh = Date.now();
+              collisionRetries = 0;
+            }
+            return;
+          }
+          if (response.status === 409 && active && collisionRetries < 2) {
+            collisionRetries += 1;
+            collisionRetryTimer = window.setTimeout(() => void refresh(true), 500);
+            return;
+          }
+          if (response.status === 401 && active) {
+            const role = localStorage.getItem("coach_sutra_user_role");
+            localStorage.removeItem("coach_sutra_token");
+            localStorage.removeItem("coach_sutra_user_role");
+            window.dispatchEvent(new Event("storage"));
+            setLocation(["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"].includes(role ?? "") ? "/super-admin/login" : "/login");
+          }
+        } catch {
+          // Preserve the current access token during a transient network failure.
+        } finally {
+          request = null;
+        }
+      })();
+      return request;
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    const onStorage = () => void refresh(true);
+    const timer = window.setInterval(() => void refresh(true), 10 * 60 * 1000);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("storage", onStorage);
+    void refresh();
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      if (collisionRetryTimer !== undefined) window.clearTimeout(collisionRetryTimer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [setLocation]);
+
+  return null;
+}
+
 function Router() {
   return (
     <Switch>
       {/* Public */}
+      <Route path="/super-admin/login" component={SuperAdminLogin} />
+      <Route path="/super-admin/forgot-password" component={SuperAdminForgotPassword} />
+      <Route path="/super-admin/reset-password" component={SuperAdminResetPassword} />
+      <Route path="/institute-admin/reset-password" component={InstituteAdminResetPassword} />
       <Route path="/login" component={Login} />
       <Route path="/signup" component={Signup} />
       <Route path="/profile">
@@ -118,11 +198,29 @@ function Router() {
         />
       </Route>
 
+      <Route path="/super-admin/security">
+        <ProtectedRoute component={SuperAdminSecurityHome} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} platformOnly />
+      </Route>
+      <Route path="/super-admin/sessions">
+        <ProtectedRoute component={SuperAdminSessions} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} platformOnly />
+      </Route>
+      <Route path="/super-admin/login-history">
+        <ProtectedRoute component={SuperAdminLoginHistory} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} platformOnly />
+      </Route>
+      <Route path="/super-admin/institutes/new">
+        <ProtectedRoute component={SuperAdminInstituteCreate} roles={["super_admin", "platform_admin"]} withLayout={false} platformOnly />
+      </Route>
+      <Route path="/super-admin/institutes/:id">
+        <ProtectedRoute component={SuperAdminInstituteDetail} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} platformOnly />
+      </Route>
+      <Route path="/super-admin/institutes">
+        <ProtectedRoute component={SuperAdminInstituteList} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} platformOnly />
+      </Route>
       <Route path="/super-admin">
-        <ProtectedRoute component={SuperAdminDashboard} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} />
+        <ProtectedRoute component={SuperAdminDashboard} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} platformOnly />
       </Route>
       <Route path="/super-admin/:section">
-        <ProtectedRoute component={SuperAdminDashboard} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} />
+        <ProtectedRoute component={SuperAdminDashboard} roles={["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"]} withLayout={false} platformOnly />
       </Route>
       <Route path="/super-admin-dashboard">
         <Redirect to="/super-admin" />
@@ -331,6 +429,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+          <SessionKeeper />
           <Router />
         </WouterRouter>
         <Toaster />

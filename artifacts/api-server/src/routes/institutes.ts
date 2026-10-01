@@ -90,8 +90,16 @@ authenticate,
 authorizePlatform("platform.institutes.update"),
 async (req, res): Promise<void> => {
 const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+const allowed = ["instituteName", "legalName", "instituteType", "ownerName", "email", "phone", "address", "city", "state", "country", "pincode", "logoDataUrl", "website", "domain", "academicYear"];
+const update = Object.fromEntries(Object.entries(req.body as Record<string, unknown>).filter(([key]) => allowed.includes(key)));
+if (!Object.keys(update).length) {
+  res.status(400).json({ error: "No supported institute profile fields were provided" });
+  return;
+}
+if (typeof update.email === "string") update.email = update.email.trim().toLowerCase();
+if (typeof update.domain === "string") update.domain = update.domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "") || undefined;
 
-const institute = await Institute.findByIdAndUpdate(id, req.body, {
+const institute = await Institute.findByIdAndUpdate(id, update, {
   new: true,
   runValidators: true,
 });
@@ -103,7 +111,7 @@ if (!institute) {
   return;
 }
 
-await recordPlatformAudit(req, "platform.institute.update", "institute", id, { changedFields: Object.keys(req.body ?? {}) });
+await recordPlatformAudit(req, "platform.institute.profile.update", "institute", id, { changedFields: Object.keys(update) });
 
 res.json(formatInstitute(institute));
 
@@ -117,7 +125,7 @@ authorizePlatform("platform.institutes.delete"),
 async (req, res): Promise<void> => {
 const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
-const institute = await Institute.findByIdAndDelete(id);
+const institute = await Institute.findByIdAndUpdate(id, { status: "archived", archivedAt: new Date() }, { new: true, runValidators: true });
 
 if (!institute) {
   res.status(404).json({
@@ -126,7 +134,7 @@ if (!institute) {
   return;
 }
 
-await recordPlatformAudit(req, "platform.institute.delete", "institute", id, { instituteName: institute.instituteName });
+await recordPlatformAudit(req, "platform.institute.archive", "institute", id, { instituteName: institute.instituteName });
 
 res.sendStatus(204);
 

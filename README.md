@@ -194,6 +194,10 @@ SUPER_ADMIN_NAME=Platform Administrator
 
 The API requires a JWT secret of at least 32 characters. To create the first platform account, configure the three `SUPER_ADMIN_*` values and run `pnpm --filter @workspace/api-server create-super-admin`. The command never prints or resets an existing account's password.
 
+Platform operators sign in at `/super-admin/login`; institute users continue to use `/login`. Access tokens are short-lived and the API rotates opaque refresh tokens in an HTTP-only cookie. For platform password recovery, configure `PUBLIC_APP_URL`, `AUTH_ENCRYPTION_KEY`, `AUTH_EMAIL_PROVIDER_URL`, `AUTH_EMAIL_PROVIDER_TOKEN`, and `AUTH_EMAIL_FROM`. The configured email endpoint must accept an authenticated JSON `POST` with `from`, `to`, `subject`, `text`, and `html` fields. Reset mail is queued and retried by the API worker; recovery returns an explicit service-unavailable error until delivery is configured. Use a different random value for the access-token key, throttle pepper, and email encryption key in production, and keep them outside source control.
+
+When deploying behind a trusted reverse proxy, set `TRUST_PROXY_HOPS` to its exact hop count so login and audit IP fields use the client address. Configure the proxy to overwrite or normalize forwarded headers before enabling this setting.
+
 For the frontend, create a `.env` file inside the frontend folder:
 
 ```env

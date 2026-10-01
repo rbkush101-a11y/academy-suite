@@ -29,7 +29,7 @@ export function useAuth() {
   const logout = () => {
     const currentToken = localStorage.getItem("coach_sutra_token");
     if (currentToken) {
-      void fetch("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${currentToken}` } }).catch(() => {});
+      void fetch("/api/auth/logout", { method: "POST", credentials: "same-origin", headers: { Authorization: `Bearer ${currentToken}` } }).catch(() => {});
     }
     localStorage.removeItem("coach_sutra_token");
     localStorage.removeItem("coach_sutra_user_role");

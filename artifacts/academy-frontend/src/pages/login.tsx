@@ -4,6 +4,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useLogin } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -135,6 +136,7 @@ export default function Login() {
           </Form>
         </CardContent>
       </Card>
+      <Link href="/super-admin/login" className="mt-5 text-sm font-medium text-primary hover:underline">Platform administrator sign in</Link>
     </div>
   );
 }
