@@ -450,11 +450,20 @@ export default function Students({ preview = false }: { preview?: boolean }) {
 
     // 🟢 Dashboard se "Add Student" pr click krne pr form apne aap open ho jaega
   useEffect(() => {
-  const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(window.location.search);
     if (params.get("admit") === "true") {
-      setEditingStudent(null); // old data clear
-      setForm(blankForm);      // form ko khali kare
-      setFormPageOpen(true);   // "Admit Student" form open kare
+      setEditingStudent(null);
+      setForm({
+        ...blankForm,
+        name: params.get("leadName") ?? "",
+        phone: params.get("leadPhone") ?? "",
+        email: params.get("leadEmail") ?? "",
+        fatherName: params.get("parentName") ?? "",
+        fatherPhone: params.get("leadPhone") ?? "",
+        className: params.get("className") ?? "",
+        board: params.get("board") ?? "",
+      });
+      setFormPageOpen(true);
     }
   }, [location]);
 
@@ -984,6 +993,11 @@ export default function Students({ preview = false }: { preview?: boolean }) {
     if (!student.createdAt) return false;
     return Math.ceil(Math.abs(new Date().getTime() - new Date(student.createdAt).getTime()) / (1000 * 60 * 60 * 24)) <= 30;
   }).length;
+
+  const studentsWithDue = baseStudents.filter((student: any) => getStudentFeeInfo(student).due > 0).length;
+  const totalOutstanding = baseStudents.reduce((sum: number, student: any) => sum + getStudentFeeInfo(student).due, 0);
+  const activeRate = totalStudents > 0 ? Math.round((activeStudents / totalStudents) * 100) : 0;
+  const batchesInUse = new Set(baseStudents.map((student: any) => student.batchId).filter(Boolean)).size;
 
   const filled = (s: keyof StudentForm) => String(form[s] ?? "").trim().length > 0;
   const section1Filled = filled("name") && filled("dateOfBirth") && filled("gender") && filled("schoolName") && form.courseId !== "" && form.batchId !== "";
@@ -1785,237 +1799,284 @@ export default function Students({ preview = false }: { preview?: boolean }) {
   return (
     <div className="space-y-6">
       
-      {/* Header & Actions */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-800 tracking-tight">{pageTitle}</h1>
-          <p className="text-sm text-slate-600 mt-1">Manage all enrolled students across batches</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" className="bg-white hover:bg-slate-50 border-slate-200 text-slate-700 shadow-sm h-9 px-3" onClick={() => setBulkUpdateDialogOpen(true)}>
-            <Edit className="mr-1.5 h-4 w-4" /> Bulk Update
-          </Button>
-          <Button variant="outline" className="bg-white hover:bg-slate-50 border-slate-200 text-slate-700 shadow-sm h-9 px-3" onClick={() => setImportDialogOpen(true)}>
-            <UploadCloud className="mr-1.5 h-4 w-4" /> Import
-          </Button>
-          <Button variant="outline" className="bg-white hover:bg-slate-50 border-slate-200 text-slate-700 shadow-sm h-9 px-3" onClick={handleExport}>
-            <Download className="mr-1.5 h-4 w-4" /> Export
-          </Button>
-          <Button onClick={openAdd} className="bg-[#4d7c0f] hover:bg-[#3f660c] text-white shadow-sm font-medium h-9 px-4">
-            <UserPlus className="mr-1.5 h-4 w-4" /> Admit Student
-          </Button>
-        </div>
-      </div>
+      {/* Premium student operations header */}
+      <section className="relative overflow-hidden rounded-[28px] border border-slate-200/70 bg-slate-950 px-5 py-6 text-white shadow-[0_22px_70px_-38px_rgba(15,23,42,0.65)] sm:px-7 lg:px-8">
+        <div className="absolute -right-24 -top-28 h-72 w-72 rounded-full bg-cyan-400/15 blur-3xl" />
+        <div className="absolute -bottom-24 right-48 h-60 w-60 rounded-full bg-indigo-500/20 blur-3xl" />
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 lg:gap-4">
-        <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white overflow-hidden">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="bg-slate-100 p-2.5 rounded-xl"><Users className="text-slate-600 h-5 w-5" /></div>
-            <div><p className="text-2xl font-bold text-slate-800">{totalStudents}</p><p className="text-[10px] font-bold text-slate-500 tracking-wider">TOTAL</p></div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white overflow-hidden">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="bg-green-100 p-2.5 rounded-xl"><UserCheck className="text-green-600 h-5 w-5" /></div>
-            <div><p className="text-2xl font-bold text-green-600">{activeStudents}</p><p className="text-[10px] font-bold text-slate-800 tracking-wider uppercase">ACTIVE</p></div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white overflow-hidden">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="bg-slate-100 p-2.5 rounded-xl"><UserMinus className="text-slate-500 h-5 w-5" /></div>
-            <div><p className="text-2xl font-bold text-slate-800">{droppedStudents}</p><p className="text-[10px] font-bold text-slate-800 tracking-wider uppercase">DROPPED</p></div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white overflow-hidden">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="bg-blue-50 p-2.5 rounded-xl"><UserPlus className="text-blue-500 h-5 w-5" /></div>
-            <div><p className="text-2xl font-bold text-blue-500">{newStudents}</p><p className="text-[10px] font-bold text-slate-800 tracking-wider uppercase">NEW (MONTH)</p></div>
-          </CardContent>
-        </Card>
-      </div>
+        <div className="relative grid gap-6 xl:grid-cols-[1fr_auto] xl:items-end">
+          <div>
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-200">
+              <GraduationCap className="h-3.5 w-3.5" />
+              Student Operations
+            </div>
+            <h1 className="text-3xl font-black tracking-tight sm:text-4xl">{pageTitle}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+              Admissions, student records, fee health and academic assignment — manage the complete student lifecycle from one workspace.
+            </p>
 
-      {/* Filter Bar with View Toggle */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-2 flex flex-col md:flex-row items-stretch md:items-center gap-2">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <Input 
-            autoComplete="off"
-            name="student_search_filter_box"
-            className="w-full pl-9 border-slate-200 h-10 shadow-none focus-visible:ring-1 focus-visible:ring-slate-300 rounded-xl"
-            placeholder="Search name, email, Student ID" value={search} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="hidden md:block w-px h-6 bg-slate-200 mx-1"></div>
-        <div className="grid grid-cols-2 md:flex items-center gap-2">
-          <SearchableFilterDropdown value={batchFilter} onChange={setBatchFilter} options={batchOptions} placeholder="All Batches" className="md:w-[180px]" />
-          <SearchableFilterDropdown value={statusFilter} onChange={setStatusFilter} options={statusOptions} placeholder="All Status" className="md:w-[140px]" />
-          <SearchableFilterDropdown value={sortBy} onChange={setSortBy} options={sortOptions} placeholder="Sort By" className="md:w-[180px]" />
-        </div>
-        
-        <div className="flex items-center justify-between gap-2 mt-2 md:mt-0">
-          <Button variant="outline" onClick={handleClearFilters} className="border-slate-200 text-slate-600 hover:bg-slate-50 flex-1 md:flex-none h-10 rounded-xl shadow-sm">
-            Clear
-          </Button>
-          
-          <div className="hidden md:flex items-center h-10 rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            <button onClick={() => setViewMode("grid")} title="Grid View" className={`flex items-center justify-center h-full w-11 transition-colors ${viewMode === "grid" ? "bg-[#4d7c0f] text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
-              <LayoutGrid className="h-4 w-4" />
-            </button>
-            <div className="h-full w-px bg-slate-200"></div>
-            <button onClick={() => setViewMode("list")} title="List View" className={`flex items-center justify-center h-full w-11 transition-colors border-l border-slate-200 ${viewMode === "list" ? "bg-[#4d7c0f] text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
-              <List className="h-4 w-4" />
-            </button>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200">{totalStudents} total students</span>
+              <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-200">{activeStudents} active</span>
+              <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-200">{studentsWithDue} with fee dues</span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 xl:justify-end">
+            <Button variant="outline" className="h-10 border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={() => setImportDialogOpen(true)}>
+              <UploadCloud className="mr-2 h-4 w-4" /> Import
+            </Button>
+            <Button variant="outline" className="h-10 border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={handleExport}>
+              <Download className="mr-2 h-4 w-4" /> Export
+            </Button>
+            <Button onClick={openAdd} className="h-10 bg-white px-4 font-bold text-slate-950 shadow-sm hover:bg-cyan-50">
+              <UserPlus className="mr-2 h-4 w-4" /> Admit Student
+            </Button>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Main Student List Section */}
-      <Card className="border-none shadow-none bg-transparent">
-        <CardContent className="px-0">
-          
-          {/* Grid / Card View */}
-          <div className={`space-y-3 ${viewMode === "grid" ? "md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-4 md:space-y-0" : "md:hidden"}`}>
+      {/* Student health KPIs */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50"><UserCheck className="h-5 w-5 text-emerald-600" /></div>
+              <span className="text-xs font-bold text-emerald-600">{activeRate}% active</span>
+            </div>
+            <p className="mt-4 text-2xl font-black text-slate-950">{activeStudents}</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">Active student records</p>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50"><UserPlus className="h-5 w-5 text-blue-600" /></div>
+              <span className="text-xs font-bold text-slate-400">Last 30 days</span>
+            </div>
+            <p className="mt-4 text-2xl font-black text-slate-950">{newStudents}</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">New admissions</p>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50"><Wallet className="h-5 w-5 text-amber-600" /></div>
+              <span className="text-xs font-bold text-amber-600">{studentsWithDue} accounts</span>
+            </div>
+            <p className="mt-4 text-2xl font-black text-slate-950">₹{totalOutstanding.toLocaleString("en-IN")}</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">Outstanding student fees</p>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50"><ClipboardList className="h-5 w-5 text-violet-600" /></div>
+              <span className="text-xs font-bold text-slate-400">{droppedStudents} inactive</span>
+            </div>
+            <p className="mt-4 text-2xl font-black text-slate-950">{batchesInUse}</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">Batches with enrolled students</p>
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* Directory workspace */}
+      <section className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-4 py-4 sm:px-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-black text-slate-950">Student Directory</h2>
+                <Badge variant="secondary" className="rounded-full bg-slate-100 text-slate-600 shadow-none">{classWiseStudents.length}</Badge>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">Search, filter and take action without leaving the directory.</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" className="h-9 rounded-xl border-slate-200 bg-white text-slate-700" onClick={() => setBulkUpdateDialogOpen(true)}>
+                <Edit className="mr-1.5 h-4 w-4" /> Bulk Update
+              </Button>
+              <div className="flex h-9 items-center overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <button onClick={() => setViewMode("list")} title="List View" className={`flex h-full w-10 items-center justify-center transition-colors ${viewMode === "list" ? "bg-slate-950 text-white" : "text-slate-500 hover:bg-slate-50"}`}>
+                  <List className="h-4 w-4" />
+                </button>
+                <button onClick={() => setViewMode("grid")} title="Grid View" className={`flex h-full w-10 items-center justify-center border-l border-slate-200 transition-colors ${viewMode === "grid" ? "bg-slate-950 text-white" : "text-slate-500 hover:bg-slate-50"}`}>
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-2 lg:grid-cols-[minmax(260px,1fr)_200px_155px_190px_auto]">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                autoComplete="off"
+                name="student_search_filter_box"
+                className="h-10 rounded-xl border-slate-200 bg-slate-50/70 pl-9 shadow-none focus-visible:bg-white focus-visible:ring-slate-300"
+                placeholder="Search name, phone, email or student ID"
+                value={search}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+              />
+            </div>
+            <SearchableFilterDropdown value={batchFilter} onChange={setBatchFilter} options={batchOptions} placeholder="All Batches" />
+            <SearchableFilterDropdown value={statusFilter} onChange={setStatusFilter} options={statusOptions} placeholder="All Status" />
+            <SearchableFilterDropdown value={sortBy} onChange={setSortBy} options={sortOptions} placeholder="Sort By" />
+            <Button variant="ghost" onClick={handleClearFilters} className="h-10 rounded-xl px-3 text-slate-500 hover:bg-slate-100 hover:text-slate-800">
+              <RefreshCw className="mr-1.5 h-4 w-4" /> Reset
+            </Button>
+          </div>
+
+          {(search || batchFilter !== "all" || statusFilter !== "all") && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <FilterIcon className="h-3.5 w-3.5" />
+              <span className="font-semibold">Showing {classWiseStudents.length} of {totalStudents} students</span>
+              {search && <span className="rounded-full bg-slate-100 px-2 py-1">Search: {search}</span>}
+              {batchFilter !== "all" && <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">Batch filter active</span>}
+              {statusFilter !== "all" && <span className="rounded-full bg-violet-50 px-2 py-1 text-violet-700">Status: {statusFilter}</span>}
+            </div>
+          )}
+        </div>
+
+        <div className="p-3 sm:p-4">
+          {/* Grid / mobile card view */}
+          <div className={`${viewMode === "grid" ? "grid gap-3 md:grid-cols-2 2xl:grid-cols-3" : "space-y-3 md:hidden"}`}>
             {isLoading ? (
-              <div className="col-span-full rounded-lg border bg-white p-4 text-center text-sm text-muted-foreground">Loading students...</div>
+              <div className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center text-sm text-slate-500">Loading students...</div>
             ) : classWiseStudents.length === 0 ? (
-              <div className="col-span-full rounded-lg border bg-white p-4 text-center text-sm text-muted-foreground">No students found</div>
+              <div className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center">
+                <Users className="mx-auto h-8 w-8 text-slate-300" />
+                <p className="mt-3 font-bold text-slate-700">No students found</p>
+                <p className="mt-1 text-xs text-slate-500">Try clearing filters or admit a new student.</p>
+              </div>
             ) : (
-              classWiseStudents.map((student: any, index: number) => {
+              classWiseStudents.map((student: any) => {
                 const feeInfo = getStudentFeeInfo(student);
-
                 return (
-                  <div key={student.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm relative flex flex-col justify-between">
+                  <article key={student.id} className="group rounded-2xl border border-slate-200 bg-white p-4 transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg hover:shadow-slate-200/50">
                     <div className="flex items-start gap-3">
                       {student.photoDataUrl ? (
-                        <img src={student.photoDataUrl} alt={student.name} className="h-14 w-14 shrink-0 rounded-lg border object-cover" />
+                        <img src={student.photoDataUrl} alt={student.name} className="h-14 w-14 shrink-0 rounded-2xl border border-slate-200 object-cover" />
                       ) : (
-                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border bg-muted"><UserRound className="h-5 w-5 text-muted-foreground" /></div>
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-100"><UserRound className="h-6 w-6 text-slate-400" /></div>
                       )}
                       <div className="min-w-0 flex-1">
-                        <div className="truncate font-semibold"><span className="text-slate-400 mr-1.5 font-normal">#{index + 1}</span>{student.name}</div>
-                        <div className="mt-0.5 text-xs text-muted-foreground">{student.enrollmentNo || "-"} • {student.phone || "-"}</div>
-                        <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
-                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">{student.className || "No Class"}</span>
-                          <span className="rounded-full bg-purple-50 px-2 py-0.5 text-purple-700">{student.board || "No Board"}</span>
-                          {feeInfo.isNoDue ? (
-                            <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-emerald-700 font-bold flex items-center gap-1"><Check className="h-3 w-3" /> No Due</span>
-                          ) : (
-                            <span className={`rounded-full px-2 py-0.5 font-bold border ${feeInfo.paid > 0 ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-red-50 border-red-200 text-red-600"}`}>{feeInfo.statusText}</span>
-                          )}
-                          <span className={`rounded-full px-2 py-0.5 ${student.status === "inactive" ? "bg-slate-100 text-slate-600" : "bg-green-50 text-green-700"}`}>
-                            {student.status === "inactive" ? "Inactive" : "Active"}
-                          </span>
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h3 className="truncate font-black text-slate-900">{student.name}</h3>
+                            <p className="mt-0.5 text-xs font-medium text-slate-500">{student.enrollmentNo || "Student ID pending"}</p>
+                          </div>
+                          <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wide ${student.status === "inactive" ? "bg-slate-100 text-slate-500" : "bg-emerald-50 text-emerald-700"}`}>{student.status === "inactive" ? "Inactive" : "Active"}</span>
                         </div>
-                        <div className="mt-2 text-xs text-muted-foreground"><div>Course: {student.courseName || "-"}</div><div>Batch: {student.batchName || "-"}</div></div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                          <div className="rounded-xl bg-slate-50 p-2.5"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Class</p><p className="mt-1 font-bold text-slate-700">{student.className || "—"} {student.section ? `· ${student.section}` : ""}</p></div>
+                          <div className="rounded-xl bg-slate-50 p-2.5"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Batch</p><p className="mt-1 truncate font-bold text-slate-700">{student.batchName || "Not assigned"}</p></div>
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Fee status</p>
+                            <p className={`mt-1 text-xs font-black ${feeInfo.isNoDue ? "text-emerald-600" : "text-amber-600"}`}>{feeInfo.statusText}</p>
+                          </div>
+                          <p className="truncate text-xs font-medium text-slate-500">{student.phone || student.email || "No contact"}</p>
+                        </div>
                       </div>
                     </div>
-                    <div className="mt-4 grid grid-cols-4 gap-2">
-                      <Button type="button" size="sm" variant="outline" className="h-9 text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={() => { setViewingStudent(student); setProfileTab("attendance"); }}><Eye className="mr-1 h-3.5 w-3.5" /> View</Button>
-                      <Button type="button" size="sm" variant="outline" className="h-9 text-xs bg-white" onClick={() => downloadAdmissionForm(student)}><Download className="mr-1 h-3.5 w-3.5" /> Form</Button>
-                      <Button type="button" size="sm" variant="outline" className="h-9 text-xs bg-white" onClick={() => openEdit(student)}><Pencil className="mr-1 h-3.5 w-3.5" /> Edit</Button>
-                      <Button type="button" size="sm" variant="destructive" className="h-9 text-xs" onClick={() => handleDelete(student)}><Trash2 className="mr-1 h-3.5 w-3.5" /> Delete</Button>
+
+                    <div className="mt-4 grid grid-cols-3 gap-2">
+                      <Button type="button" size="sm" variant="outline" className="h-9 rounded-xl border-slate-200 text-xs font-bold" onClick={() => { setViewingStudent(student); setProfileTab("info"); }}><Eye className="mr-1.5 h-3.5 w-3.5" /> Profile</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-9 rounded-xl border-slate-200 text-xs font-bold" onClick={() => openEdit(student)}><Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-9 rounded-xl border-slate-200 text-xs font-bold" onClick={() => downloadAdmissionForm(student)}><Download className="mr-1.5 h-3.5 w-3.5" /> Form</Button>
                     </div>
-                  </div>
-                )
+                  </article>
+                );
               })
             )}
           </div>
 
-          {/* Desktop Table View */}
+          {/* Desktop data table */}
           {viewMode === "list" && (
-            <div className="hidden rounded-xl border border-slate-200 bg-white md:block overflow-hidden shadow-sm">
+            <div className="hidden overflow-hidden rounded-2xl border border-slate-200 md:block">
               <Table>
-                <TableHeader className="bg-slate-50">
-                  <TableRow>
-                    <TableHead className="w-[60px] font-semibold text-slate-700 text-center">S.No.</TableHead>
-                    <TableHead className="font-semibold text-slate-700">Student</TableHead>
-                    <TableHead className="font-semibold text-slate-700">Student ID</TableHead>
-                    <TableHead className="font-semibold text-slate-700">Class / Board</TableHead>
-                    <TableHead className="font-semibold text-slate-700">Course / Batch</TableHead>
-                    <TableHead className="font-semibold text-slate-700">Fees</TableHead>
-                    <TableHead className="font-semibold text-slate-700">Status</TableHead>
-                    <TableHead className="text-right font-semibold text-slate-700">Actions</TableHead>
+                <TableHeader className="bg-slate-50/90">
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-[68px] pl-5 text-[11px] font-black uppercase tracking-wider text-slate-500">#</TableHead>
+                    <TableHead className="text-[11px] font-black uppercase tracking-wider text-slate-500">Student</TableHead>
+                    <TableHead className="text-[11px] font-black uppercase tracking-wider text-slate-500">Academic</TableHead>
+                    <TableHead className="text-[11px] font-black uppercase tracking-wider text-slate-500">Course / Batch</TableHead>
+                    <TableHead className="text-[11px] font-black uppercase tracking-wider text-slate-500">Fee Health</TableHead>
+                    <TableHead className="text-[11px] font-black uppercase tracking-wider text-slate-500">Status</TableHead>
+                    <TableHead className="pr-5 text-right text-[11px] font-black uppercase tracking-wider text-slate-500">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
-                    <TableRow><TableCell colSpan={8} className="py-10 text-center">Loading students...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="py-12 text-center text-sm text-slate-500">Loading students...</TableCell></TableRow>
                   ) : classWiseStudents.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">No students found</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="py-14 text-center"><Users className="mx-auto h-7 w-7 text-slate-300" /><p className="mt-2 font-semibold text-slate-600">No students match these filters.</p></TableCell></TableRow>
                   ) : (
                     classWiseStudents.map((student: any, index: number) => {
                       const feeInfo = getStudentFeeInfo(student);
-
                       return (
-                        <TableRow key={student.id}>
-                          <TableCell className="font-medium text-slate-500 text-center">{index + 1}</TableCell>
+                        <TableRow key={student.id} className="group border-slate-100 hover:bg-slate-50/70">
+                          <TableCell className="pl-5 font-bold text-slate-400">{index + 1}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-3">
                               {student.photoDataUrl ? (
-                                <img src={student.photoDataUrl} alt={student.name} className="h-10 w-10 shrink-0 rounded-full border object-cover" />
+                                <img src={student.photoDataUrl} alt={student.name} className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 object-cover" />
                               ) : (
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-slate-100">
-                                  <UserRound className="h-5 w-5 text-slate-400" />
-                                </div>
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100"><UserRound className="h-5 w-5 text-slate-400" /></div>
                               )}
-                              <div>
-                                <div className="font-medium text-slate-900">{student.name}</div>
-                                <div className="text-xs text-slate-500">{student.phone}</div>
+                              <div className="min-w-0">
+                                <button type="button" onClick={() => { setViewingStudent(student); setProfileTab("info"); }} className="block max-w-[220px] truncate text-left text-sm font-black text-slate-900 hover:text-blue-700">{student.name}</button>
+                                <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500"><span>{student.enrollmentNo || "No ID"}</span><span>·</span><span className="max-w-[120px] truncate">{student.phone || student.email || "No contact"}</span></div>
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell className="text-slate-600 font-medium">{student.enrollmentNo || "-"}</TableCell>
                           <TableCell>
-                            <div className="text-slate-700 font-medium">{student.className || "-"}</div>
-                            <div className="text-xs text-slate-500">{student.board || "-"}</div>
+                            <p className="text-sm font-bold text-slate-700">{student.className || "—"}{student.section ? ` · ${student.section}` : ""}</p>
+                            <p className="mt-0.5 text-[11px] text-slate-500">{student.board || "Board not set"}</p>
                           </TableCell>
                           <TableCell>
-                            <div className="text-slate-700">{student.courseName || "-"}</div>
-                            <div className="text-xs text-slate-500">{student.batchName || "-"}</div>
+                            <p className="max-w-[180px] truncate text-sm font-semibold text-slate-700">{student.courseName || "Course not assigned"}</p>
+                            <p className="mt-0.5 max-w-[180px] truncate text-[11px] text-slate-500">{student.batchName || "Batch not assigned"}</p>
                           </TableCell>
                           <TableCell>
-                            {feeInfo.isNoDue ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-bold text-emerald-700 shadow-sm"><Check className="h-3 w-3" /> No Due</span>
-                            ) : (
-                              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold border shadow-sm ${feeInfo.paid > 0 ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-red-50 border-red-200 text-red-600"}`}>{feeInfo.statusText}</span>
-                            )}
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${feeInfo.isNoDue ? "bg-emerald-50 text-emerald-700" : feeInfo.paid > 0 ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"}`}>
+                              {feeInfo.isNoDue ? "No due" : feeInfo.statusText}
+                            </span>
                           </TableCell>
                           <TableCell>
                             <Select value={student.status === "inactive" ? "inactive" : "active"} onValueChange={(value: "active" | "inactive") => updateStudentStatus(student, value)} disabled={updateStudent.isPending}>
-                              <SelectTrigger className="h-8 w-[100px] border border-slate-200 bg-white shadow-sm focus:ring-0 rounded-md">
-                                <SelectValue />
-                              </SelectTrigger>
+                              <SelectTrigger className="h-8 w-[104px] rounded-xl border-slate-200 bg-white text-xs font-bold shadow-none focus:ring-0"><SelectValue /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="active"><Badge variant="default" className="bg-green-100 text-green-700 hover:bg-green-200 shadow-none border-none">Active</Badge></SelectItem>
-                                <SelectItem value="inactive"><Badge variant="secondary" className="bg-slate-100 text-slate-600 shadow-none border-none">Inactive</Badge></SelectItem>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="inactive">Inactive</SelectItem>
                               </SelectContent>
                             </Select>
                           </TableCell>
-                          <TableCell className="text-right">
-                            <Button variant="ghost" size="icon" title="View Profile" className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-50" onClick={() => { setViewingStudent(student); setProfileTab("attendance"); }}>
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" title="Download Form" className="text-slate-400 hover:text-blue-600 hover:bg-blue-50" onClick={() => downloadAdmissionForm(student)}>
-                              <Download className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" title="Edit Student" className="text-slate-400 hover:text-orange-600 hover:bg-orange-50" onClick={() => openEdit(student)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-600 hover:bg-red-50" onClick={() => handleDelete(student)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                          <TableCell className="pr-5 text-right">
+                            <div className="flex items-center justify-end gap-1 opacity-80 transition-opacity group-hover:opacity-100">
+                              <Button variant="ghost" size="icon" title="View profile" className="h-8 w-8 rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-700" onClick={() => { setViewingStudent(student); setProfileTab("info"); }}><Eye className="h-4 w-4" /></Button>
+                              <Button variant="ghost" size="icon" title="Edit student" className="h-8 w-8 rounded-lg text-slate-500 hover:bg-amber-50 hover:text-amber-700" onClick={() => openEdit(student)}><Pencil className="h-4 w-4" /></Button>
+                              <Button variant="ghost" size="icon" title="Download form" className="h-8 w-8 rounded-lg text-slate-500 hover:bg-emerald-50 hover:text-emerald-700" onClick={() => downloadAdmissionForm(student)}><Download className="h-4 w-4" /></Button>
+                              <Button variant="ghost" size="icon" title="Delete student" className="h-8 w-8 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600" onClick={() => handleDelete(student)}><Trash2 className="h-4 w-4" /></Button>
+                            </div>
                           </TableCell>
                         </TableRow>
-                      )
+                      );
                     })
                   )}
                 </TableBody>
               </Table>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {/* ===================== ALL DIALOGS ===================== */}
 

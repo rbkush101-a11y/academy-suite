@@ -649,7 +649,7 @@ router.patch("/students/:id", authenticate, authorize("super_admin", "institute_
     }
 
     const oldBatchId = String(existingStudent.batchId);
-    const student = await Student.findOneAndUpdate(filter, updateData, { new: true, runValidators: true });
+    const student = await Student.findOneAndUpdate(filter, updateData, { returnDocument: "after", runValidators: true });
 
     if (!student) {
       res.status(404).json({ error: "Student not found" });

@@ -282,7 +282,7 @@ router.patch(
       }
 
       await Timetable.findByIdAndUpdate(id, updates, {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       });
 

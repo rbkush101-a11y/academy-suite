@@ -6,7 +6,7 @@ import { authenticate } from "../middlewares/auth";
 import { authorizePlatform, type PlatformRole } from "../lib/platform-rbac";
 import { recordPlatformAudit } from "../lib/foundation";
 import { encryptEmailPayload, hashValue, isAuthEmailDeliveryConfigured, securityEmailRetentionDate } from "../lib/auth-security";
-import { Institute, type InstituteStatus, type InstituteType } from "../models/Institute";
+import { Institute, isInstituteType, isEducationInstituteType, type InstituteStatus } from "../models/Institute";
 import { Branch } from "../models/Branch";
 import { Student } from "../models/Student";
 import { Staff } from "../models/Staff";
@@ -40,6 +40,7 @@ function formatInstitute(institute: any) {
     instituteName: institute.instituteName,
     legalName: institute.legalName ?? "",
     instituteType: institute.instituteType,
+    industryLabel: institute.industryLabel ?? "",
     ownerName: institute.ownerName,
     ownerEmail: institute.email,
     ownerPhone: institute.phone,
@@ -106,6 +107,11 @@ function filterDate(value: unknown, end = false): Date | undefined {
 function instituteListPipeline(req: Request) {
   const match: Record<string, unknown> = {};
   const search = text(req.query.search, 120);
+  const category = text(req.query.category, 40);
+  if (category && category !== "all") {
+    if (!isInstituteType(category)) throw new RangeError("Choose a valid business category.");
+    match.instituteType = category;
+  }
   const status = lowerStatus(req.query.status);
   const statusFilter = status && status !== "all" ? status : "";
   const createdFrom = filterDate(req.query.createdFrom);
@@ -121,7 +127,7 @@ function instituteListPipeline(req: Request) {
     match.$or = [
       { instituteName: expression }, { legalName: expression }, { ownerName: expression },
       { email: expression }, { phone: expression }, { domain: expression },
-      { city: expression }, { state: expression },
+      { city: expression }, { state: expression }, { industryLabel: expression },
     ];
   }
   if (createdFrom || createdTo) {
@@ -137,7 +143,7 @@ function instituteListPipeline(req: Request) {
   const limit = pageValue(req.query.limit, 20, 100);
   const sortKey = text(req.query.sort, 40);
   const sortField: Record<string, string> = {
-    instituteName: "instituteName", ownerName: "ownerName", status: "displayStatus", createdAt: "createdAt",
+    instituteName: "instituteName", instituteType: "instituteType", ownerName: "ownerName", status: "displayStatus", createdAt: "createdAt",
     branchCount: "branchCount", studentCount: "studentCount", lastActivity: "lastActivity",
     subscription: "currentSubscription.status", plan: "currentPlan.code",
   };
@@ -196,7 +202,7 @@ function instituteListPipeline(req: Request) {
       items: [
         { $skip: (page - 1) * limit }, { $limit: limit },
         { $project: {
-          _id: 1, instituteName: 1, legalName: 1, instituteType: 1, ownerName: 1, email: 1, phone: 1,
+          _id: 1, instituteName: 1, legalName: 1, instituteType: 1, industryLabel: 1, ownerName: 1, email: 1, phone: 1,
           city: 1, state: 1, country: 1, domain: 1, plan: 1, status: "$displayStatus", expiryDate: 1, createdAt: 1, updatedAt: 1,
           branchCount: 1, studentCount: 1, lastActivity: 1,
           subscription: { id: "$currentSubscription._id", status: "$currentSubscription.status", endsAt: "$currentSubscription.endsAt" },
@@ -282,8 +288,9 @@ router.post(ROOT, authenticate, authorizePlatform("platform.institutes.create"),
   const pincode = text(body.pincode, 24);
   const website = text(body.website, 240);
   const domain = text(body.domain, 180).toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const instituteType = text(body.instituteType, 40) as InstituteType;
-  const academicYear = text(body.academicYear, 30);
+  const instituteType = text(body.instituteType, 40);
+  const industryLabel = instituteType === "other" ? text(body.industryLabel, 120) : "";
+  const academicYear = isEducationInstituteType(instituteType) ? text(body.academicYear, 30) : "";
   const branchName = text(body.defaultBranchName ?? body.defaultBranch, 140);
   const branchCode = text(body.defaultBranchCode, 16).toUpperCase().replace(/[^A-Z0-9-]/g, "") || "MAIN";
   const logoDataUrl = text(body.logoDataUrl ?? body.logo, 2_500_000);
@@ -291,12 +298,15 @@ router.post(ROOT, authenticate, authorizePlatform("platform.institutes.create"),
   const trialDays = Number(body.trialDays ?? 0);
   const selectedStatus = lowerStatus(body.status || "pending");
   const billingCycle = text(body.billingCycle || "monthly", 16);
-  if (!instituteName || !ownerName || !isEmail(email) || !initialAdminName || !isEmail(initialAdminEmail) || !phone || !address || !city || !state || !country || !pincode || !academicYear || !branchName || !planId) {
-    res.status(400).json({ error: "Institute, owner, address, default branch, academic year, and subscription plan fields are required." });
+  if (!instituteName || !ownerName || !isEmail(email) || !initialAdminName || !isEmail(initialAdminEmail) || !phone || !address || !city || !state || !country || !pincode || !branchName || !planId) {
+    res.status(400).json({ error: "Business, owner, address, first location, and subscription plan fields are required." });
     return;
   }
-  if (!["school", "coaching", "computer_institute", "tuition_center", "academy"].includes(instituteType)) {
-    res.status(400).json({ error: "Choose a valid institute type." }); return;
+  if (!isInstituteType(instituteType)) {
+    res.status(400).json({ error: "Choose a valid business category." }); return;
+  }
+  if (isEducationInstituteType(instituteType) && !academicYear) {
+    res.status(400).json({ error: "Academic year is required for education businesses." }); return;
   }
   if (!objectId(planId) || !Number.isInteger(trialDays) || trialDays < 0 || trialDays > 365 || !["monthly", "yearly"].includes(billingCycle)) {
     res.status(400).json({ error: "Choose a valid plan, billing cycle, and trial duration from 0 to 365 days." }); return;
@@ -333,7 +343,7 @@ router.post(ROOT, authenticate, authorizePlatform("platform.institutes.create"),
   let createdAdmin: any;
   try {
     createdInstitute = await Institute.create({
-      instituteName, legalName, instituteType, ownerName, email, phone, address, city, state, country, pincode,
+      instituteName, legalName, instituteType, industryLabel, ownerName, email, phone, address, city, state, country, pincode,
       logoDataUrl, website, ...(domain ? { domain } : {}), academicYear, plan: plan.code, status: status as InstituteStatus, expiryDate,
       maxStudents: plan.maxStudents,
     });
@@ -346,7 +356,7 @@ router.post(ROOT, authenticate, authorizePlatform("platform.institutes.create"),
     const subscriptionStatus = trialDays > 0 ? "trialing" : "active";
     await Promise.all([
       Institute.updateOne({ _id: createdInstitute._id }, { $set: { defaultBranchId: createdBranch._id, initialAdminId: createdAdmin._id } }),
-      InstituteSettings.create({ instituteId: createdInstitute._id, values: { academicYear } }),
+      InstituteSettings.create({ instituteId: createdInstitute._id, values: academicYear ? { academicYear } : {} }),
       PlatformSubscription.create({
         instituteId: createdInstitute._id, planId: plan._id, status: subscriptionStatus, billingCycle: billingCycle as "monthly" | "yearly",
         startsAt: now, ...(expiryDate ? { endsAt: expiryDate } : {}),
@@ -455,12 +465,17 @@ router.patch(`${ROOT}/:id`, authenticate, authorizePlatform("platform.institutes
   const id = idOf(req);
   if (!objectId(id)) { res.status(400).json({ error: "Invalid institute id." }); return; }
   const body = req.body as Record<string, unknown>;
-  const allowed = ["instituteName", "legalName", "instituteType", "ownerName", "email", "phone", "address", "city", "state", "country", "pincode", "logoDataUrl", "website", "domain", "academicYear"];
+  const allowed = ["instituteName", "legalName", "instituteType", "industryLabel", "ownerName", "email", "phone", "address", "city", "state", "country", "pincode", "logoDataUrl", "website", "domain", "academicYear"];
   const update = Object.fromEntries(Object.entries(body).filter(([key]) => allowed.includes(key)));
   if (!Object.keys(update).length) { res.status(400).json({ error: "No supported profile fields were provided." }); return; }
+  if (update.instituteType !== undefined) {
+    if (!isInstituteType(update.instituteType)) { res.status(400).json({ error: "Choose a valid business category." }); return; }
+    if (update.instituteType !== "other") update.industryLabel = "";
+  }
+  if (update.industryLabel !== undefined) update.industryLabel = text(update.industryLabel, 120);
   if (typeof update.email === "string") update.email = update.email.trim().toLowerCase();
   if (typeof update.domain === "string") update.domain = update.domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "") || undefined;
-  const institute = await Institute.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+  const institute = await Institute.findByIdAndUpdate(id, update, { returnDocument: "after", runValidators: true });
   if (!institute) { res.status(404).json({ error: "Institute not found." }); return; }
   await recordPlatformAudit(req, "platform.institute.profile.update", "institute", id, { changedFields: Object.keys(update) });
   res.json(formatInstitute(institute));

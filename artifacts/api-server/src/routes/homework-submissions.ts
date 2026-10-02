@@ -116,7 +116,7 @@ router.post(
             gradedBy: undefined,
           },
         },
-        { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true }
+        { returnDocument: "after", upsert: true, setDefaultsOnInsert: true, runValidators: true }
       );
 
       res.status(201).json(await formatSubmission(submission));

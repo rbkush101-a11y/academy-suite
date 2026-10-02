@@ -1,5 +1,5 @@
 ﻿import { ReactNode, useState, useMemo, useEffect } from "react";
-import { Link, useLocation, Redirect } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, CalendarDays, BarChart3, Users, UserPlus, GraduationCap,
   BookOpen, Tag, Layers, FileQuestion, Clock, CheckSquare, Pencil,
@@ -12,48 +12,39 @@ import {
   Settings, Building2, Shield, Smartphone, Puzzle, Cpu, FileText, Rocket
 } from "lucide-react";
 import TopHeader from "./TopHeader";
-import { getStoredRole } from "@/hooks/use-auth";
+import { getStoredRole, routeByRole } from "@/hooks/use-auth";
 
 type NavItem = { label: string; icon: any; href: string; disabled?: boolean };
 type NavGroup = { title: string; items: NavItem[] };
 
-const navGroups: NavGroup[] = [
+const adminNavGroups: NavGroup[] = [
   {
     title: "OVERVIEW",
     items: [
       { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-      { label: "Lead CRM", icon: Filter, href: "/admissions" },
-      { label: "Online Admissions", icon: UserPlus, href: "/online-admissions" },
+      { label: "Reports & Analytics", icon: BarChart3, href: "/analytics" },
       { label: "Academic Years", icon: CalendarDays, href: "/academic-years" },
-      { label: "Reports", icon: BarChart3, href: "/analytics" },
     ],
   },
   {
-    title: "PEOPLE",
+    title: "ADMISSIONS & PEOPLE",
     items: [
+      { label: "Lead CRM", icon: Filter, href: "/admissions" },
+      { label: "Online Admissions", icon: UserPlus, href: "/online-admissions" },
       { label: "Students", icon: GraduationCap, href: "/students" },
       { label: "Staff", icon: Users, href: "/staff" },
     ],
   },
   {
-    title: "CURRICULUM",
+    title: "ACADEMICS",
     items: [
       { label: "Courses", icon: GraduationCap, href: "/courses" },
       { label: "Subjects", icon: BookOpen, href: "/subjects" },
       { label: "Topics", icon: Tag, href: "/topics" },
       { label: "Batches", icon: Layers, href: "/batches" },
-      { label: "PYQ Papers", icon: FileQuestion, href: "/pyq-papers", disabled: true },
-      { label: "Question Bank", icon: Package, href: "/question-bank", disabled: true },
-    ],
-  },
-  {
-    title: "ACADEMICS",
-    items: [
       { label: "Timetable", icon: Clock, href: "/timetable" },
       { label: "Attendance", icon: CheckSquare, href: "/attendance" },
       { label: "Homework", icon: Pencil, href: "/homework" },
-      { label: "Doubts", icon: MessageCircleQuestion, href: "/doubts", disabled: true },
-      { label: "Leave & Holidays", icon: CalendarX, href: "/leaves", disabled: true },
     ],
   },
   {
@@ -61,118 +52,71 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Online Exams", icon: Monitor, href: "/exams?type=online" },
       { label: "Offline Exams", icon: FileEdit, href: "/exams?type=offline" },
-      { label: "Test Series", icon: Layers, href: "/test-series", disabled: true },
       { label: "Report Cards", icon: FileSpreadsheet, href: "/report-card" },
-      { label: "Certificates", icon: Award, href: "/certificates", disabled: true },
-      { label: "ID Cards", icon: IdCard, href: "/id-cards", disabled: true },
-      { label: "Proctoring", icon: Video, href: "/proctoring", disabled: true },
     ],
   },
   {
-    title: "CONTENT & MEDIA",
-    items: [
-      { label: "Download Center", icon: Download, href: "/download-center", disabled: true },
-      { label: "Video Lectures", icon: Video, href: "/video-lectures", disabled: true },
-      { label: "Live Classes", icon: Radio, href: "/live-classes", disabled: true },
-      { label: "Chapter Progress", icon: BookMarked, href: "/chapter-progress", disabled: true },
-    ],
-  },
-  {
-    title: "FINANCE",
+    title: "FINANCE & HR",
     items: [
       { label: "Fee Collection", icon: IndianRupee, href: "/finance" },
-      { label: "Fee Structures", icon: Grid3x3, href: "/finance/fee-structure", disabled: true },
-      { label: "Discounts & Coupons", icon: Ticket, href: "/discounts", disabled: true },
-      { label: "Late Fee Rules", icon: Clock3, href: "/late-fee", disabled: true },
-      { label: "Payment Reminders", icon: Bell, href: "/payment-reminders", disabled: true },
-      { label: "Deletion Audit Log", icon: ShieldCheck, href: "/audit-log", disabled: true },
-      { label: "Accounting Export", icon: FileSpreadsheet, href: "/accounting-export", disabled: true },
       { label: "Expenses", icon: Receipt, href: "/finance/daily-expense" },
-      { label: "Expense Heads", icon: Tag, href: "/expense-heads", disabled: true },
-    ],
-  },
-  {
-    title: "HR & STAFF",
-    items: [
       { label: "Payroll", icon: Banknote, href: "/hr" },
-      { label: "Staff Attendance", icon: UserCheck, href: "/staff-attendance", disabled: true },
-      { label: "Biometric", icon: Fingerprint, href: "/biometric", disabled: true },
-      { label: "Faculty Performance", icon: TrendingUp, href: "/faculty-performance", disabled: true },
-    ],
-  },
-  {
-    title: "CRM & GROWTH",
-    items: [
-      { label: "Lead Nurturing", icon: Users, href: "/lead-nurturing", disabled: true },
-      { label: "Proposals", icon: FileSpreadsheet, href: "/proposals", disabled: true },
-      { label: "Meta Lead Ads", icon: Facebook, href: "/meta-leads", disabled: true },
-      { label: "Refer & Earn", icon: Gift, href: "/refer-earn", disabled: true }, 
-      { label: "Alumni Wall", icon: GraduationCap, href: "/alumni", disabled: true },
     ],
   },
   {
     title: "COMMUNICATION",
     items: [
-      { label: "Bulk Messaging", icon: Megaphone, href: "/bulk-messaging", disabled: true },
-      { label: "Inbox", icon: Inbox, href: "/inbox", disabled: true },
-      { label: "SMS / WhatsApp Hub", icon: MessageSquare, href: "/whatsapp", disabled: true },
-      { label: "Email Campaigns", icon: Mail, href: "/email-campaigns", disabled: true },
-      { label: "Custom Forms", icon: SlidersHorizontal, href: "/custom-forms", disabled: true },
-      { label: "Custom Columns", icon: Columns3, href: "/custom-columns", disabled: true },
+      { label: "Notifications", icon: Bell, href: "/notifications" },
       { label: "PTM Meetings", icon: Users, href: "/ptm" },
     ],
   },
-  /*
-  {
-    title: "OPERATIONS",
-    items: [
-      { label: "Library", icon: Library, href: "/library" },
-      { label: "Library Fines", icon: IndianRupee, href: "/library-fines" },
-      { label: "Transport", icon: Bus, href: "/transport" },
-      { label: "Hostel", icon: Home, href: "/hostel" },
-      { label: "Inventory", icon: Package, href: "/inventory" },
-      { label: "Canteen", icon: Coffee, href: "/canteen" },
-      { label: "Gamification", icon: Trophy, href: "/gamification" },
-    ],
-  },
-  */
   {
     title: "SETTINGS",
     items: [
-      { label: "Foundation", icon: ShieldCheck, href: "/foundation" },
+      { label: "Institute Foundation", icon: ShieldCheck, href: "/foundation" },
       { label: "General Settings", icon: Settings, href: "/settings" },
       { label: "Branches", icon: Building2, href: "/foundation?tab=branches" },
       { label: "Roles & Permissions", icon: Shield, href: "/foundation?tab=roles" },
-      //{ label: "Mobile App Branding", icon: Smartphone, href: "/mobile-branding" },
-      //{ label: "Integrations", icon: Puzzle, href: "/integrations" },
-      //{ label: "AI Credits", icon: Cpu, href: "/ai-credits" },
-    ],
-  },
-  {
-    title: "HELP",
-    items: [
-      { label: "Training Guide", icon: FileText, href: "/training-guide", disabled: true },
-      { label: "Setup Wizard", icon: Rocket, href: "/setup-wizard", disabled: true },
     ],
   },
 ];
 
-const collapsedItems: NavItem[] = [
-  { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-  { label: "Academic Years", icon: CalendarDays, href: "/academic-years" },
-  { label: "Reports", icon: BarChart3, href: "/analytics" },
-  { label: "Students", icon: GraduationCap, href: "/students" },
-  { label: "Staff", icon: Users, href: "/staff" },
-  { label: "Online Admissions", icon: UserPlus, href: "/online-admissions" },
-  { label: "Courses", icon: GraduationCap, href: "/courses" },
-  { label: "Batches", icon: Layers, href: "/batches" },
-  { label: "PYQ Papers", icon: FileQuestion, href: "/pyq-papers", disabled: true },
-  { label: "Question Bank", icon: Package, href: "/question-bank", disabled: true },
-  { label: "Fee Collection", icon: IndianRupee, href: "/finance" },
-  { label: "Attendance", icon: CheckSquare, href: "/attendance" },
-  { label: "Exams", icon: Monitor, href: "/exams" },
-  { label: "Foundation", icon: ShieldCheck, href: "/foundation" },
+const accountantNavGroups: NavGroup[] = [
+  {
+    title: "FINANCE OVERVIEW",
+    items: [
+      { label: "Finance Dashboard", icon: LayoutDashboard, href: "/accountant-dashboard" },
+      { label: "Fee Collection", icon: IndianRupee, href: "/finance/student-fee-management" },
+      { label: "Expenses", icon: Receipt, href: "/finance/daily-expense" },
+    ],
+  },
 ];
+
+const STAFF_ALLOWED = new Set([
+  "/dashboard", "/admissions", "/online-admissions", "/academic-years",
+  "/students", "/courses", "/subjects", "/topics", "/batches",
+  "/timetable", "/attendance", "/notifications", "/ptm",
+]);
+
+function getNavigationForRole(role: string | null): NavGroup[] {
+  if (role === "accountant") return accountantNavGroups;
+
+  const readyGroups = adminNavGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => !item.disabled) }))
+    .filter((group) => group.items.length > 0);
+
+  if (role === "staff") {
+    return readyGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => STAFF_ALLOWED.has(item.href.split("?")[0])),
+      }))
+      .filter((group) => group.items.length > 0);
+  }
+
+  return readyGroups;
+}
+
 
 function getRoleLabel(role: string | null) {
   if (!role) return "Institute Admin";
@@ -184,6 +128,7 @@ function getRoleLabel(role: string | null) {
     staff: "Staff Member",
     student: "Student",
     accountant: "Accountant",
+    parent: "Parent",
   };
   return map[role] || role.toUpperCase();
 }
@@ -237,8 +182,10 @@ function getUserInfo() {
 
 export function Layout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
-  const token = localStorage.getItem("coach_sutra_token");
-  if (!token) return <Redirect to="/login" />;
+  const role = getStoredRole();
+  const navGroups = useMemo(() => getNavigationForRole(role), [role]);
+  const collapsedItems = useMemo(() => navGroups.flatMap((group) => group.items).slice(0, 14), [navGroups]);
+  const homeHref = routeByRole(role);
 
   const [expanded, setExpanded] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -292,7 +239,7 @@ export function Layout({ children }: { children: ReactNode }) {
         items: g.items.filter((i) => i.label.toLowerCase().includes(q)),
       }))
       .filter((g) => g.items.length > 0);
-  }, [search]);
+  }, [search, navGroups]);
 
   const isActive = (href: string) => {
     const [cleanHref, query] = href.split("?");
@@ -305,7 +252,7 @@ export function Layout({ children }: { children: ReactNode }) {
   };
 
   const { storedName, avatar } = getUserInfo();
-  const roleLabel = getRoleLabel(getStoredRole());
+  const roleLabel = getRoleLabel(role);
 
   const SIDEBAR_FULL = 260;
   const SIDEBAR_MINI = 72;
@@ -319,21 +266,21 @@ export function Layout({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="flex min-h-screen w-full bg-[#f6f7f9] overflow-x-hidden">
+    <div className="flex min-h-screen w-full bg-[#f4f7fb] overflow-x-hidden">
       {/* SIDEBAR */}
       <aside
         style={{ width: expanded ? SIDEBAR_FULL : SIDEBAR_MINI }}
         className={`
-          fixed inset-y-0 left-0 z-50 bg-white border-r border-[#e9e6d5]
+          fixed inset-y-0 left-0 z-50 bg-[#0b1220] border-r border-white/10 text-white
           flex flex-col transition-all duration-300 ease-in-out
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
           lg:translate-x-0
         `}
       >
         {/* 🔴 LOGO AREA - FULL, LARGE & CLEAR DISPLAY */}
-        <div className={`border-b border-[#f0eedc] shrink-0 ${expanded ? "px-3 py-3" : "px-2 py-3"}`}>
+        <div className={`border-b border-white/10 shrink-0 ${expanded ? "px-3 py-3" : "px-2 py-3"}`}>
           {expanded ? (
-            <Link href="/dashboard" className="cursor-pointer block">
+            <Link href={homeHref} className="cursor-pointer block">
               <div className="flex items-center justify-start min-h-[64px] w-full">
                 {brandInfo.logo ? (
                   <img
@@ -343,16 +290,16 @@ export function Layout({ children }: { children: ReactNode }) {
                   />
                 ) : (
                   <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-lg bg-[#0a2e5a] flex items-center justify-center shrink-0">
+                    <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center shrink-0">
                       <span className="text-white font-extrabold text-[12px]">
                         {brandInfo.name.charAt(0).toUpperCase()}
                       </span>
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[16px] font-extrabold leading-none text-[#0a2e5a] truncate">
+                      <div className="text-[16px] font-extrabold leading-none text-white truncate">
                         {brandInfo.name}
                       </div>
-                      <div className="text-[9px] text-slate-500 font-medium truncate mt-1">
+                      <div className="text-[9px] text-slate-400 font-medium truncate mt-1">
                         {brandInfo.tagline}
                       </div>
                     </div>
@@ -361,11 +308,11 @@ export function Layout({ children }: { children: ReactNode }) {
               </div>
             </Link>
           ) : (
-            <Link href="/dashboard" className="cursor-pointer flex justify-center min-h-[52px] items-center">
+            <Link href={homeHref} className="cursor-pointer flex justify-center min-h-[52px] items-center">
               {brandInfo.logo ? (
                 <img src={brandInfo.logo} alt="Logo" className="w-10 h-10 object-contain" />
               ) : (
-                <div className="w-9 h-9 rounded-lg bg-[#0a2e5a] flex items-center justify-center">
+                <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center">
                   <span className="text-white font-bold text-[11px]">
                     {brandInfo.name.charAt(0).toUpperCase()}
                   </span>
@@ -381,7 +328,7 @@ export function Layout({ children }: { children: ReactNode }) {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search menu..."
-                className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-[12px] outline-none focus:border-[#6b7d00] bg-[#fafaf8]"
+                className="w-full pl-9 pr-3 py-2 rounded-xl border border-white/10 text-[12px] text-white placeholder:text-slate-500 outline-none focus:border-cyan-400/70 bg-white/5"
               />
             </div>
           )}
@@ -407,7 +354,7 @@ export function Layout({ children }: { children: ReactNode }) {
                     onClick={() => toggleGroup(group.title)}
                     className="w-full flex items-center justify-between px-2 py-1 mb-0.5"
                   >
-                    <span className="text-[10px] font-bold tracking-[1.1px] text-[#3d4a3d]">
+                    <span className="text-[10px] font-bold tracking-[1.1px] text-slate-500">
                       {group.title}
                     </span>
                     {openGroups[group.title] ? (
@@ -420,7 +367,7 @@ export function Layout({ children }: { children: ReactNode }) {
                     <div className="space-y-0.5">
                       {group.items.map((item) => {
                         const active = isActive(item.href);
-                        const isDashboard = item.label === "Dashboard";
+                        const isDashboard = item.href.includes("dashboard");
                         return (
                           item.disabled ? (
                             <div
@@ -439,18 +386,18 @@ export function Layout({ children }: { children: ReactNode }) {
                               className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13px] font-medium cursor-pointer transition-all ${
                                 active
                                   ? isDashboard
-                                    ? "bg-[#6b7d00] text-white shadow-sm"
-                                    : "bg-[#f5f3e8] text-[#6b7d00] font-bold border-l-[3px] border-[#6b7d00]"
-                                  : "text-[#2e3a4e] hover:bg-[#f8f6ec] hover:text-[#5a6b00]"
+                                    ? "bg-white text-slate-950 shadow-sm"
+                                    : "bg-white/10 text-white font-bold border-l-[3px] border-cyan-400"
+                                  : "text-slate-300 hover:bg-white/5 hover:text-white"
                               }`}
                             >
                               <item.icon
                                 className={`w-[17px] h-[17px] shrink-0 ${
                                   active
                                     ? isDashboard
-                                      ? "text-white"
-                                      : "text-[#6b7d00]"
-                                    : "text-[#6b7d00]"
+                                      ? "text-slate-950"
+                                      : "text-cyan-300"
+                                    : "text-cyan-300"
                                 }`}
                               />
                               <span className="truncate">{item.label}</span>
@@ -487,8 +434,8 @@ export function Layout({ children }: { children: ReactNode }) {
                         w-11 h-11 rounded-2xl flex items-center justify-center cursor-pointer transition-all
                         ${
                           active
-                            ? "bg-[#f3e8ff] text-[#7c1d6f]"
-                            : "text-[#7c1d6f] hover:bg-[#faf5ff]"
+                            ? "bg-white text-slate-950"
+                            : "text-slate-400 hover:bg-white/5 hover:text-white"
                         }
                       `}
                     >
@@ -503,25 +450,25 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
 
         {/* BOTTOM USER CARD */}
-        <div className={`border-t border-[#f0eedc] bg-white shrink-0 ${expanded ? "p-2.5" : "p-1.5"}`}>
+        <div className={`border-t border-white/10 bg-[#0b1220] shrink-0 ${expanded ? "p-2.5" : "p-1.5"}`}>
           {expanded ? (
-            <div className="flex items-center gap-2.5 bg-[#f8f6ec] rounded-xl px-2.5 py-2 border border-[#eef0d8]">
+            <div className="flex items-center gap-2.5 bg-white/5 rounded-xl px-2.5 py-2 border border-white/10">
               {avatar ? (
                 <img
                   src={avatar}
                   alt="user"
-                  className="w-8 h-8 rounded-full object-cover border border-[#d6dbb2]"
+                  className="w-8 h-8 rounded-full object-cover border border-white/10"
                 />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-[#6b7d00] text-white flex items-center justify-center font-extrabold text-[12px]">
+                <div className="w-8 h-8 rounded-full bg-cyan-500 text-slate-950 flex items-center justify-center font-extrabold text-[12px]">
                   {storedName.charAt(0).toUpperCase()}
                 </div>
               )}
               <div className="min-w-0">
-                <p className="text-[12.5px] font-extrabold text-[#0a2e5a] leading-tight truncate">
+                <p className="text-[12.5px] font-extrabold text-white leading-tight truncate">
                   {storedName}
                 </p>
-                <p className="text-[10px] font-semibold text-[#6b7d00] leading-tight">
+                <p className="text-[10px] font-semibold text-cyan-300 leading-tight">
                   {roleLabel}
                 </p>
               </div>
@@ -532,12 +479,12 @@ export function Layout({ children }: { children: ReactNode }) {
                 <img
                   src={avatar}
                   alt="user"
-                  className="w-10 h-10 rounded-full object-cover border-2 border-[#e9e6d5]"
+                  className="w-10 h-10 rounded-full object-cover border-2 border-white/10"
                   title={storedName}
                 />
               ) : (
                 <div
-                  className="w-10 h-10 rounded-full bg-[#6b7d00] text-white flex items-center justify-center font-extrabold text-sm"
+                  className="w-10 h-10 rounded-full bg-cyan-500 text-slate-950 flex items-center justify-center font-extrabold text-sm"
                   title={storedName}
                 >
                   {storedName.charAt(0).toUpperCase()}

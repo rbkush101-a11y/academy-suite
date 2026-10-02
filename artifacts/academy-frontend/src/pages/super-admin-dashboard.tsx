@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/use-auth";
+import { BUSINESS_TYPES } from "@/lib/business-types";
 
 type PlatformRow = Record<string, unknown>;
 type PlatformPayload = PlatformRow | PlatformRow[];
@@ -22,6 +23,7 @@ type DashboardData = {
   filters: DashboardRange & { interval: "day" | "month" };
   platform: {
     institutes: { total: number; active: number; trial: number; suspended: number; expired: number };
+    businessTypes?: Array<{ type: string; count: number; active: number }> | null;
     totalBranches: number; totalStudents: number; totalTeachers: number; totalStaff: number; totalParents: number; totalActiveUsers: number;
   };
   subscriptions: { active: number; trial: number; expiringSoon: number; expired: number; canceled: number };
@@ -41,7 +43,7 @@ type DashboardData = {
 
 const sections: Array<{ key: string; label: string; endpoint: string; icon: LucideIcon }> = [
   { key: "dashboard", label: "Overview", endpoint: "dashboard", icon: Gauge },
-  { key: "institutes", label: "Institutes", endpoint: "institutes", icon: Building2 },
+  { key: "institutes", label: "Client businesses", endpoint: "institutes", icon: Building2 },
   { key: "users", label: "Platform users", endpoint: "users", icon: Users },
   { key: "plans", label: "Plans", endpoint: "plans", icon: Package },
   { key: "features", label: "Features", endpoint: "features", icon: WandSparkles },
@@ -59,7 +61,7 @@ const sections: Array<{ key: string; label: string; endpoint: string; icon: Luci
 ];
 
 const preferredColumns: Record<string, string[]> = {
-  institutes: ["instituteName", "ownerName", "email", "plan", "status", "maxStudents"],
+  institutes: ["instituteName", "instituteType", "industryLabel", "ownerName", "email", "plan", "status", "maxStudents"],
   users: ["name", "email", "role", "instituteId", "isApproved", "createdAt"],
   plans: ["name", "code", "currency", "monthlyPrice", "yearlyPrice", "status"],
   features: ["name", "key", "enabled", "description"],
@@ -147,7 +149,7 @@ function EmptyPanel({ children }: { children: React.ReactNode }) {
 
 type CreateAction = "institute" | "plan" | "announcement";
 const createActionInfo: Record<CreateAction, { title: string; description: string; endpoint: string }> = {
-  institute: { title: "Create institute", description: "Add an institute to the platform directory.", endpoint: "institutes" },
+  institute: { title: "Create business workspace", description: "Add a client business to the platform directory.", endpoint: "institutes" },
   plan: { title: "Create plan", description: "Set the pricing and capacity limits for a subscription plan.", endpoint: "plans" },
   announcement: { title: "Broadcast announcement", description: "Publish an in-app announcement for all institutes.", endpoint: "announcements" },
 };
@@ -209,7 +211,7 @@ function QuickActions() {
   const canViewBilling = ["super_admin", "platform_admin", "finance_admin", "read_only_admin"].includes(role);
   const actions: Array<{ label: string; icon: LucideIcon; onClick?: () => void; href?: string }> = [
     ...(canCreateRecords ? [
-      { label: "Create institute", icon: Building2, href: "/super-admin/institutes/new" },
+      { label: "Onboard a business", icon: Building2, href: "/super-admin/institutes/new" },
       { label: "Create plan", icon: Plus, onClick: () => { mutation.reset(); setActiveAction("plan"); } },
       { label: "Broadcast announcement", icon: Megaphone, onClick: () => { mutation.reset(); setActiveAction("announcement"); } },
     ] : []),
@@ -223,7 +225,7 @@ function QuickActions() {
   return (
     <>
       <section>
-        <SectionTitle title="Quick actions" description="Create platform records or jump to billing operations." />
+        <SectionTitle title="Quick actions" description="Onboard client businesses, configure plans, and manage platform billing." />
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
           {actions.map(({ label, icon: Icon, onClick, href }) => href ? (
             <Button key={label} variant="outline" asChild className="h-auto justify-between py-3"><Link href={href}><span className="flex items-center gap-2"><Icon className="h-4 w-4 text-primary" />{label}</span><ArrowUpRight className="h-4 w-4 text-muted-foreground" /></Link></Button>
@@ -241,8 +243,8 @@ function QuickActions() {
             </DialogHeader>
             <form onSubmit={submit} className="space-y-4">
               {activeAction === "institute" && <>
-                <label className="block space-y-1.5 text-sm"><span>Institute name</span><Input name="instituteName" required autoFocus /></label>
-                <label className="block space-y-1.5 text-sm"><span>Institute type</span><select name="instituteType" required className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="school">School</option><option value="coaching">Coaching</option><option value="computer_institute">Computer institute</option><option value="tuition_center">Tuition center</option><option value="academy">Academy</option></select></label>
+                <label className="block space-y-1.5 text-sm"><span>Business name</span><Input name="instituteName" required autoFocus /></label>
+                <label className="block space-y-1.5 text-sm"><span>Business category</span><select name="instituteType" required className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm">{BUSINESS_TYPES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
                 <label className="block space-y-1.5 text-sm"><span>Owner name</span><Input name="ownerName" required /></label>
                 <div className="grid gap-3 sm:grid-cols-2"><label className="block space-y-1.5 text-sm"><span>Email</span><Input name="email" type="email" required /></label><label className="block space-y-1.5 text-sm"><span>Phone</span><Input name="phone" required /></label></div>
               </>}
@@ -282,8 +284,8 @@ function DateFilters({ draft, onDraftChange, onApply }: { draft: DashboardRange;
 }
 
 const growthLines = [
-  { key: "institutes", label: "Institutes", color: "#6366f1" },
-  { key: "students", label: "Students", color: "#14b8a6" },
+  { key: "institutes", label: "Client businesses", color: "#6366f1" },
+  { key: "students", label: "Education students", color: "#14b8a6" },
   { key: "users", label: "Users", color: "#f59e0b" },
   { key: "subscriptions", label: "Subscriptions", color: "#f43f5e" },
 ];
@@ -324,17 +326,19 @@ function chartDate(value: string): string {
 function Overview({ data, draftRange, setDraftRange, applyRange }: {
   data: DashboardData; draftRange: DashboardRange; setDraftRange: (range: DashboardRange) => void; applyRange: () => void;
 }) {
+  // Older API responses may not include the category breakdown yet.
+  const businessTypes = Array.isArray(data.platform.businessTypes) ? data.platform.businessTypes : null;
   const platformCards = [
-    { label: "Total institutes", value: data.platform.institutes.total, detail: "All platform records", icon: Building2 },
-    { label: "Active institutes", value: data.platform.institutes.active, detail: "Active and within expiry", icon: CheckCircle2 },
-    { label: "Trial institutes", value: data.platform.institutes.trial, detail: "Institutes with a trial subscription", icon: Clock3 },
-    { label: "Suspended institutes", value: data.platform.institutes.suspended, detail: "Inactive or suspended status", icon: ShieldAlert },
-    { label: "Expired institutes", value: data.platform.institutes.expired, detail: "Marked expired or past expiry date", icon: AlertCircle },
-    { label: "Total branches", value: data.platform.totalBranches, detail: "All branch records", icon: Landmark },
-    { label: "Total students", value: data.platform.totalStudents, detail: "Student profiles", icon: GraduationCap },
-    { label: "Total teachers", value: data.platform.totalTeachers, detail: "Teacher and faculty profiles", icon: UserRoundCheck },
-    { label: "Total staff", value: data.platform.totalStaff, detail: "Staff profiles excluding teachers", icon: Users },
-    { label: "Total parents", value: data.platform.totalParents, detail: "Parent accounts", icon: UserRound },
+    { label: "Client businesses", value: data.platform.institutes.total, detail: "All client workspaces", icon: Building2 },
+    { label: "Active businesses", value: data.platform.institutes.active, detail: "Active and within expiry", icon: CheckCircle2 },
+    { label: "Trial businesses", value: data.platform.institutes.trial, detail: "Workspaces with a trial subscription", icon: Clock3 },
+    { label: "Suspended businesses", value: data.platform.institutes.suspended, detail: "Inactive or suspended status", icon: ShieldAlert },
+    { label: "Expired businesses", value: data.platform.institutes.expired, detail: "Marked expired or past expiry date", icon: AlertCircle },
+    { label: "Total locations", value: data.platform.totalBranches, detail: "All client locations", icon: Landmark },
+    { label: "Education students", value: data.platform.totalStudents, detail: "Student profiles in education workspaces", icon: GraduationCap },
+    { label: "Education teachers", value: data.platform.totalTeachers, detail: "Teacher and faculty profiles", icon: UserRoundCheck },
+    { label: "Staff profiles", value: data.platform.totalStaff, detail: "Non-teaching staff profiles", icon: Users },
+    { label: "Parent accounts", value: data.platform.totalParents, detail: "Education portal accounts", icon: UserRound },
     { label: "Total active users", value: data.platform.totalActiveUsers, detail: "Unique users with a current session", icon: UserRoundCheck },
   ];
   const subscriptionCards = [
@@ -353,7 +357,7 @@ function Overview({ data, draftRange, setDraftRange, applyRange }: {
     { label: "Refunds", totals: data.revenue.refunds, icon: Banknote },
   ];
   const growthCards = [
-    { label: "New institutes", value: data.growth.newInstitutes, icon: Building2 },
+    { label: "New businesses", value: data.growth.newInstitutes, icon: Building2 },
     { label: "New students", value: data.growth.newStudents, icon: GraduationCap },
     { label: "New users", value: data.growth.newUsers, icon: Users },
     { label: "Subscription growth", value: data.growth.subscriptionGrowth, icon: TrendingUp },
@@ -361,6 +365,21 @@ function Overview({ data, draftRange, setDraftRange, applyRange }: {
 
   return (
     <div className="space-y-8">
+      <section className="relative isolate overflow-hidden rounded-[28px] bg-gradient-to-br from-slate-950 via-indigo-950 to-blue-900 px-5 py-6 text-white shadow-xl shadow-indigo-950/10 sm:px-8 sm:py-8">
+        <div aria-hidden="true" className="absolute -right-14 -top-24 -z-10 h-72 w-72 rounded-full bg-sky-400/20 blur-3xl" />
+        <div aria-hidden="true" className="absolute -bottom-40 left-[38%] -z-10 h-72 w-72 rounded-full bg-violet-500/20 blur-3xl" />
+        <div className="relative grid gap-7 xl:grid-cols-[minmax(0,1.4fr)_minmax(250px,.6fr)] xl:items-center">
+          <div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.16em] text-sky-100"><Gauge className="h-3.5 w-3.5" />Platform command center</span>
+            <h2 className="mt-4 max-w-2xl text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl lg:text-4xl">Your client portfolio, all in one place.</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-blue-100/80">Onboard businesses, manage subscriptions, and keep an eye on platform health from desktop, tablet, or phone.</p>
+            <div className="mt-5 flex flex-wrap gap-2.5"><Button asChild className="bg-white text-slate-950 hover:bg-blue-50"><Link href="/super-admin/institutes/new">Onboard a business<ArrowUpRight className="ml-2 h-4 w-4" /></Link></Button><Button asChild variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><Link href="/super-admin/institutes">Open business directory</Link></Button></div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
+            {[["Client businesses", data.platform.institutes.total], ["Active workspaces", data.platform.institutes.active], ["Business categories", businessTypes?.length ?? "—"]].map(([label, value]) => <div key={String(label)} className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[.07] px-4 py-3 backdrop-blur-sm xl:px-5 xl:py-4"><span className="text-xs font-medium text-blue-100/75">{label}</span><span className="text-xl font-extrabold tabular-nums">{typeof value === "number" ? formatNumber(value) : value}</span></div>)}
+          </div>
+        </div>
+      </section>
       <QuickActions />
       <DateFilters draft={draftRange} onDraftChange={setDraftRange} onApply={applyRange} />
 
@@ -369,6 +388,17 @@ function Overview({ data, draftRange, setDraftRange, applyRange }: {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {platformCards.map((item) => <MetricCard key={item.label} label={item.label} value={formatNumber(item.value)} detail={item.detail} icon={item.icon} />)}
         </div>
+      </section>
+
+      <section>
+        <SectionTitle title="Business portfolio" description="The industries represented across your client workspaces." />
+        {businessTypes === null ? <EmptyPanel>Business category data is currently unavailable.</EmptyPanel> : businessTypes.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {businessTypes.map((item) => {
+            const labels = Object.fromEntries(BUSINESS_TYPES.map((category) => [category.value, category.label]));
+            const share = data.platform.institutes.total ? Math.max(6, Math.round(item.count / data.platform.institutes.total * 100)) : 0;
+            return <Card key={item.type} className="overflow-hidden shadow-sm"><CardContent className="p-4 sm:p-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-semibold">{labels[item.type] ?? item.type.replaceAll("_", " ")}</p><p className="mt-1 text-xs text-muted-foreground">{item.active} active · {item.count - item.active} not active</p></div><span className="rounded-xl bg-primary/10 p-2.5 text-primary"><Building2 className="h-4 w-4" /></span></div><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-gradient-to-r from-primary to-sky-400" style={{ width: `${share}%` }} /></div><p className="mt-2 text-xs text-muted-foreground">{item.count} {item.count === 1 ? "workspace" : "workspaces"}</p></CardContent></Card>;
+          })}
+        </div> : <EmptyPanel>No client businesses have been onboarded yet.</EmptyPanel>}
       </section>
 
       <section>
@@ -482,16 +512,16 @@ export default function SuperAdminDashboard() {
 
   return (
     <div className="min-h-screen bg-muted/20 lg:grid lg:grid-cols-[250px_minmax(0,1fr)]">
-      <aside className="border-b bg-background p-4 lg:min-h-screen lg:border-b-0 lg:border-r">
+      <aside className="border-b bg-background p-4 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto lg:border-b-0 lg:border-r">
         <div className="mb-5 px-2 pt-1">
           <p className="font-semibold tracking-tight">ParikshaDrishti</p>
           <p className="mt-1 text-xs text-muted-foreground">Platform console</p>
         </div>
-        <nav className="grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-1">
+        <nav aria-label="Platform navigation" className="flex gap-1 overflow-x-auto pb-2 sm:grid sm:grid-cols-4 sm:overflow-visible lg:grid-cols-1">
           {sections.map(({ key, label, icon: Icon }) => {
             const active = sectionKey === key;
             return (
-              <Link key={key} href={key === "dashboard" ? "/super-admin" : `/super-admin/${key}`} className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
+              <Link key={key} href={key === "dashboard" ? "/super-admin" : `/super-admin/${key}`} aria-current={active ? "page" : undefined} className={`flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
                 <Icon className="h-4 w-4 shrink-0" />{label}
               </Link>
             );

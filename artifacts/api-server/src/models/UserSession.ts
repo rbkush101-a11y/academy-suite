@@ -30,7 +30,7 @@ const userSessionSchema = new Schema<IUserSession>(
     branchId: { type: Schema.Types.ObjectId, ref: "Branch" },
     ipAddress: { type: String, default: "" },
     userAgent: { type: String, default: "" },
-    expiresAt: { type: Date, required: true, index: true },
+    expiresAt: { type: Date, required: true, },
     revokedAt: { type: Date, default: null, index: true },
     lastSeenAt: { type: Date, default: Date.now },
     refreshTokenHash: { type: String, select: false, sparse: true },

@@ -68,7 +68,7 @@ const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
 
 const ptm = await PTM.findByIdAndUpdate(id, req.body, {
-  new: true
+  returnDocument: "after"
 });
 
 if (!ptm) {

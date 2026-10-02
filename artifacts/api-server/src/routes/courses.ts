@@ -136,7 +136,7 @@ router.patch(
       }
 
       const course = await Course.findOneAndUpdate(filter, updateData, {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       });
 

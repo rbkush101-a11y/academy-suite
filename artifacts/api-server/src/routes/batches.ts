@@ -210,7 +210,7 @@ router.patch(
       }
 
       const batch = await Batch.findOneAndUpdate(filter, updateData, {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       });
 
@@ -297,7 +297,7 @@ router.post(
       const updatedBatch = await Batch.findByIdAndUpdate(
         batch._id,
         { $addToSet: { studentIds: studentId } },
-        { new: true }
+        { returnDocument: "after" }
       );
 
       res.json(await fmtBatch(updatedBatch));

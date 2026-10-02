@@ -235,7 +235,7 @@ router.patch(
       const updateData = { ...req.body };
       delete updateData.instituteId;
       const fs = await FeeStructure.findOneAndUpdate(filter, updateData, {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       });
       if (!fs) {
@@ -675,7 +675,7 @@ router.patch(
       }
 
       const payment = await Payment.findOneAndUpdate(filter, updateData, {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       });
       if (!payment) {
@@ -837,7 +837,7 @@ router.patch(
       }
       const updateData = { ...req.body };
       delete updateData.instituteId;
-      const expense = await Expense.findOneAndUpdate(filter, updateData, { new: true });
+      const expense = await Expense.findOneAndUpdate(filter, updateData, { returnDocument: "after" });
       if (!expense) {
         res.status(404).json({ error: "Not found" });
         return;

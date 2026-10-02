@@ -116,7 +116,7 @@ async function incrementThrottle(
   const updated = await LoginThrottle.findByIdAndUpdate(current._id, {
     $inc: { failureCount: 1 },
     $set: { expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000) },
-  }, { new: true }).select("failureCount");
+  }, { returnDocument: "after" }).select("failureCount");
   if (updated && updated.failureCount >= limit) {
     await LoginThrottle.updateOne({ _id: updated._id }, { $set: { lockedUntil: new Date(now.getTime() + lockDurationMs) } });
   }
@@ -176,7 +176,7 @@ export async function recordFailedLogin(req: Request, identifier: string, userId
     user.lockedUntil = undefined;
     await user.save();
   }
-  const updated = await User.findByIdAndUpdate(userId, { $inc: { failedLoginAttempts: 1 } }, { new: true }).select("failedLoginAttempts");
+  const updated = await User.findByIdAndUpdate(userId, { $inc: { failedLoginAttempts: 1 } }, { returnDocument: "after" }).select("failedLoginAttempts");
   if (!updated) return false;
   if (updated.failedLoginAttempts >= ACCOUNT_FAILURE_LIMIT) {
     await User.updateOne({ _id: userId }, { $set: { lockedUntil: new Date(now.getTime() + ACCOUNT_LOCK_DURATION_MS) } });
@@ -330,7 +330,7 @@ export async function processAuthEmailOutbox(): Promise<void> {
         { status: { $in: ["queued", "retry"] }, nextAttemptAt: { $lte: now } },
         { status: "sending", updatedAt: { $lt: staleClaim } },
       ],
-    }, { $set: { status: "sending" }, $inc: { attempts: 1 } }, { new: true, sort: { createdAt: 1 } })
+    }, { $set: { status: "sending" }, $inc: { attempts: 1 } }, { returnDocument: "after", sort: { createdAt: 1 } })
       .select("to purpose attempts +ciphertext +iv +authTag");
     if (!row) return;
     try {

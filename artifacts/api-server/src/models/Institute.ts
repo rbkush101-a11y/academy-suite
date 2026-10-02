@@ -1,11 +1,15 @@
 import mongoose, { Document, Schema, Types } from "mongoose";
 
-export type InstituteType =
-  | "school"
-  | "coaching"
-  | "computer_institute"
-  | "tuition_center"
-  | "academy";
+export const INSTITUTE_TYPES = [
+  "school", "coaching", "computer_institute", "tuition_center", "academy",
+  "restaurant", "gym", "hospital", "clinic", "retail_store", "salon_spa",
+  "hotel", "real_estate", "other",
+] as const;
+export type InstituteType = (typeof INSTITUTE_TYPES)[number];
+export const isInstituteType = (value: unknown): value is InstituteType =>
+  typeof value === "string" && INSTITUTE_TYPES.some((type) => type === value);
+export const isEducationInstituteType = (value: string) =>
+  ["school", "coaching", "computer_institute", "tuition_center", "academy"].includes(value);
 
 export type InstitutePlan = string;
 
@@ -14,6 +18,7 @@ export type InstituteStatus = "pending" | "active" | "trial" | "inactive" | "sus
 export interface IInstitute extends Document {
   instituteName: string;
   instituteType: InstituteType;
+  industryLabel?: string;
   ownerName: string;
   email: string;
   phone: string;
@@ -49,15 +54,11 @@ const instituteSchema = new Schema(
 
     instituteType: {
       type: String,
-      enum: [
-        "school",
-        "coaching",
-        "computer_institute",
-        "tuition_center",
-        "academy"
-      ],
+      enum: INSTITUTE_TYPES,
       required: true
     },
+
+    industryLabel: { type: String, trim: true, maxlength: 120, default: "" },
 
     ownerName: {
       type: String,

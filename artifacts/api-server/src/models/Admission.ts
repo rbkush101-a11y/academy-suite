@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema } from "mongoose";
 
 export interface IAdmission extends Document {
+  instituteId: string;
   enquiryType: "academic" | "computer";
   studentName: string;
   className?: string;
@@ -20,6 +21,7 @@ export interface IAdmission extends Document {
 
 const admissionSchema = new Schema<IAdmission>(
   {
+    instituteId: { type: String, required: true, index: true },
     enquiryType: {
       type: String,
       enum: ["academic", "computer"],

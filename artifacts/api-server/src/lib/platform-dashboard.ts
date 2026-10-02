@@ -161,7 +161,7 @@ export async function getPlatformDashboard(startValue: unknown, endValue: unknow
     instituteGrowth, studentGrowth, userGrowth, subscriptionGrowth, revenueRows,
     newInstituteRows, subscriptionRows, paymentRows, adminActionRows, securityRows,
     platformUsers, openTickets, outstandingInvoices, historicalCollected,
-    systemHealth,
+    systemHealth, businessTypeRows,
   ] = await Promise.all([
     Institute.countDocuments(),
     Institute.countDocuments(activeInstituteFilter),
@@ -216,6 +216,24 @@ export async function getPlatformDashboard(startValue: unknown, endValue: unknow
     PlatformInvoice.countDocuments({ status: { $in: ["issued", "overdue"] } }),
     paymentTotals("succeeded"),
     getPlatformSystemHealth(now),
+    Institute.aggregate<{ _id: string; count: number; active: number }>([
+      { $group: {
+        _id: { $ifNull: ["$instituteType", "other"] },
+        count: { $sum: 1 },
+        active: { $sum: { $cond: [
+          { $and: [
+            { $eq: ["$status", "active"] },
+            { $or: [
+              { $eq: [{ $ifNull: ["$expiryDate", null] }, null] },
+              { $gt: ["$expiryDate", now] },
+            ] },
+          ] },
+          1,
+          0,
+        ] } },
+      } },
+      { $sort: { count: -1, _id: 1 } },
+    ]),
   ]);
 
   const keys = periodKeys(range);
@@ -275,6 +293,7 @@ export async function getPlatformDashboard(startValue: unknown, endValue: unknow
         suspended: suspendedInstitutes,
         expired: expiredInstitutes,
       },
+      businessTypes: businessTypeRows.map(({ _id, count, active }) => ({ type: _id, count, active })),
       totalBranches,
       totalStudents,
       totalTeachers,

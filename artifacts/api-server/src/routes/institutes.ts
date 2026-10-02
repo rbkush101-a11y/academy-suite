@@ -100,7 +100,7 @@ if (typeof update.email === "string") update.email = update.email.trim().toLower
 if (typeof update.domain === "string") update.domain = update.domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "") || undefined;
 
 const institute = await Institute.findByIdAndUpdate(id, update, {
-  new: true,
+  returnDocument: "after",
   runValidators: true,
 });
 
@@ -125,7 +125,7 @@ authorizePlatform("platform.institutes.delete"),
 async (req, res): Promise<void> => {
 const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
-const institute = await Institute.findByIdAndUpdate(id, { status: "archived", archivedAt: new Date() }, { new: true, runValidators: true });
+const institute = await Institute.findByIdAndUpdate(id, { status: "archived", archivedAt: new Date() }, { returnDocument: "after", runValidators: true });
 
 if (!institute) {
   res.status(404).json({

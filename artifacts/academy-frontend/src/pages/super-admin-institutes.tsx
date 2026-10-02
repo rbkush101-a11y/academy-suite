@@ -10,10 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BUSINESS_TYPES, businessTypeLabel, isEducationBusinessType } from "@/lib/business-types";
 
 type InstituteStatus = "pending" | "active" | "trial" | "suspended" | "expired" | "cancelled" | "archived";
 type InstituteRow = {
-  id: string; instituteName: string; legalName?: string; instituteType?: string; ownerName: string; email: string; phone: string;
+  id: string; instituteName: string; legalName?: string; instituteType?: string; industryLabel?: string; ownerName: string; email: string; phone: string;
   city?: string; state?: string; country?: string; domain?: string; plan?: string; status: InstituteStatus; expiryDate?: string;
   createdAt?: string; updatedAt?: string; branchCount: number; studentCount: number; lastActivity?: string | null;
   subscription?: { id?: string; status?: string; endsAt?: string }; currentPlan?: { id?: string; code?: string; name?: string };
@@ -138,7 +139,7 @@ function PageShell({ title, children, trailing }: { title: string; children: Rea
     <div className="mx-auto max-w-[1500px]">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div><Link href="/super-admin" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" />Platform console</Link><h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1></div>
-        <div className="flex flex-wrap items-center gap-2"><Link href="/super-admin/institutes" className="rounded-md border bg-background px-3 py-2 text-sm hover:bg-muted">Institute directory</Link>{trailing}</div>
+        <div className="flex flex-wrap items-center gap-2"><Link href="/super-admin/institutes" className="rounded-md border bg-background px-3 py-2 text-sm hover:bg-muted">Business directory</Link>{trailing}</div>
       </header>
       {children}
     </div>
@@ -158,6 +159,7 @@ const statusOptions: InstituteStatus[] = ["pending", "active", "trial", "suspend
 export function SuperAdminInstituteList() {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
   const [status, setStatus] = useState("all");
   const [subscription, setSubscription] = useState("all");
   const [plan, setPlan] = useState("all");
@@ -169,9 +171,10 @@ export function SuperAdminInstituteList() {
   const [limit, setLimit] = useState(20);
   const plans = useQuery({ queryKey: ["platform", "institute-management", "plans"], queryFn: getPlans });
   const query = useQuery({
-    queryKey: ["platform", "institute-management", search, status, subscription, plan, createdFrom, createdTo, sort, direction, page, limit],
+    queryKey: ["platform", "institute-management", search, category, status, subscription, plan, createdFrom, createdTo, sort, direction, page, limit],
     queryFn: () => {
       const params = new URLSearchParams({ search, status, subscription, sort, direction, page: String(page), limit: String(limit) });
+      if (category !== "all") params.set("category", category);
       if (plan !== "all") params.set("plan", plan);
       if (createdFrom) params.set("createdFrom", createdFrom);
       if (createdTo) params.set("createdTo", createdTo);
@@ -187,40 +190,41 @@ export function SuperAdminInstituteList() {
   };
   const planItems = plans.data ?? [];
 
-  return <PageShell title="Institute management" trailing={<Button onClick={() => setLocation("/super-admin/institutes/new")}><Plus className="mr-2 h-4 w-4" />Create institute</Button>}>
+  return <PageShell title="Business management" trailing={<Button onClick={() => setLocation("/super-admin/institutes/new")}><Plus className="mr-2 h-4 w-4" />Create business</Button>}>
     <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <Card><CardContent className="flex items-center gap-3 p-4"><Building2 className="h-5 w-5 text-primary" /><div><p className="text-xs text-muted-foreground">Matching institutes</p><p className="text-xl font-semibold">{pageData?.total ?? "—"}</p></div></CardContent></Card>
+      <Card><CardContent className="flex items-center gap-3 p-4"><Building2 className="h-5 w-5 text-primary" /><div><p className="text-xs text-muted-foreground">Matching businesses</p><p className="text-xl font-semibold">{pageData?.total ?? "—"}</p></div></CardContent></Card>
       <Card><CardContent className="flex items-center gap-3 p-4"><Users className="h-5 w-5 text-primary" /><div><p className="text-xs text-muted-foreground">On this page</p><p className="text-xl font-semibold">{pageData?.items?.length ?? "—"}</p></div></CardContent></Card>
-      <Card className="sm:col-span-2"><CardContent className="flex items-start gap-3 p-4"><Filter className="mt-0.5 h-5 w-5 text-primary" /><p className="text-sm text-muted-foreground">Search and filters run on the platform database. Use the headers to sort by institute, owner, status, branch count, student count, creation date, or last activity.</p></CardContent></Card>
+      <Card className="sm:col-span-2"><CardContent className="flex items-start gap-3 p-4"><Filter className="mt-0.5 h-5 w-5 text-primary" /><p className="text-sm text-muted-foreground">Search and filters run on the platform database. Use the headers to sort by business, owner, status, branch count, student count, creation date, or last activity.</p></CardContent></Card>
     </div>
 
     <Card className="mb-4"><CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
-      <label className="relative sm:col-span-2 xl:col-span-1"><span className="sr-only">Search institutes</span><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search institute, owner, email…" /></label>
+      <label className="relative sm:col-span-2 xl:col-span-1"><span className="sr-only">Search businesses</span><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search business, owner, email…" /></label>
+      <label className="space-y-1 text-xs text-muted-foreground"><span>Business category</span><select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground" value={category} onChange={(event) => { setCategory(event.target.value); setPage(1); }}><option value="all">All categories</option>{BUSINESS_TYPES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       <label className="space-y-1 text-xs text-muted-foreground"><span>Status</span><select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="all">All statuses</option>{statusOptions.map((value) => <option key={value} value={value}>{value.toUpperCase()}</option>)}</select></label>
       <label className="space-y-1 text-xs text-muted-foreground"><span>Subscription</span><select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground" value={subscription} onChange={(event) => { setSubscription(event.target.value); setPage(1); }}><option value="all">All subscriptions</option><option value="active">Active</option><option value="trialing">Trial</option><option value="past_due">Past due</option><option value="paused">Paused</option><option value="expired">Expired</option><option value="canceled">Cancelled</option><option value="none">No subscription</option></select></label>
       <label className="space-y-1 text-xs text-muted-foreground"><span>Plan</span><select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground" value={plan} onChange={(event) => { setPlan(event.target.value); setPage(1); }}><option value="all">All plans</option>{planItems.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
       <label className="space-y-1 text-xs text-muted-foreground"><span>Created from</span><Input type="date" value={createdFrom} max={createdTo || undefined} onChange={(event) => { setCreatedFrom(event.target.value); setPage(1); }} /></label>
       <label className="space-y-1 text-xs text-muted-foreground"><span>Created through</span><Input type="date" value={createdTo} min={createdFrom || undefined} onChange={(event) => { setCreatedTo(event.target.value); setPage(1); }} /></label>
-      <label className="space-y-1 text-xs text-muted-foreground"><span>Sort by</span><select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground" value={sort} onChange={(event) => setSort(event.target.value)}>{[["createdAt", "Created date"], ["instituteName", "Institute name"], ["ownerName", "Owner name"], ["status", "Status"], ["branchCount", "Branch count"], ["studentCount", "Student count"], ["lastActivity", "Last activity"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label className="space-y-1 text-xs text-muted-foreground"><span>Sort by</span><select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground" value={sort} onChange={(event) => setSort(event.target.value)}>{[["createdAt", "Created date"], ["instituteName", "Business name"], ["instituteType", "Business category"], ["ownerName", "Owner name"], ["status", "Status"], ["branchCount", "Location count"], ["studentCount", "Student count"], ["lastActivity", "Last activity"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label className="space-y-1 text-xs text-muted-foreground"><span>Direction / rows</span><div className="flex gap-2"><select aria-label="Sort direction" className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-foreground" value={direction} onChange={(event) => setDirection(event.target.value)}><option value="desc">Descending</option><option value="asc">Ascending</option></select><select aria-label="Rows per page" className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground" value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setPage(1); }}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></div></label>
     </CardContent></Card>
 
     {query.isPending ? <LoadingRows /> : query.error ? <ErrorPanel error={query.error} retry={() => void query.refetch()} /> : !pageData.items.length ? (
-      <Card><CardContent className="flex flex-col items-center gap-2 p-10 text-center"><Building2 className="h-8 w-8 text-muted-foreground" /><p className="font-medium">No institutes found</p><p className="text-sm text-muted-foreground">Try changing your filters or create an institute to begin.</p><Button variant="outline" onClick={() => setLocation("/super-admin/institutes/new")}>Create institute</Button></CardContent></Card>
+      <Card><CardContent className="flex flex-col items-center gap-2 p-10 text-center"><Building2 className="h-8 w-8 text-muted-foreground" /><p className="font-medium">No businesses found</p><p className="text-sm text-muted-foreground">Try changing your filters or onboard a business to begin.</p><Button variant="outline" onClick={() => setLocation("/super-admin/institutes/new")}>Create business</Button></CardContent></Card>
     ) : <Card>
       <div className="overflow-x-auto"><table className="w-full min-w-[1180px] text-left text-sm">
         <thead className="border-b bg-muted/40 text-xs uppercase text-muted-foreground"><tr>{[
-          ["Institute", "instituteName"], ["Owner", "ownerName"], ["Status", "status"], ["Subscription", "subscription"], ["Plan", "plan"],
-          ["Branches", "branchCount"], ["Students", "studentCount"], ["Created", "createdAt"], ["Last activity", "lastActivity"], ["", ""],
+          ["Business", "instituteName"], ["Owner", "ownerName"], ["Status", "status"], ["Subscription", "subscription"], ["Plan", "plan"],
+          ["Locations", "branchCount"], ["Education students", "studentCount"], ["Created", "createdAt"], ["Last activity", "lastActivity"], ["", ""],
         ].map(([label, key]) => <th key={key || label} className="whitespace-nowrap px-4 py-3 font-semibold">{key ? <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => { if (sort === key) setDirection(direction === "asc" ? "desc" : "asc"); else { setSort(key); setDirection("asc"); } }}>{label}<ChevronDown className={`h-3 w-3 ${sort === key && direction === "asc" ? "rotate-180" : ""}`} /></button> : label}</th>)}</tr></thead>
         <tbody className="divide-y">{pageData.items.map((item) => <tr key={item.id} className="hover:bg-muted/20">
-          <td className="px-4 py-3"><Link href={`/super-admin/institutes/${item.id}`} className="font-semibold text-primary hover:underline">{item.instituteName}</Link><p className="mt-1 text-xs text-muted-foreground">{[item.city, item.state].filter(Boolean).join(", ") || item.domain || "Institute profile"}</p></td>
+          <td className="px-4 py-3"><Link href={`/super-admin/institutes/${item.id}`} className="font-semibold text-primary hover:underline">{item.instituteName}</Link><p className="mt-1 text-xs font-medium text-muted-foreground">{businessTypeLabel(item.instituteType, item.industryLabel)}</p><p className="mt-1 text-xs text-muted-foreground">{[item.city, item.state].filter(Boolean).join(", ") || item.domain || "Business profile"}</p></td>
           <td className="px-4 py-3"><p className="font-medium">{item.ownerName}</p><p className="mt-1 text-xs text-muted-foreground">{item.email}</p></td>
           <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
           <td className="px-4 py-3"><span className="capitalize">{(item.subscription?.status ?? "none").replaceAll("_", " ")}</span>{item.subscription?.endsAt && <p className="mt-1 text-xs text-muted-foreground">Ends {formatDate(item.subscription.endsAt)}</p>}</td>
           <td className="px-4 py-3">{item.currentPlan?.name || item.plan || "—"}</td>
           <td className="px-4 py-3 tabular-nums">{new Intl.NumberFormat().format(item.branchCount)}</td>
-          <td className="px-4 py-3 tabular-nums">{new Intl.NumberFormat().format(item.studentCount)}</td>
+          <td className="px-4 py-3 tabular-nums">{isEducationBusinessType(item.instituteType) || item.studentCount > 0 ? new Intl.NumberFormat().format(item.studentCount) : "—"}</td>
           <td className="px-4 py-3 whitespace-nowrap">{formatDate(item.createdAt)}</td>
           <td className="px-4 py-3 whitespace-nowrap">{formatDateTime(item.lastActivity)}</td>
           <td className="px-4 py-3"><Link href={`/super-admin/institutes/${item.id}`} aria-label={`Open ${item.instituteName}`} className="inline-flex rounded-md border p-2 hover:bg-muted"><ExternalLink className="h-4 w-4" /></Link></td>
@@ -236,6 +240,22 @@ const currentAcademicYear = () => {
   const start = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
   return `${start}-${start + 1}`;
 };
+
+function BusinessCategoryFields({ defaultType = "school", industryLabel = "", academicYear = currentAcademicYear() }: {
+  defaultType?: string; industryLabel?: string; academicYear?: string;
+}) {
+  const [category, setCategory] = useState(BUSINESS_TYPES.some((item) => item.value === defaultType) ? defaultType : "");
+  return <>
+    <label className="grid gap-1.5 text-sm"><span>Business category <Required /></span>
+      <select name="instituteType" required value={category} onChange={(event) => setCategory(event.target.value)} className="h-9 rounded-md border border-input bg-background px-3">
+        {!BUSINESS_TYPES.some((item) => item.value === category) && <option value="" disabled>Choose a category</option>}
+        {BUSINESS_TYPES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+      </select>
+    </label>
+    {category === "other" && <label className="grid gap-1.5 text-sm"><span>Industry name</span><Input name="industryLabel" maxLength={120} defaultValue={industryLabel} placeholder="e.g. Professional services" /></label>}
+    {isEducationBusinessType(category) && <Field label="Academic year" name="academicYear" required defaultValue={academicYear} />}
+  </>;
+}
 
 export function SuperAdminInstituteCreate() {
   const [, setLocation] = useLocation();
@@ -283,7 +303,7 @@ export function SuperAdminInstituteCreate() {
     const form = new FormData(event.currentTarget);
     const value = (key: string) => String(form.get(key) ?? "").trim();
     create.mutate({
-      instituteName: value("instituteName"), legalName: value("legalName"), instituteType: value("instituteType"),
+      instituteName: value("instituteName"), legalName: value("legalName"), instituteType: value("instituteType"), industryLabel: value("industryLabel"),
       ownerName: value("ownerName"), ownerEmail: value("ownerEmail"), ownerPhone: value("ownerPhone"),
       initialAdminName: value("initialAdminName"), initialAdminEmail: value("initialAdminEmail"),
       address: value("address"), city: value("city"), state: value("state"), country: value("country"), pincode: value("pincode"),
@@ -294,45 +314,46 @@ export function SuperAdminInstituteCreate() {
   }
   const options = plans.data ?? [];
   const canCreate = ["super_admin", "platform_admin"].includes(role());
-  if (!canCreate) return <PageShell title="Create institute"><Card><CardContent className="p-6 text-sm text-destructive">Your platform role cannot create institutes.</CardContent></Card></PageShell>;
-  return <PageShell title="Create institute"><form onSubmit={submit} className="space-y-5">
+  if (!canCreate) return <PageShell title="Create business"><Card><CardContent className="p-6 text-sm text-destructive">Your platform role cannot create client businesses.</CardContent></Card></PageShell>;
+  return <PageShell title="Onboard a business"><form onSubmit={submit} className="space-y-5">
     {create.error && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{create.error.message}</div>}
     {plans.error && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">Unable to load subscription plans: {plans.error.message}</div>}
-    <Card><CardHeader><CardTitle className="text-base">Institute profile</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <Field label="Institute name" name="instituteName" required />
+    <Card><CardHeader><CardTitle className="text-base">Business identity</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <Field label="Business name" name="instituteName" required />
       <Field label="Legal name" name="legalName" />
-      <label className="grid gap-1.5 text-sm"><span>Institute type <Required /></span><select name="instituteType" required className="h-9 rounded-md border border-input bg-background px-3"><option value="school">School</option><option value="coaching">Coaching</option><option value="computer_institute">Computer institute</option><option value="tuition_center">Tuition center</option><option value="academy">Academy</option></select></label>
-      <Field label="Website" name="website" type="url" placeholder="https://example.edu" />
-      <Field label="Domain" name="domain" placeholder="portal.example.edu" />
+      <BusinessCategoryFields />
+      <Field label="Public website" name="website" type="url" placeholder="https://example.com" />
+      <Field label="Client portal domain" name="domain" placeholder="portal.example.com" />
       <label className="grid gap-1.5 text-sm"><span>Logo</span><Input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(event) => void chooseLogo(event.target.files?.[0])} />{logoError && <span className="text-xs text-destructive">{logoError}</span>}{logoDataUrl && <span className="text-xs text-emerald-700">Logo ready to upload</span>}</label>
+      <p className="sm:col-span-2 lg:col-span-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs leading-5 text-sky-900">Create the business profile, first location, administrator access and subscription together. Industry operations and website templates are configured separately.</p>
     </CardContent></Card>
     <Card><CardHeader><CardTitle className="text-base">Owner and initial admin account</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Field label="Owner name" name="ownerName" required /><Field label="Owner email" name="ownerEmail" type="email" required /><Field label="Owner phone" name="ownerPhone" type="tel" required />
       <Field label="Initial admin name" name="initialAdminName" required /><Field label="Initial admin email" name="initialAdminEmail" type="email" required />
-      <p className="sm:col-span-2 lg:col-span-3 text-xs text-muted-foreground">A temporary password is generated when the institute is created and shown once to the Super Admin. The admin can change it using the password setup link when email delivery is configured.</p>
+      <p className="sm:col-span-2 lg:col-span-3 text-xs text-muted-foreground">A temporary password is generated when the business is created and shown once to the Super Admin. The admin can change it using the password setup link when email delivery is configured.</p>
     </CardContent></Card>
-    <Card><CardHeader><CardTitle className="text-base">Address and default branch</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <Field label="Address" name="address" required /><Field label="City" name="city" required /><Field label="State" name="state" required /><Field label="Country" name="country" required /><Field label="Pincode" name="pincode" required />
-      <Field label="Default branch" name="defaultBranchName" required defaultValue="Main Branch" /><Field label="Branch code" name="defaultBranchCode" defaultValue="MAIN" required /><Field label="Academic year" name="academicYear" defaultValue={currentAcademicYear()} required />
+    <Card><CardHeader><CardTitle className="text-base">Address and first location</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <Field label="Primary business address" name="address" required /><Field label="City" name="city" required /><Field label="State / region" name="state" required /><Field label="Country" name="country" required /><Field label="Postal code" name="pincode" required />
+      <Field label="First location" name="defaultBranchName" required defaultValue="Main location" /><Field label="Location code" name="defaultBranchCode" defaultValue="MAIN" required />
     </CardContent></Card>
     <Card><CardHeader><CardTitle className="text-base">Subscription</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <label className="grid gap-1.5 text-sm"><span>Plan <Required /></span><select name="planId" required defaultValue="" disabled={plans.isPending || !options.length} className="h-9 rounded-md border border-input bg-background px-3"><option value="" disabled>{plans.isPending ? "Loading plans…" : options.length ? "Select a plan" : "No active plans available"}</option>{options.filter((item) => !item.status || item.status === "active").map((item) => <option key={item._id ?? item.id ?? item.code} value={item._id ?? item.id}>{item.name} · {item.code}</option>)}</select></label>
       <label className="grid gap-1.5 text-sm"><span>Billing cycle</span><select name="billingCycle" className="h-9 rounded-md border border-input bg-background px-3"><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label>
       <label className="grid gap-1.5 text-sm"><span>Trial duration (days)</span><Input name="trialDays" type="number" min="0" max="365" defaultValue="0" required /></label>
       <label className="grid gap-1.5 text-sm"><span>Initial status</span><select name="status" className="h-9 rounded-md border border-input bg-background px-3"><option value="pending">PENDING — activate after setup</option><option value="active">ACTIVE</option></select></label>
-      <p className="self-end text-xs text-muted-foreground sm:col-span-1 lg:col-span-2">A positive trial duration starts a trial subscription and sets the institute status to TRIAL.</p>
+      <p className="self-end text-xs text-muted-foreground sm:col-span-1 lg:col-span-2">A positive trial duration starts a trial subscription and sets the workspace status to TRIAL.</p>
     </CardContent></Card>
-    <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => setLocation("/super-admin/institutes")}>Cancel</Button><Button type="submit" disabled={create.isPending || plans.isPending || !options.length || Boolean(logoError)}>{create.isPending ? <><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Creating…</> : <><FilePlus2 className="mr-2 h-4 w-4" />Create institute</>}</Button></div>
+    <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => setLocation("/super-admin/institutes")}>Cancel</Button><Button type="submit" disabled={create.isPending || plans.isPending || !options.length || Boolean(logoError)}>{create.isPending ? <><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Creating…</> : <><FilePlus2 className="mr-2 h-4 w-4" />Create workspace</>}</Button></div>
   </form>
   <Dialog open={Boolean(createdCredentials)} onOpenChange={(open) => { if (!open) setCreatedCredentials(null); }}>
     <DialogContent className="sm:max-w-lg">
       <DialogHeader>
-        <DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" />Institute Admin credentials</DialogTitle>
+        <DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" />Business admin credentials</DialogTitle>
         <DialogDescription>Save these credentials now. The temporary password is shown only in this response and cannot be recovered from the database later.</DialogDescription>
       </DialogHeader>
       {createdCredentials && <div className="space-y-4">
         <div className="rounded-lg border bg-muted/40 p-4">
-          <p className="text-xs text-muted-foreground">Institute</p><p className="font-semibold">{createdCredentials.instituteName}</p>
+          <p className="text-xs text-muted-foreground">Business</p><p className="font-semibold">{createdCredentials.instituteName}</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div><p className="text-xs text-muted-foreground">Admin name</p><p className="text-sm font-medium">{createdCredentials.adminName}</p></div>
             <div><p className="text-xs text-muted-foreground">Login ID</p><p className="break-all text-sm font-medium">{createdCredentials.email}</p></div>
@@ -345,7 +366,7 @@ export function SuperAdminInstituteCreate() {
         <p className="text-xs text-muted-foreground">{createdCredentials.setupEmailQueued ? "A password setup email was also queued for the administrator." : "Email delivery is not configured, so no password setup email was sent."}</p>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => setCreatedCredentials(null)}>Close</Button>
-          <Button type="button" onClick={() => { setCreatedCredentials(null); setLocation(`/super-admin/institutes/${createdCredentials.instituteId}`); }}>Open institute</Button>
+          <Button type="button" onClick={() => { setCreatedCredentials(null); setLocation(`/super-admin/institutes/${createdCredentials.instituteId}`); }}>Open business</Button>
         </DialogFooter>
       </div>}
     </DialogContent>
@@ -360,6 +381,7 @@ function Field({ label, name, required, type = "text", placeholder, defaultValue
 
 const detailTabs = ["Overview", "Profile", "Owner", "Branches", "Admins", "Users", "Students", "Teachers", "Staff", "Parents", "Courses", "Subscriptions", "Payments", "Invoices", "Usage", "Activity", "Audit Logs", "Settings"] as const;
 type DetailTab = (typeof detailTabs)[number];
+const educationTabs = new Set<DetailTab>(["Students", "Teachers", "Parents", "Courses"]);
 const sectionKey: Record<DetailTab, string> = {
   Overview: "overview", Profile: "profile", Owner: "owner", Branches: "branches", Admins: "admins", Users: "users", Students: "students",
   Teachers: "teachers", Staff: "staff", Parents: "parents", Courses: "courses", Subscriptions: "subscriptions", Payments: "payments",
@@ -392,7 +414,7 @@ export function SuperAdminInstituteDetail() {
   const [, setLocation] = useLocation();
   const [, params] = useRoute("/super-admin/institutes/:id");
   const id = params?.id ?? "";
-  const [tab, setTab] = useState<DetailTab>("Overview");
+  const [selectedTab, setTab] = useState<DetailTab>("Overview");
   const [announcementOpen, setAnnouncementOpen] = useState(false);
   const [announcementError, setAnnouncementError] = useState("");
   const [trialDays, setTrialDays] = useState("14");
@@ -447,9 +469,10 @@ export function SuperAdminInstituteDetail() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const body: Record<string, unknown> = {};
-    ["instituteName", "legalName", "instituteType", "ownerName", "email", "phone", "address", "city", "state", "country", "pincode", "website", "domain", "academicYear"].forEach((key) => {
+    ["instituteName", "legalName", "instituteType", "industryLabel", "ownerName", "email", "phone", "address", "city", "state", "country", "pincode", "website", "domain"].forEach((key) => {
       body[key] = String(form.get(key) ?? "").trim();
     });
+    if (form.has("academicYear")) body.academicYear = String(form.get("academicYear") ?? "").trim();
 
     const requiredFields: Array<[string, string]> = [
       ["Institute name", String(body.instituteName ?? "")],
@@ -467,8 +490,10 @@ export function SuperAdminInstituteDetail() {
     profileMutation.mutate(body);
   }
 
-  if (detail.isPending) return <PageShell title="Institute details"><div className="space-y-3"><div className="h-24 animate-pulse rounded-lg bg-muted" /><LoadingRows /></div></PageShell>;
-  if (detail.error || !data || !institute) return <PageShell title="Institute details"><ErrorPanel error={detail.error ?? new Error("Institute was not found.")} retry={() => void detail.refetch()} /></PageShell>;
+  if (detail.isPending) return <PageShell title="Business details"><div className="space-y-3"><div className="h-24 animate-pulse rounded-lg bg-muted" /><LoadingRows /></div></PageShell>;
+  if (detail.error || !data || !institute) return <PageShell title="Business details"><ErrorPanel error={detail.error ?? new Error("Business was not found.")} retry={() => void detail.refetch()} /></PageShell>;
+  const showEducation = isEducationBusinessType(institute.instituteType) || [data.overview.students, data.overview.teachers, data.overview.parents, data.overview.courses].some((count) => count > 0);
+  const tab = !showEducation && educationTabs.has(selectedTab) ? "Overview" : selectedTab;
   const section = sectionKey[tab];
   const rows = Array.isArray(data.sections[section]) ? data.sections[section] : [];
   const planSelect = <select aria-label="Subscription plan" value={planId || currentPlanId || ""} onChange={(event) => setPlanId(event.target.value)} className="h-9 min-w-48 rounded-md border border-input bg-background px-3 text-sm"><option value="">Select plan</option>{availablePlans.filter((plan) => !plan.status || plan.status === "active").map((plan) => <option key={plan._id ?? plan.id ?? plan.code} value={plan._id ?? plan.id}>{plan.name}</option>)}</select>;
@@ -476,7 +501,7 @@ export function SuperAdminInstituteDetail() {
   const disabled = statusMutation.isPending || trialMutation.isPending || planMutation.isPending;
 
   return <PageShell title={institute.instituteName} trailing={<Button variant="outline" onClick={() => void detail.refetch()}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button>}>
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background p-4 shadow-sm"><div className="flex min-w-0 items-center gap-3">{institute.logoDataUrl ? <img src={institute.logoDataUrl} alt="" className="h-12 w-12 rounded-lg border object-contain" /> : <span className="rounded-lg bg-primary/10 p-3 text-primary"><Building2 className="h-6 w-6" /></span>}<div className="min-w-0"><p className="truncate text-lg font-semibold">{institute.legalName || institute.instituteName}</p><p className="truncate text-sm text-muted-foreground">{institute.ownerName} · {institute.ownerEmail}</p></div><StatusBadge status={status} /></div><div className="flex flex-wrap gap-2">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background p-4 shadow-sm"><div className="flex min-w-0 items-center gap-3">{institute.logoDataUrl ? <img src={institute.logoDataUrl} alt="" className="h-12 w-12 rounded-lg border object-contain" /> : <span className="rounded-lg bg-primary/10 p-3 text-primary"><Building2 className="h-6 w-6" /></span>}<div className="min-w-0"><p className="truncate text-lg font-semibold">{institute.legalName || institute.instituteName}</p><p className="truncate text-sm text-muted-foreground">{institute.ownerName} · {institute.ownerEmail}</p><p className="mt-1 text-xs font-medium text-primary">{businessTypeLabel(institute.instituteType, institute.industryLabel)}</p></div><StatusBadge status={status} /></div><div className="flex flex-wrap gap-2">
       {canManage && status === "pending" && <Button size="sm" disabled={disabled} onClick={() => statusMutation.mutate("activate")}><ShieldCheck className="mr-1.5 h-4 w-4" />Activate</Button>}
       {canManage && ["active", "trial"].includes(status) && <Button size="sm" variant="outline" disabled={disabled} onClick={() => { if (window.confirm("Suspend this institute? Its tenant sessions will be revoked.")) statusMutation.mutate("suspend"); }}><ShieldOff className="mr-1.5 h-4 w-4" />Suspend</Button>}
       {canManage && status === "suspended" && <Button size="sm" disabled={disabled} onClick={() => statusMutation.mutate("resume")}><ShieldCheck className="mr-1.5 h-4 w-4" />Resume</Button>}
@@ -488,19 +513,19 @@ export function SuperAdminInstituteDetail() {
 
     {canManage && <Card className="mb-4"><CardContent className="flex flex-wrap items-end gap-3 p-4"><div className="mr-auto"><p className="text-sm font-semibold">Subscription actions</p><p className="mt-1 text-xs text-muted-foreground">Choose a live plan before changing the subscription or starting/extending a trial.</p></div>{planSelect}<label className="grid gap-1 text-xs text-muted-foreground"><span>Trial days</span><Input className="w-28" type="number" min="1" max="365" value={trialDays} onChange={(event) => setTrialDays(event.target.value)} /></label><Button size="sm" variant="outline" disabled={disabled || !Number(trialDays)} onClick={() => trialMutation.mutate({ action: "start", days: Number(trialDays) })}>Start trial</Button><Button size="sm" variant="outline" disabled={disabled || !Number(trialDays)} onClick={() => trialMutation.mutate({ action: "extend", days: Number(trialDays) })}>Extend trial</Button><Button size="sm" disabled={disabled || !planId} onClick={() => planMutation.mutate()}>Change plan</Button></CardContent></Card>}
 
-    <div className="mb-4 overflow-x-auto"><div className="flex min-w-max gap-1 border-b">{detailTabs.map((value) => <button key={value} onClick={() => { setTab(value); setProfileEditing(false); }} className={`border-b-2 px-3 py-2 text-sm font-medium ${tab === value ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{value}</button>)}</div></div>
+    <div className="mb-4 overflow-x-auto"><div className="flex min-w-max gap-1 border-b">{detailTabs.filter((value) => showEducation || !educationTabs.has(value)).map((value) => <button key={value} onClick={() => { setTab(value); setProfileEditing(false); }} className={`border-b-2 px-3 py-2 text-sm font-medium ${tab === value ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{value === "Branches" ? "Locations" : value}</button>)}</div></div>
 
     {tab === "Overview" && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
-      ["Branches", data.overview.branches, Building2], ["Students", data.overview.students, Users], ["Teachers", data.overview.teachers, ShieldCheck], ["Staff", data.overview.staff, Users],
-      ["Parents", data.overview.parents, Users], ["Users", data.overview.users, Users], ["Active users", data.overview.activeUsers, Activity], ["Admins", data.overview.admins, ShieldCheck],
-    ].map(([label, value, icon]) => <DetailMetric key={String(label)} label={String(label)} value={Number(value)} icon={icon as typeof Users} />)}</div><div className="grid gap-4 lg:grid-cols-2"><Card><CardHeader><CardTitle className="text-base">Institute overview</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2">{[["Status", <StatusBadge status={status} />], ["Plan", data.overview.currentSubscription?.planId?.name ?? institute.plan ?? "—"], ["Academic year", institute.academicYear], ["Created", formatDate(institute.createdAt)], ["Expires", formatDate(institute.expiryDate)], ["Last activity", formatDateTime(data.sections.activity?.[0]?.createdAt)]].map(([label, value]) => <div key={String(label)}><p className="text-xs text-muted-foreground">{label}</p><div className="mt-1 text-sm font-medium">{value as ReactNode}</div></div>)}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">Current subscription</CardTitle></CardHeader><CardContent>{data.overview.currentSubscription ? <div className="grid gap-3 sm:grid-cols-2">{Object.entries(data.overview.currentSubscription).filter(([key]) => key !== "_id").map(([key, value]) => <div key={key}><p className="text-xs text-muted-foreground">{humanize(key)}</p><p className="mt-1 text-sm font-medium">{showValue(value)}</p></div>)}</div> : <p className="text-sm text-muted-foreground">No subscription record found.</p>}</CardContent></Card></div></div>}
+      ["Locations", data.overview.branches, Building2], ["Education students", data.overview.students, Users], ["Education teachers", data.overview.teachers, ShieldCheck], ["Staff", data.overview.staff, Users],
+      ["Education parents", data.overview.parents, Users], ["Users", data.overview.users, Users], ["Active users", data.overview.activeUsers, Activity], ["Admins", data.overview.admins, ShieldCheck],
+    ].filter(([label]) => showEducation || !String(label).startsWith("Education ")).map(([label, value, icon]) => <DetailMetric key={String(label)} label={String(label)} value={Number(value)} icon={icon as typeof Users} />)}</div><div className="grid gap-4 lg:grid-cols-2"><Card><CardHeader><CardTitle className="text-base">Business overview</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2">{[["Status", <StatusBadge status={status} />], ["Plan", data.overview.currentSubscription?.planId?.name ?? institute.plan ?? "—"], ["Academic year", institute.academicYear], ["Created", formatDate(institute.createdAt)], ["Expires", formatDate(institute.expiryDate)], ["Last activity", formatDateTime(data.sections.activity?.[0]?.createdAt)]].filter(([label]) => showEducation || label !== "Academic year").map(([label, value]) => <div key={String(label)}><p className="text-xs text-muted-foreground">{label}</p><div className="mt-1 text-sm font-medium">{value as ReactNode}</div></div>)}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">Current subscription</CardTitle></CardHeader><CardContent>{data.overview.currentSubscription ? <div className="grid gap-3 sm:grid-cols-2">{Object.entries(data.overview.currentSubscription).filter(([key]) => key !== "_id").map(([key, value]) => <div key={key}><p className="text-xs text-muted-foreground">{humanize(key)}</p><p className="mt-1 text-sm font-medium">{showValue(value)}</p></div>)}</div> : <p className="text-sm text-muted-foreground">No subscription record found.</p>}</CardContent></Card></div></div>}
 
-    {tab === "Profile" && <Card><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">Institute profile</CardTitle>{canManage && !profileEditing && <Button size="sm" variant="outline" onClick={() => setProfileEditing(true)}>Edit profile</Button>}</CardHeader><CardContent>{profileEditing ? <form onSubmit={submitProfile} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[
-      ["Institute name", "instituteName", ""], ["Legal name", "legalName", ""], ["Institute type", "instituteType", ""], ["Owner name", "ownerName", ""], ["Owner email", "email", "ownerEmail"], ["Owner phone", "phone", "ownerPhone"],
-      ["Address", "address", ""], ["City", "city", ""], ["State", "state", ""], ["Country", "country", ""], ["Pincode", "pincode", ""], ["Website", "website", ""], ["Domain", "domain", ""], ["Academic year", "academicYear", ""],
+    {tab === "Profile" && <Card><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">Business profile</CardTitle>{canManage && !profileEditing && <Button size="sm" variant="outline" onClick={() => setProfileEditing(true)}>Edit profile</Button>}</CardHeader><CardContent>{profileEditing ? <form onSubmit={submitProfile} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"><BusinessCategoryFields defaultType={institute.instituteType} industryLabel={institute.industryLabel} academicYear={institute.academicYear} />{[
+      ["Business name", "instituteName", ""], ["Legal name", "legalName", ""], ["Owner name", "ownerName", ""], ["Owner email", "email", "ownerEmail"], ["Owner phone", "phone", "ownerPhone"],
+      ["Address", "address", ""], ["City", "city", ""], ["State", "state", ""], ["Country", "country", ""], ["Pincode", "pincode", ""], ["Website", "website", ""], ["Domain", "domain", ""],
     ].map(([label, name, fallbackName]) => { const value = String((institute as any)[name] ?? (fallbackName ? (institute as any)[fallbackName] : "") ?? ""); return <label key={name} className="grid gap-1.5 text-sm"><span>{label}</span><Input name={name} type={name === "email" ? "email" : "text"} defaultValue={value} required={name === "instituteName" || name === "email" || name === "ownerName" || name === "phone"} /></label>; })}<div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-3">{profileMutation.error && <p role="alert" className="w-full rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{(profileMutation.error as Error).message}</p>}<Button type="button" variant="outline" onClick={() => { profileMutation.reset(); setProfileEditing(false); }}>Cancel</Button><Button type="submit" disabled={profileMutation.isPending}>{profileMutation.isPending ? "Saving…" : "Save profile"}</Button></div></form> : <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(institute).filter(([key]) => !["id", "initialAdminId", "defaultBranchId", "archivedAt", "logoDataUrl"].includes(key)).map(([key, value]) => <div key={key}><p className="text-xs text-muted-foreground">{humanize(key)}</p><p className="mt-1 break-words text-sm font-medium">{key.endsWith("At") || key === "createdAt" || key === "updatedAt" || key === "expiryDate" ? formatDateTime(value as string) : key === "status" ? <StatusBadge status={String(value)} /> : showValue(value)}</p></div>)}{institute.website && <a className="text-sm text-primary underline" href={institute.website} target="_blank" rel="noreferrer">Open website</a>}</div>}</CardContent></Card>}
 
-    {tab === "Owner" && <Card><CardHeader><CardTitle className="text-base">Institute owner</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[["Name", institute.ownerName], ["Email", institute.ownerEmail], ["Phone", institute.ownerPhone], ["Initial administrator", institute.initialAdminId ?? "—"]].map(([label, value]) => <div key={String(label)}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 break-words text-sm font-medium">{showValue(value)}</p></div>)}</CardContent></Card>}
+    {tab === "Owner" && <Card><CardHeader><CardTitle className="text-base">Business owner</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[["Name", institute.ownerName], ["Email", institute.ownerEmail], ["Phone", institute.ownerPhone], ["Initial administrator", institute.initialAdminId ?? "—"]].map(([label, value]) => <div key={String(label)}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 break-words text-sm font-medium">{showValue(value)}</p></div>)}</CardContent></Card>}
 
     {tab === "Usage" && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{Object.entries(data.sections.usage as Record<string, { used: number; limit: number | null }> ?? {}).map(([key, item]) => <Card key={key}><CardContent className="p-5"><p className="text-sm text-muted-foreground">{humanize(key)}</p><p className="mt-2 text-2xl font-semibold">{new Intl.NumberFormat().format(item.used)} <span className="text-sm font-normal text-muted-foreground">/ {item.limit === null ? "unlimited" : new Intl.NumberFormat().format(item.limit)}</span></p>{item.limit !== null && <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, item.limit ? item.used / item.limit * 100 : 0)}%` }} /></div>}</CardContent></Card>)}</div>}
 

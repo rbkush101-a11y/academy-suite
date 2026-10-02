@@ -692,7 +692,7 @@ router.post(
                 ),
             },
           },
-          { new: true },
+          { returnDocument: "after" },
         );
 
       if (!rotated) {
@@ -3099,7 +3099,7 @@ router.patch(
             userId,
             updateData,
             {
-              new: true,
+              returnDocument: "after",
               runValidators: true,
             },
           ).select(
@@ -3176,7 +3176,7 @@ router.patch(
           userId,
           updateData,
           {
-            new: true,
+            returnDocument: "after",
             runValidators: true,
           },
         ).select("-password");

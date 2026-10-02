@@ -181,7 +181,7 @@ router.patch(
       });
       if (duplicate) { res.status(409).json({ error: "A topic with this name already exists for the selected subject." }); return; }
 
-      const updated = await Topic.findByIdAndUpdate(id, updates, { new: true, runValidators: true })
+      const updated = await Topic.findByIdAndUpdate(id, updates, { returnDocument: "after", runValidators: true })
         .populate("courseId", "name instituteId")
         .populate("subjectId", "name code");
       res.json(fmt(updated));

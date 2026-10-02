@@ -109,7 +109,7 @@ router.patch(`${ROOT}/institutes/:id`, authenticate, authorizePlatform("platform
   const update = Object.fromEntries(Object.entries(req.body as Record<string, unknown>).filter(([key]) => allowed.includes(key)));
   if (!Object.keys(update).length) { res.status(400).json({ error: "No supported institute fields were provided" }); return; }
   if (typeof update.email === "string") update.email = update.email.trim().toLowerCase();
-  const institute = await Institute.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+  const institute = await Institute.findByIdAndUpdate(id, update, { returnDocument: "after", runValidators: true });
   if (!institute) { res.status(404).json({ error: "Institute not found" }); return; }
   await recordPlatformAudit(req, "platform.institute.update", "institute", id, { changedFields: Object.keys(update) });
   res.json(formatInstitute(institute));
@@ -118,7 +118,7 @@ router.patch(`${ROOT}/institutes/:id`, authenticate, authorizePlatform("platform
 router.delete(`${ROOT}/institutes/:id`, authenticate, authorizePlatform("platform.institutes.delete"), async (req, res) => {
   const id = idOf(req);
   if (!isValidId(id)) { res.status(400).json({ error: "Invalid institute id" }); return; }
-  const institute = await Institute.findByIdAndUpdate(id, { status: "inactive" }, { new: true, runValidators: true });
+  const institute = await Institute.findByIdAndUpdate(id, { status: "inactive" }, { returnDocument: "after", runValidators: true });
   if (!institute) { res.status(404).json({ error: "Institute not found" }); return; }
   await recordPlatformAudit(req, "platform.institute.deactivate", "institute", id, { instituteName: institute.instituteName });
   res.sendStatus(204);
@@ -233,7 +233,7 @@ router.patch(`${ROOT}/plans/:id`, authenticate, authorizePlatform("platform.plan
   if (!isValidId(id)) { res.status(400).json({ error: "Invalid plan id" }); return; }
   const fields = ["name", "description", "currency", "monthlyPrice", "yearlyPrice", "maxStudents", "maxBranches", "features", "status"];
   const update = Object.fromEntries(Object.entries(req.body as Record<string, unknown>).filter(([key]) => fields.includes(key)));
-  const plan = await PlatformPlan.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+  const plan = await PlatformPlan.findByIdAndUpdate(id, update, { returnDocument: "after", runValidators: true });
   if (!plan) { res.status(404).json({ error: "Plan not found" }); return; }
   await recordPlatformAudit(req, "platform.plan.update", "plan", id, { changedFields: Object.keys(update) });
   res.json(plan);
@@ -241,7 +241,7 @@ router.patch(`${ROOT}/plans/:id`, authenticate, authorizePlatform("platform.plan
 router.delete(`${ROOT}/plans/:id`, authenticate, authorizePlatform("platform.plans.delete"), async (req, res) => {
   const id = idOf(req);
   if (!isValidId(id)) { res.status(400).json({ error: "Invalid plan id" }); return; }
-  const plan = await PlatformPlan.findByIdAndUpdate(id, { status: "archived" }, { new: true });
+  const plan = await PlatformPlan.findByIdAndUpdate(id, { status: "archived" }, { returnDocument: "after" });
   if (!plan) { res.status(404).json({ error: "Plan not found" }); return; }
   await recordPlatformAudit(req, "platform.plan.archive", "plan", id, { code: plan.code });
   res.sendStatus(204);
@@ -260,7 +260,7 @@ router.patch(`${ROOT}/features/:id`, authenticate, authorizePlatform("platform.f
   if (!isValidId(id)) { res.status(400).json({ error: "Invalid feature id" }); return; }
   const fields = ["name", "description", "enabled"];
   const update = Object.fromEntries(Object.entries(req.body as Record<string, unknown>).filter(([key]) => fields.includes(key)));
-  const feature = await PlatformFeature.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+  const feature = await PlatformFeature.findByIdAndUpdate(id, update, { returnDocument: "after", runValidators: true });
   if (!feature) { res.status(404).json({ error: "Feature not found" }); return; }
   await recordPlatformAudit(req, "platform.feature.update", "feature", id, { changedFields: Object.keys(update) });
   res.json(feature);
@@ -296,7 +296,7 @@ router.patch(`${ROOT}/subscriptions/:id`, authenticate, authorizePlatform("platf
   const fields = ["planId", "status", "billingCycle", "startsAt", "endsAt", "externalReference"];
   const update = Object.fromEntries(Object.entries(req.body as Record<string, unknown>).filter(([key]) => fields.includes(key)));
   if (update.planId && (!isValidId(cleanText(update.planId)) || !await PlatformPlan.exists({ _id: update.planId, status: "active" }))) { res.status(400).json({ error: "planId must identify an active platform plan" }); return; }
-  const subscription = await PlatformSubscription.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+  const subscription = await PlatformSubscription.findByIdAndUpdate(id, update, { returnDocument: "after", runValidators: true });
   if (!subscription) { res.status(404).json({ error: "Subscription not found" }); return; }
   await recordPlatformAudit(req, "platform.subscription.update", "subscription", id, { changedFields: Object.keys(update) });
   res.json(subscription);
@@ -304,7 +304,7 @@ router.patch(`${ROOT}/subscriptions/:id`, authenticate, authorizePlatform("platf
 router.delete(`${ROOT}/subscriptions/:id`, authenticate, authorizePlatform("platform.subscriptions.delete"), async (req, res) => {
   const id = idOf(req);
   if (!isValidId(id)) { res.status(400).json({ error: "Invalid subscription id" }); return; }
-  const subscription = await PlatformSubscription.findByIdAndUpdate(id, { status: "canceled", endsAt: new Date() }, { new: true, runValidators: true });
+  const subscription = await PlatformSubscription.findByIdAndUpdate(id, { status: "canceled", endsAt: new Date() }, { returnDocument: "after", runValidators: true });
   if (!subscription) { res.status(404).json({ error: "Subscription not found" }); return; }
   await recordPlatformAudit(req, "platform.subscription.cancel", "subscription", id, { instituteId: String(subscription.instituteId) });
   res.sendStatus(204);
@@ -331,7 +331,7 @@ router.patch(`${ROOT}/payments/:id`, authenticate, authorizePlatform("platform.p
   if (!isValidId(id)) { res.status(400).json({ error: "Invalid payment id" }); return; }
   const fields = ["status", "provider", "reference", "paidAt"];
   const update = Object.fromEntries(Object.entries(req.body as Record<string, unknown>).filter(([key]) => fields.includes(key)));
-  const payment = await PlatformPayment.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+  const payment = await PlatformPayment.findByIdAndUpdate(id, update, { returnDocument: "after", runValidators: true });
   if (!payment) { res.status(404).json({ error: "Payment not found" }); return; }
   if (payment.invoiceId) await reconcileInvoice(String(payment.invoiceId));
   await recordPlatformAudit(req, "platform.payment.update", "payment", id, { changedFields: Object.keys(update) });
@@ -368,7 +368,7 @@ router.patch(`${ROOT}/invoices/:id`, authenticate, authorizePlatform("platform.i
   const fields = ["status", "dueAt", "issuedAt"];
   const update = Object.fromEntries(Object.entries(req.body as Record<string, unknown>).filter(([key]) => fields.includes(key)));
   if (update.status === "paid") { res.status(400).json({ error: "An invoice is marked paid through successful payment records" }); return; }
-  const invoice = await PlatformInvoice.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+  const invoice = await PlatformInvoice.findByIdAndUpdate(id, update, { returnDocument: "after", runValidators: true });
   if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
   await recordPlatformAudit(req, "platform.invoice.update", "invoice", id, { changedFields: Object.keys(update) });
   res.json(invoice);
@@ -415,7 +415,7 @@ router.patch(`${ROOT}/support/:id`, authenticate, authorizePlatform("platform.su
     }
     update.assignedTo = assigneeId;
   }
-  const ticket = await PlatformSupportTicket.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+  const ticket = await PlatformSupportTicket.findByIdAndUpdate(id, update, { returnDocument: "after", runValidators: true });
   if (!ticket) { res.status(404).json({ error: "Support ticket not found" }); return; }
   await recordPlatformAudit(req, "platform.support.update", "support_ticket", id, { changedFields: Object.keys(update), status: ticket.status });
   res.json(ticket);
@@ -423,7 +423,7 @@ router.patch(`${ROOT}/support/:id`, authenticate, authorizePlatform("platform.su
 router.delete(`${ROOT}/support/:id`, authenticate, authorizePlatform("platform.support.delete"), async (req, res) => {
   const id = idOf(req);
   if (!isValidId(id)) { res.status(400).json({ error: "Invalid ticket id" }); return; }
-  const ticket = await PlatformSupportTicket.findByIdAndUpdate(id, { status: "closed" }, { new: true, runValidators: true });
+  const ticket = await PlatformSupportTicket.findByIdAndUpdate(id, { status: "closed" }, { returnDocument: "after", runValidators: true });
   if (!ticket) { res.status(404).json({ error: "Support ticket not found" }); return; }
   await recordPlatformAudit(req, "platform.support.close", "support_ticket", id, { ticketNumber: ticket.ticketNumber });
   res.sendStatus(204);
@@ -442,7 +442,7 @@ router.patch(`${ROOT}/notifications/:id`, authenticate, authorizePlatform("platf
   if (!isValidId(id)) { res.status(400).json({ error: "Invalid notification id" }); return; }
   const fields = ["title", "message", "audience", "channel", "status", "scheduledAt"];
   const update = Object.fromEntries(Object.entries(req.body as Record<string, unknown>).filter(([key]) => fields.includes(key)));
-  const notification = await PlatformNotification.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+  const notification = await PlatformNotification.findByIdAndUpdate(id, update, { returnDocument: "after", runValidators: true });
   if (!notification) { res.status(404).json({ error: "Notification not found" }); return; }
   await recordPlatformAudit(req, "platform.notification.update", "platform_notification", id, { changedFields: Object.keys(update) });
   res.json(notification);
@@ -469,7 +469,7 @@ router.patch(`${ROOT}/announcements/:id`, authenticate, authorizePlatform("platf
   if (!isValidId(id)) { res.status(400).json({ error: "Invalid announcement id" }); return; }
   const fields = ["title", "message", "audience", "status", "scheduledAt", "publishedAt"];
   const update = Object.fromEntries(Object.entries(req.body as Record<string, unknown>).filter(([key]) => fields.includes(key)));
-  const announcement = await PlatformAnnouncement.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+  const announcement = await PlatformAnnouncement.findByIdAndUpdate(id, update, { returnDocument: "after", runValidators: true });
   if (!announcement) { res.status(404).json({ error: "Announcement not found" }); return; }
   await recordPlatformAudit(req, "platform.announcement.update", "announcement", id, { changedFields: Object.keys(update) });
   res.json(announcement);
@@ -521,7 +521,7 @@ router.post(`${ROOT}/security/sessions/:id/revoke`, authenticate, authorizePlatf
   const possiblePlatformUsers = await User.find({ role: { $in: PLATFORM_ROLE_KEYS }, instituteId: { $exists: false } }).select("_id activeBranchId branchIds customRoleId").lean();
   const platformUsers = possiblePlatformUsers.filter((user) => !user.activeBranchId && !user.customRoleId && !user.branchIds?.length);
   const userIds = platformUsers.map((user) => String(user._id));
-  const session = await UserSession.findOneAndUpdate({ _id: id, userId: { $in: userIds }, principalType: "user", instituteId: { $exists: false }, revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: "platform_admin_revoke" } }, { new: true });
+  const session = await UserSession.findOneAndUpdate({ _id: id, userId: { $in: userIds }, principalType: "user", instituteId: { $exists: false }, revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: "platform_admin_revoke" } }, { returnDocument: "after" });
   if (!session) { res.status(404).json({ error: "Active platform session not found" }); return; }
   if (String(session._id) === req.user!.sessionId) clearRefreshCookie(res);
   await recordSecurityEvent(req, "session.revoked_by_admin", "success", { targetUserId: session.userId }, {
@@ -571,7 +571,7 @@ router.patch(`${ROOT}/settings`, authenticate, authorizePlatform("platform.setti
     res.status(400).json({ error: "Only supported platform settings with string or boolean values are accepted" }); return;
   }
   for (const [key, value] of entries) {
-    await PlatformSetting.findOneAndUpdate({ key }, { $set: { value, updatedBy: req.user!.userId } }, { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
+    await PlatformSetting.findOneAndUpdate({ key }, { $set: { value, updatedBy: req.user!.userId } }, { upsert: true, returnDocument: "after", runValidators: true, setDefaultsOnInsert: true });
   }
   await recordPlatformAudit(req, "platform.settings.update", "platform_setting", "", { changedKeys: entries.map(([key]) => key) });
   res.json({ updated: entries.map(([key]) => key) });

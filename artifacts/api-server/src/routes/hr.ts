@@ -212,7 +212,7 @@ router.patch(
       delete updateData.staffId;
 
       const assignment = await StaffSalaryAssignment.findOneAndUpdate(filter, updateData, {
-        new: true,
+        returnDocument: "after",
       });
       if (!assignment) {
         res.status(404).json({ error: "Not found" });
@@ -372,7 +372,7 @@ router.patch(
         body.paidDate = new Date().toISOString().split("T")[0];
       }
 
-      const salary = await Salary.findOneAndUpdate(filter, body, { new: true });
+      const salary = await Salary.findOneAndUpdate(filter, body, { returnDocument: "after" });
       if (!salary) {
         res.status(404).json({ error: "Salary record not found" });
         return;

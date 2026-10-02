@@ -370,7 +370,7 @@ router.patch("/staff/:id", authenticate, authorize("super_admin", "institute_adm
         loginEnabled: portalEnabled,
         username: username ? String(username).toLowerCase().trim() : oldStaff.username,
       },
-      { new: true, runValidators: true }
+      { returnDocument: "after", runValidators: true }
     );
 
     // Sync User table. This also creates the portal account when an older

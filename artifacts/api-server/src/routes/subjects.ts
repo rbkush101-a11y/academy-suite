@@ -145,7 +145,7 @@ router.patch(
       }
 
       const subject = await Subject.findByIdAndUpdate(id, updates, {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       })
         .populate("courseId", "name")

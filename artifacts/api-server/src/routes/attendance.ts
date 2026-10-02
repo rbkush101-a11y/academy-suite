@@ -168,7 +168,7 @@ router.post(
       const record = await StudentAttendance.findOneAndUpdate(
         { studentId, batchId, date },
         { studentId, batchId, date, status, remarks },
-        { upsert: true, new: true, runValidators: true }
+        { upsert: true, returnDocument: "after", runValidators: true }
       );
 
       res.status(201).json({
@@ -243,7 +243,7 @@ router.post(
       const record = await StaffAttendance.findOneAndUpdate(
         { staffId, date },
         { staffId, date, status, checkIn, checkOut, remarks },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: "after" }
       );
 
       const staff = await Staff.findById(record.staffId).select("name");

@@ -120,7 +120,7 @@ router.patch("/exam-series/:id", authenticate, authorize("super_admin","institut
       if (req.body?.[key] !== undefined) updates[key] = clean(req.body[key]);
     }
     if (updates.type && !validTypes.has(updates.type)) { res.status(400).json({error:"Invalid test type."}); return; }
-    const item = await ExamSeries.findByIdAndUpdate(id, updates, {new:true,runValidators:true});
+    const item = await ExamSeries.findByIdAndUpdate(id, updates, {returnDocument: "after",runValidators:true});
     if (!item) { res.status(404).json({error:"Test session not found."}); return; }
     res.json(await formatSeries(item));
   } catch(error:any) {
@@ -294,7 +294,7 @@ router.patch("/tests/:id", authenticate, authorize("super_admin","institute_admi
           grade: calculateGrade(marksObtained, exam.totalMarks),
           remarks: "",
         },
-        { upsert: true, new: true, runValidators: true }
+        { upsert: true, returnDocument: "after", runValidators: true }
       );
     }
 
@@ -347,7 +347,7 @@ router.patch("/exams/:id", authenticate, authorize("super_admin","institute_admi
     if(req.body?.passingMarks!==undefined)updates.passingMarks=Number(req.body.passingMarks);
     const total=updates.totalMarks??old.totalMarks, pass=updates.passingMarks??old.passingMarks;
     if(!Number.isFinite(total)||total<=0||!Number.isFinite(pass)||pass<0||pass>total){res.status(400).json({error:"Check Total and Passing Marks."});return;}
-    const result=await Exam.findByIdAndUpdate(id,updates,{new:true,runValidators:true});
+    const result=await Exam.findByIdAndUpdate(id,updates,{returnDocument: "after",runValidators:true});
     res.json(await formatExam(result));
   }catch(error:any){res.status(500).json({error:error?.message??"Unable to update paper."});}
 });
@@ -381,7 +381,7 @@ router.post("/exams/:id/marks", authenticate, authorize("super_admin","institute
     const student=await Student.findById(studentId).select("name batchId studentId");if(!student){res.status(404).json({error:"Student not found."});return;}
     if(String((student as any).batchId)!==String(exam.batchId)){res.status(400).json({error:"Student is not in this batch."});return;}
     const grade=calculateGrade(obtained,exam.totalMarks);
-    const mark=await ExamMark.findOneAndUpdate({examId,studentId},{examId,studentId,marksObtained:obtained,grade,remarks},{upsert:true,new:true,runValidators:true});
+    const mark=await ExamMark.findOneAndUpdate({examId,studentId},{examId,studentId,marksObtained:obtained,grade,remarks},{upsert:true,returnDocument: "after",runValidators:true});
     res.json({id:String(mark._id),studentId,studentName:(student as any).name??"",marksObtained:mark.marksObtained,grade:mark.grade,resultStatus:obtained>=exam.passingMarks?"pass":"fail",remarks:mark.remarks??""});
   }catch(error:any){res.status(500).json({error:error?.message??"Unable to save marks."});}
 });

@@ -85,7 +85,7 @@ async function ensureSystemRoles(instituteId: Types.ObjectId) {
   await Promise.all(BUILT_IN_ROLES.map((role) => Role.findOneAndUpdate(
     { instituteId, key: role.key },
     { $setOnInsert: { ...role, instituteId, isSystem: true, permissions: defaultPermissions(role.key) } },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
   )));
 }
 
@@ -177,7 +177,7 @@ router.patch("/foundation/branches/:id", async (req, res): Promise<void> => {
     }
   }
   try {
-    const branch = await Branch.findOneAndUpdate({ _id: req.params.id, instituteId }, patch, { new: true, runValidators: true });
+    const branch = await Branch.findOneAndUpdate({ _id: req.params.id, instituteId }, patch, { returnDocument: "after", runValidators: true });
     if (!branch) {
       res.status(404).json({ error: "Branch not found" });
       return;
@@ -299,7 +299,7 @@ router.patch("/foundation/settings", async (req, res): Promise<void> => {
   const updated = await InstituteSettings.findOneAndUpdate(
     { instituteId },
     { $set: { values, updatedBy: req.user!.userId } },
-    { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true },
+    { upsert: true, returnDocument: "after", runValidators: true, setDefaultsOnInsert: true },
   );
   await recordAudit(req, "settings.update", "institute_settings", String(instituteId), { keys: Object.keys(values) });
   res.json({ settings: updated.values, updatedAt: updated.updatedAt });
@@ -599,7 +599,7 @@ router.delete("/foundation/sessions/:id", async (req, res): Promise<void> => {
   const session = await UserSession.findOneAndUpdate(
     { _id: req.params.id, instituteId, revokedAt: null },
     { $set: { revokedAt: new Date() } },
-    { new: true },
+    { returnDocument: "after" },
   );
   if (!session) {
     res.status(404).json({ error: "Active session not found" });

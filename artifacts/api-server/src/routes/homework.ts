@@ -61,7 +61,7 @@ router.patch("/homework/:id", authenticate, authorize("super_admin","institute_a
     const result=await validate(updates.batchId||String(old.batchId),updates.subjectId||String(old.subjectId));
     if(result.error){res.status(400).json({error:result.error});return;}
     updates.assignedBy=result.subject?.teacherId||undefined;
-    const homework=await Homework.findByIdAndUpdate(id,updates,{new:true,runValidators:true});
+    const homework=await Homework.findByIdAndUpdate(id,updates,{returnDocument: "after",runValidators:true});
     res.json(await formatHomework(homework));
   } catch(error:any){res.status(500).json({error:error?.message??"Unable to update homework."});}
 });
