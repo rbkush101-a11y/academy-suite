@@ -26,6 +26,116 @@ function getInstituteIdForUser(req: any): string | null {
   return user?.instituteId ? String(user.instituteId) : null;
 }
 
+type StudentFeeHealth = {
+  assigned: boolean;
+  bills: number;
+  total: number;
+  paid: number;
+  currentDue: number;
+  overdue: number;
+  outstanding: number;
+  upcoming: number;
+  status: "not_assigned" | "assigned" | "clear" | "due" | "overdue" | "upcoming";
+};
+
+function indiaTodayKey() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+async function buildStudentFeeHealthMap(studentIds: any[]) {
+  const ids = studentIds.filter(Boolean);
+  const result = new Map<string, StudentFeeHealth>();
+  if (ids.length === 0) return result;
+
+  const [assignments, payments] = await Promise.all([
+    StudentFeeAssignment.find({
+      studentId: { $in: ids },
+      status: { $ne: "cancelled" },
+    })
+      .select("studentId status")
+      .lean(),
+    Payment.find({
+      studentId: { $in: ids },
+    })
+      .select("studentId totalAmount paidAmount dueDate status")
+      .lean(),
+  ]);
+
+  const assignedStudentIds = new Set(
+    assignments.map((assignment: any) => String(assignment.studentId)),
+  );
+  const today = indiaTodayKey();
+
+  for (const studentId of ids) {
+    const key = String(studentId);
+    result.set(key, {
+      assigned: assignedStudentIds.has(key),
+      bills: 0,
+      total: 0,
+      paid: 0,
+      currentDue: 0,
+      overdue: 0,
+      outstanding: 0,
+      upcoming: 0,
+      status: assignedStudentIds.has(key) ? "assigned" : "not_assigned",
+    });
+  }
+
+  for (const payment of payments as any[]) {
+    const key = String(payment.studentId);
+    const summary = result.get(key);
+    if (!summary) continue;
+
+    const totalAmount = Math.max(0, Number(payment.totalAmount ?? 0));
+    const paidAmount = Math.max(
+      0,
+      Math.min(totalAmount, Number(payment.paidAmount ?? 0)),
+    );
+    const remaining = Math.max(0, totalAmount - paidAmount);
+    const dueDate = String(payment.dueDate ?? "");
+
+    summary.assigned = true;
+    summary.bills += 1;
+    summary.total += totalAmount;
+    summary.paid += paidAmount;
+    summary.outstanding += remaining;
+
+    if (remaining > 0) {
+      if (dueDate && dueDate < today) {
+        summary.overdue += remaining;
+        summary.currentDue += remaining;
+      } else if (dueDate && dueDate === today) {
+        summary.currentDue += remaining;
+      } else {
+        summary.upcoming += remaining;
+      }
+    }
+  }
+
+  for (const summary of result.values()) {
+    if (!summary.assigned && summary.bills === 0) {
+      summary.status = "not_assigned";
+    } else if (summary.overdue > 0) {
+      summary.status = "overdue";
+    } else if (summary.currentDue > 0) {
+      summary.status = "due";
+    } else if (summary.outstanding > 0) {
+      summary.status = "upcoming";
+    } else if (summary.total > 0) {
+      summary.status = "clear";
+    } else {
+      summary.status = "assigned";
+    }
+  }
+
+  return result;
+}
+
 async function populateStudent(student: any) {
   const [batch, course] = await Promise.all([
     Batch.findById(student.batchId).select("name"),
@@ -494,7 +604,22 @@ router.get("/students", authenticate, authorize("super_admin", "institute_admin"
     if (status) filter.status = status;
 
     const students = await Student.find(filter).sort({ createdAt: -1 });
-    const result = await Promise.all(students.map(populateStudent));
+
+    const feeHealthMap =
+      user.role === "teacher"
+        ? new Map<string, StudentFeeHealth>()
+        : await buildStudentFeeHealthMap(students.map((student: any) => student._id));
+
+    const result = await Promise.all(
+      students.map(async (student: any) => ({
+        ...(await populateStudent(student)),
+        feeSummary:
+          user.role === "teacher"
+            ? null
+            : feeHealthMap.get(String(student._id)) ?? null,
+      })),
+    );
+
     res.json(result);
   } catch (error: any) {
     res.status(500).json({ error: error?.message ?? "Unable to load students" });
@@ -609,7 +734,18 @@ router.get("/students/:id", authenticate, authorize("super_admin", "institute_ad
       return;
     }
 
-    res.json(await populateStudent(student));
+    const feeHealthMap =
+      user.role === "teacher"
+        ? new Map<string, StudentFeeHealth>()
+        : await buildStudentFeeHealthMap([student._id]);
+
+    res.json({
+      ...(await populateStudent(student)),
+      feeSummary:
+        user.role === "teacher"
+          ? null
+          : feeHealthMap.get(String(student._id)) ?? null,
+    });
   } catch (error: any) {
     res.status(500).json({ error: error?.message ?? "Unable to load student" });
   }
@@ -649,7 +785,7 @@ router.patch("/students/:id", authenticate, authorize("super_admin", "institute_
     }
 
     const oldBatchId = String(existingStudent.batchId);
-    const student = await Student.findOneAndUpdate(filter, updateData, { returnDocument: "after", runValidators: true });
+    const student = await Student.findOneAndUpdate(filter, updateData, { new: true, runValidators: true });
 
     if (!student) {
       res.status(404).json({ error: "Student not found" });

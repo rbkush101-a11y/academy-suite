@@ -32,7 +32,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       userId: payload.userId,
       revokedAt: null,
       expiresAt: { $gt: new Date() },
-    }).select("lastSeenAt branchId instituteId role principalType");
+    }).select("lastSeenAt branchId instituteId role principalType supportMode supportActorId supportActorRole supportReason");
     if (!session) {
       res.status(401).json({ error: "This session has expired or was revoked. Please sign in again." });
       return;
@@ -67,6 +67,24 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
         res.status(403).json({ error: accessBlockReason, code: "INSTITUTE_ACCESS_BLOCKED" });
         return;
       }
+    }
+
+    // "View as Student" support sessions are deliberately read-only.
+    // Even though the access token has a student role, mutation requests are blocked here.
+    if ((session as any).supportMode) {
+      const method = req.method.toUpperCase();
+      if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+        res.status(403).json({
+          error: "Support Mode is read-only. Exit Support Mode to make changes.",
+          code: "SUPPORT_MODE_READ_ONLY",
+        });
+        return;
+      }
+
+      (payload as any).supportMode = true;
+      (payload as any).supportActorId = String((session as any).supportActorId || "");
+      (payload as any).supportActorRole = String((session as any).supportActorRole || "");
+      (payload as any).supportReason = String((session as any).supportReason || "");
     }
     if (!session.lastSeenAt || Date.now() - session.lastSeenAt.getTime() > 5 * 60 * 1000) {
       void UserSession.updateOne({ _id: payload.sessionId }, { $set: { lastSeenAt: new Date() } }).catch(() => {});

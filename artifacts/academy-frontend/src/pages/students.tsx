@@ -40,7 +40,7 @@ import { CameraCapture } from "@/components/camera-capture";
 import { INDIA_STATES, getDistricts } from "@/lib/india-locations";
 import {
   FormRow, FormInput, FormSelect, FormFooter,
-  SectionTitle, DateInput,
+  DateInput,
 } from "@/components/form-fields";
 import { FormProgress } from "@/components/form-progress";
 
@@ -54,6 +54,12 @@ type StudentDocument = {
   dataUrl: string;
   mimeType: string;
 };
+
+const STUDENT_DOCUMENT_LABELS = {
+  AADHAAR_FRONT: "Aadhaar Card Front",
+  AADHAAR_BACK: "Aadhaar Card Back",
+  MARKSHEET_FRONT: "Previous Class Marksheet",
+} as const;
 
 type StudentForm = {
   name: string;
@@ -174,9 +180,116 @@ const COUNTRY_CODES = [
 // ---------------------------------------------------------------------------
 
 function getStudentFeeInfo(student: any) {
-  const total = Number(student?.totalFee ?? student?.totalBilled ?? student?.feeAmount ?? student?.courseFee ?? student?.fee ?? 0);
-  const paid = Number(student?.feesPaid ?? student?.paidAmount ?? student?.paidFee ?? 0);
-  
+  const serverSummary = student?.feeSummary;
+
+  if (serverSummary === null) {
+    return {
+      hasData: false,
+      assigned: false,
+      total: 0,
+      paid: 0,
+      due: 0,
+      currentDue: 0,
+      overdue: 0,
+      outstanding: 0,
+      upcoming: 0,
+      isNoDue: false,
+      status: "unavailable",
+      statusText: "Fee access restricted",
+    };
+  }
+
+  if (serverSummary && typeof serverSummary === "object") {
+    const total = Math.max(0, Number(serverSummary.total ?? 0));
+    const paid = Math.max(0, Number(serverSummary.paid ?? 0));
+    const currentDue = Math.max(0, Number(serverSummary.currentDue ?? 0));
+    const overdue = Math.max(0, Number(serverSummary.overdue ?? 0));
+    const outstanding = Math.max(0, Number(serverSummary.outstanding ?? 0));
+    const upcoming = Math.max(0, Number(serverSummary.upcoming ?? 0));
+    const assigned = Boolean(serverSummary.assigned);
+
+    let status = String(serverSummary.status || "assigned");
+    let statusText = "Fee assigned";
+
+    if (!assigned && Number(serverSummary.bills ?? 0) === 0) {
+      status = "not_assigned";
+      statusText = "Fee not assigned";
+    } else if (overdue > 0) {
+      status = "overdue";
+      statusText = `₹${overdue.toLocaleString("en-IN")} Overdue`;
+    } else if (currentDue > 0) {
+      status = "due";
+      statusText = `₹${currentDue.toLocaleString("en-IN")} Due`;
+    } else if (outstanding > 0) {
+      status = "upcoming";
+      statusText = `₹${upcoming.toLocaleString("en-IN")} Upcoming`;
+    } else if (total > 0) {
+      status = "clear";
+      statusText = "No Due";
+    }
+
+    return {
+      hasData: true,
+      assigned,
+      total,
+      paid,
+      due: currentDue,
+      currentDue,
+      overdue,
+      outstanding,
+      upcoming,
+      isNoDue: status === "clear",
+      status,
+      statusText,
+    };
+  }
+
+  // Legacy fallback. Missing fee fields are never treated as "No Due".
+  const legacyKeys = [
+    "totalFee",
+    "totalBilled",
+    "feeAmount",
+    "courseFee",
+    "fee",
+    "feesPaid",
+    "paidAmount",
+    "paidFee",
+    "pendingFees",
+    "dueFee",
+  ];
+  const hasLegacyFeeData = legacyKeys.some(
+    (key) => student?.[key] !== undefined && student?.[key] !== null,
+  );
+
+  if (!hasLegacyFeeData) {
+    return {
+      hasData: false,
+      assigned: false,
+      total: 0,
+      paid: 0,
+      due: 0,
+      currentDue: 0,
+      overdue: 0,
+      outstanding: 0,
+      upcoming: 0,
+      isNoDue: false,
+      status: "not_synced",
+      statusText: "Fee data not synced",
+    };
+  }
+
+  const total = Number(
+    student?.totalFee ??
+      student?.totalBilled ??
+      student?.feeAmount ??
+      student?.courseFee ??
+      student?.fee ??
+      0,
+  );
+  const paid = Number(
+    student?.feesPaid ?? student?.paidAmount ?? student?.paidFee ?? 0,
+  );
+
   let due = 0;
   if (student?.pendingFees !== undefined && student?.pendingFees !== null) {
     due = Number(student.pendingFees);
@@ -186,14 +299,60 @@ function getStudentFeeInfo(student: any) {
     due = Math.max(0, total - paid);
   }
 
-  const isNoDue = (total > 0 && due === 0) || (paid > 0 && due === 0) || (total === 0 && due === 0);
+  const isNoDue = total > 0 && due === 0;
 
   return {
+    hasData: true,
+    assigned: true,
     total,
     paid,
     due,
+    currentDue: due,
+    overdue: 0,
+    outstanding: due,
+    upcoming: 0,
     isNoDue,
-    statusText: isNoDue ? "No Due" : `₹${due.toLocaleString("en-IN")} Due`
+    status: isNoDue ? "clear" : due > 0 ? "due" : "assigned",
+    statusText:
+      isNoDue
+        ? "No Due"
+        : due > 0
+          ? `₹${due.toLocaleString("en-IN")} Due`
+          : "Fee assigned",
+  };
+}
+
+function feeHealthClasses(status: string) {
+  if (status === "clear") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "overdue") return "border-red-200 bg-red-50 text-red-700";
+  if (status === "due") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "upcoming") return "border-cyan-200 bg-cyan-50 text-cyan-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function studentStatusMeta(status: string) {
+  if (status === "inactive") {
+    return {
+      label: "Inactive",
+      className:
+        "border-slate-300 bg-slate-100 text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700",
+      nextLabel: "Click to activate",
+    };
+  }
+
+  if (status === "graduated") {
+    return {
+      label: "Graduated",
+      className: "border-violet-200 bg-violet-50 text-violet-700",
+      nextLabel: "Graduated student",
+    };
+  }
+
+  return {
+    label: "Active",
+    className:
+      "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700",
+    nextLabel: "Click to deactivate",
   };
 }
 
@@ -340,7 +499,7 @@ function SearchableFilterDropdown({ value, options, onChange, placeholder, class
           <div className="sticky top-0 bg-white pb-1.5 z-10">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-              <input autoFocus type="text" className="w-full rounded-md border border-slate-200 pl-8 pr-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all" placeholder="Search..." value={search} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)} />
+              <input autoFocus type="text" className="w-full rounded-md border border-slate-200 pl-8 pr-3 py-1.5 text-sm outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all" placeholder="Search..." value={search} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)} />
             </div>
           </div>
           <div className="mt-1 flex flex-col gap-0.5">
@@ -348,9 +507,9 @@ function SearchableFilterDropdown({ value, options, onChange, placeholder, class
               <div className="px-3 py-3 text-sm text-slate-500 text-center">No results found</div>
             ) : (
               filtered.map((option: any) => (
-                <button key={option.value} type="button" className={`flex w-full items-center justify-between text-left px-2.5 py-2 text-sm rounded-md transition-colors gap-2 ${option.value === value ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-slate-100 text-slate-700'}`} onClick={() => { onChange(option.value); setOpen(false); }}>
+                <button key={option.value} type="button" className={`flex w-full items-center justify-between text-left px-2.5 py-2 text-sm rounded-md transition-colors gap-2 ${option.value === value ? 'bg-slate-950 text-white font-bold' : 'hover:bg-slate-100 text-slate-700'}`} onClick={() => { onChange(option.value); setOpen(false); }}>
                   <span className="whitespace-normal leading-snug">{option.label}</span>
-                  {option.value === value && <Check className="h-3.5 w-3.5 shrink-0 text-blue-600" />}
+                  {option.value === value && <Check className="h-3.5 w-3.5 shrink-0 text-cyan-300" />}
                 </button>
               ))
             )}
@@ -359,6 +518,225 @@ function SearchableFilterDropdown({ value, options, onChange, placeholder, class
       )}
     </div>
   );
+}
+
+function normalizeStudentDocuments(student: any): StudentDocument[] {
+  const docs: StudentDocument[] = Array.isArray(student?.documents)
+    ? student.documents
+        .filter((doc: any) => doc && doc.dataUrl)
+        .map((doc: any) => ({
+          label: String(doc.label || doc.name || "Document"),
+          name: String(doc.name || "document"),
+          dataUrl: String(doc.dataUrl || ""),
+          mimeType: String(doc.mimeType || "image/jpeg"),
+        }))
+    : [];
+
+  const has = (label: string) => docs.some((doc) => doc.label === label);
+
+  // Backward compatibility for older students that stored one Aadhaar/marksheet
+  // directly on the student record instead of in the documents array.
+  if (student?.aadhaarCard && !has(STUDENT_DOCUMENT_LABELS.AADHAAR_FRONT)) {
+    docs.push({
+      label: STUDENT_DOCUMENT_LABELS.AADHAAR_FRONT,
+      name: "aadhaar-card-front-legacy.jpg",
+      dataUrl: String(student.aadhaarCard),
+      mimeType: String(student.aadhaarCard).startsWith("data:application/pdf")
+        ? "application/pdf"
+        : "image/jpeg",
+    });
+  }
+
+  if (student?.previousMarksheet && !has(STUDENT_DOCUMENT_LABELS.MARKSHEET_FRONT)) {
+    docs.push({
+      label: STUDENT_DOCUMENT_LABELS.MARKSHEET_FRONT,
+      name: "previous-class-marksheet-legacy.jpg",
+      dataUrl: String(student.previousMarksheet),
+      mimeType: String(student.previousMarksheet).startsWith("data:application/pdf")
+        ? "application/pdf"
+        : "image/jpeg",
+    });
+  }
+
+  return docs;
+}
+
+function AdmissionSectionTitle({ number, icon, children }: any) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-[linear-gradient(105deg,#020817_0%,#07112a_58%,#21184d_100%)] px-4 py-2.5 text-white shadow-sm">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-300/20 bg-cyan-300/10 text-xs font-extrabold text-cyan-300">
+        {number}
+      </span>
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/10 text-cyan-300">
+        {icon}
+      </div>
+      <div className="text-sm font-bold tracking-wide">{children}</div>
+    </div>
+  );
+}
+
+type CsvTransferError = {
+  row: number;
+  identifier: string;
+  reason: string;
+};
+
+type CsvTransferSummary = {
+  total: number;
+  success: number;
+  skipped: number;
+  failed: number;
+  errors: CsvTransferError[];
+};
+
+function normalizeCsvHeader(value: string) {
+  return String(value || "")
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function parseCsvText(csvText: string) {
+  const matrix: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  const pushCell = () => {
+    row.push(cell);
+    cell = "";
+  };
+
+  const pushRow = () => {
+    if (row.some((value) => String(value).trim() !== "")) matrix.push(row);
+    row = [];
+  };
+
+  for (let index = 0; index < csvText.length; index += 1) {
+    const char = csvText[index];
+
+    if (char === '"') {
+      if (inQuotes && csvText[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (!inQuotes && char === ",") {
+      pushCell();
+      continue;
+    }
+
+    if (!inQuotes && (char === "\n" || char === "\r")) {
+      if (char === "\r" && csvText[index + 1] === "\n") index += 1;
+      pushCell();
+      pushRow();
+      continue;
+    }
+
+    cell += char;
+  }
+
+  if (inQuotes) throw new Error("CSV has an unclosed quoted value.");
+  if (cell !== "" || row.length > 0) {
+    pushCell();
+    pushRow();
+  }
+
+  if (matrix.length === 0) throw new Error("CSV file is empty.");
+
+  const headers = matrix[0].map(normalizeCsvHeader);
+  if (headers.some((header) => !header)) throw new Error("CSV contains a blank column header.");
+  if (new Set(headers).size !== headers.length) throw new Error("CSV contains duplicate column headers.");
+
+  const rows = matrix.slice(1).map((values, rowIndex) => {
+    const data: Record<string, string> = {};
+    headers.forEach((header, columnIndex) => {
+      data[header] = String(values[columnIndex] ?? "").trim();
+    });
+    return { rowNumber: rowIndex + 2, data };
+  });
+
+  return { headers, rows };
+}
+
+function csvCell(value: unknown) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
+function downloadCsvFile(filename: string, headers: string[], rows: unknown[][]) {
+  const content = [
+    headers.map(csvCell).join(","),
+    ...rows.map((row) => row.map(csvCell).join(",")),
+  ].join("\r\n");
+
+  // BOM keeps UTF-8 names/addresses readable when opened directly in Excel.
+  const blob = new Blob(["\uFEFF", content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function validateCsvFile(file: File, maxMb: number) {
+  if (!file.name.toLowerCase().endsWith(".csv")) return "Please choose a .csv file.";
+  if (file.size > maxMb * 1024 * 1024) return `CSV file must be ${maxMb} MB or smaller.`;
+  return "";
+}
+
+function normalizeCsvDate(value: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) {
+    const [, year, month, day] = iso;
+    const normalized = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+    const parsed = new Date(`${normalized}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : normalized;
+  }
+
+  // Indian spreadsheet-friendly DD/MM/YYYY (also accepts - or . separators).
+  const dmy = raw.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+  if (dmy) {
+    const [, day, month, year] = dmy;
+    const normalized = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+    const parsed = new Date(`${normalized}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : normalized;
+  }
+
+  return null;
+}
+
+function generatedAcademicYear() {
+  const now = new Date();
+  const year = now.getFullYear();
+  return now.getMonth() >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+}
+
+function generateTemporaryPassword(length = 10) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = new Uint32Array(length);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < length; i += 1) bytes[i] = Math.floor(Math.random() * alphabet.length);
+  }
+  let password = "";
+  for (let i = 0; i < length; i += 1) password += alphabet[bytes[i] % alphabet.length];
+  return password;
+}
+
+function transferErrorMessage(error: any) {
+  return String(error?.message || error?.response?.data?.error || "Request failed").slice(0, 240);
 }
 
 // ---------------------------------------------------------------------------
@@ -383,12 +761,14 @@ export default function Students({ preview = false }: { preview?: boolean }) {
   const [search, setSearch] = useState("");
   const [batchFilter, setBatchFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<string>("admission-asc");
+  const [feeFilter, setFeeFilter] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("newest");
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   
   // Profile View State
   const [viewingStudent, setViewingStudent] = useState<any>(null);
-  const [profileTab, setProfileTab] = useState<"attendance" | "fees" | "results" | "exams" | "info" | "documents">("attendance");
+  const [profileTab, setProfileTab] = useState<"overview" | "academic" | "fees" | "attendance" | "tests" | "documents">("overview");
 
     // 👁️ TOP HEADER SEARCH BAR INTEGRATION (ROBUST AUTO OPEN STUDENT PROFILE)
   useEffect(() => {
@@ -415,7 +795,7 @@ export default function Students({ preview = false }: { preview?: boolean }) {
     if (targetStudent) {
       // 4. प्रोफाइल ओपन करें
       setViewingStudent(targetStudent);
-      setProfileTab("info");
+      setProfileTab("overview");
 
       // 5. साफ़ करें
       localStorage.removeItem("active_student_id");
@@ -433,6 +813,12 @@ export default function Students({ preview = false }: { preview?: boolean }) {
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [resetParentPwd, setResetParentPwd] = useState(false);
+
+  // Read-only Student Support Mode (owner / SUPER_ADMIN only)
+  const [supportDialogOpen, setSupportDialogOpen] = useState(false);
+  const [supportReason, setSupportReason] = useState("");
+  const [supportStarting, setSupportStarting] = useState(false);
+  const [supportError, setSupportError] = useState("");
 
   // Full-Page Form State (NEW - Replaced dialogOpen)
   const [formPageOpen, setFormPageOpen] = useState(isOnlineAdmissionPreview);
@@ -473,12 +859,13 @@ export default function Students({ preview = false }: { preview?: boolean }) {
   const [bulkUpdateFile, setBulkUpdateFile] = useState<File | null>(null);
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
-  // Import State
+  // Import / Bulk Update State
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [autoGenPassword, setAutoGenPassword] = useState(true);
+  const [importSummary, setImportSummary] = useState<CsvTransferSummary | null>(null);
+  const [bulkUpdateSummary, setBulkUpdateSummary] = useState<CsvTransferSummary | null>(null);
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [dobInvalid, setDobInvalid] = useState(false);
@@ -514,24 +901,59 @@ export default function Students({ preview = false }: { preview?: boolean }) {
 
   // Filtering Logic
   const filteredStudents = (students ?? []).filter((student: any) => {
-    const linkedCourse = (courses ?? []).find((course: any) => course.id === student.courseId) as any;
-    const isCorrectCategory = studentCategory !== "academic" && studentCategory !== "computer" ? true : (linkedCourse?.courseType ?? "academic") === studentCategory;
+    const linkedCourse = (courses ?? []).find(
+      (course: any) => course.id === student.courseId,
+    ) as any;
+
+    const isCorrectCategory =
+      studentCategory !== "academic" && studentCategory !== "computer"
+        ? true
+        : (linkedCourse?.courseType ?? "academic") === studentCategory;
+
     if (!isCorrectCategory) return false;
-    if (batchFilter !== "all" && student.batchId !== batchFilter) return false;
-    const studentStatus = student.status === "inactive" ? "inactive" : "active";
-    if (statusFilter !== "all") {
-      if (statusFilter === "active" && studentStatus !== "active") return false;
-      if (statusFilter === "inactive" && studentStatus !== "inactive") return false;
-      if (statusFilter === "dropped" && studentStatus !== "inactive") return false;
-      if (statusFilter === "graduated") return false;
+    if (
+      batchFilter !== "all" &&
+      String(student.batchId) !== String(batchFilter)
+    ) {
+      return false;
     }
-    const query = search.toLowerCase();
-    return (
-      String(student.name ?? "").toLowerCase().includes(query) ||
-      String(student.enrollmentNo ?? "").toLowerCase().includes(query) ||
-      String(student.email ?? "").toLowerCase().includes(query) ||
-      String(student.phone ?? "").toLowerCase().includes(query)
-    );
+
+    const studentStatus = String(student.status || "active");
+    if (statusFilter !== "all" && studentStatus !== statusFilter) return false;
+
+    const feeInfo = getStudentFeeInfo(student);
+    if (feeFilter === "due" && feeInfo.currentDue <= 0) return false;
+    if (feeFilter === "overdue" && feeInfo.overdue <= 0) return false;
+    if (feeFilter === "clear" && !feeInfo.isNoDue) return false;
+    if (feeFilter === "upcoming" && feeInfo.status !== "upcoming") return false;
+    if (
+      feeFilter === "not_assigned" &&
+      feeInfo.status !== "not_assigned"
+    ) {
+      return false;
+    }
+
+    const query = search.trim().toLowerCase();
+    if (!query) return true;
+
+    return [
+      student.name,
+      student.enrollmentNo,
+      student.email,
+      student.phone,
+      student.parentName,
+      student.parentPhone,
+      student.fatherName,
+      student.fatherPhone,
+      student.motherName,
+      student.motherPhone,
+      student.courseName,
+      student.batchName,
+      student.className,
+      student.section,
+      student.board,
+      student.schoolName,
+    ].some((value) => String(value ?? "").toLowerCase().includes(query));
   });
 
   const classSerialNumber = (className: unknown) => {
@@ -539,128 +961,539 @@ export default function Students({ preview = false }: { preview?: boolean }) {
     if (value === "NURSERY") return 1;
     if (value === "L.K.G" || value === "LKG" || value === "L.K.G.") return 2;
     if (value === "U.K.G" || value === "UKG" || value === "U.K.G.") return 3;
+
     const numberMatch = value.match(/(?:CLASS\s*)?(\d{1,2})/);
     if (!numberMatch) return 9999;
+
     const classNumber = Number(numberMatch[1]);
-    const boardNumber = value.includes("CBSE") ? 0 : value.includes("ICSE") ? 1 : 2;
+    const boardNumber = value.includes("CBSE")
+      ? 0
+      : value.includes("ICSE")
+        ? 1
+        : 2;
+
     return 100 + classNumber * 10 + boardNumber;
   };
 
-  const classWiseStudents = [...filteredStudents].sort((first: any, second: any) => {
-    if (sortBy === "admission-asc") return String(first.enrollmentNo || "").localeCompare(String(second.enrollmentNo || ""), undefined, { numeric: true });
-    if (sortBy === "admission-desc") return String(second.enrollmentNo || "").localeCompare(String(first.enrollmentNo || ""), undefined, { numeric: true });
-    if (sortBy === "name-asc") return String(first.name || "").localeCompare(String(second.name || ""));
-    if (sortBy === "name-desc") return String(second.name || "").localeCompare(String(first.name || ""));
-    
-    const classDifference = classSerialNumber(first.className) - classSerialNumber(second.className);
-    if (classDifference !== 0) return classDifference;
-    const firstBoard = String(first.board ?? "").toUpperCase();
-    const secondBoard = String(second.board ?? "").toUpperCase();
-    const boardDifference = (firstBoard === "CBSE" ? 0 : firstBoard === "ICSE" ? 1 : 2) - (secondBoard === "CBSE" ? 0 : secondBoard === "ICSE" ? 1 : 2);
-    if (boardDifference !== 0) return boardDifference;
-    return String(first.name ?? "").localeCompare(String(second.name ?? ""));
-  });
+  const classWiseStudents = [...filteredStudents].sort(
+    (first: any, second: any) => {
+      if (sortBy === "newest") {
+        return (
+          new Date(second.createdAt || 0).getTime() -
+          new Date(first.createdAt || 0).getTime()
+        );
+      }
 
-  const handleExport = () => {
-    if (classWiseStudents.length === 0) return notify("error", "No student data to export!");
-    const headers = ["admission_number", "name", "email", "phone", "gender", "date_of_birth", "father_name", "guardian_phone", "address", "batch_code", "status"];
-    const csvRows = classWiseStudents.map((s: any) => [
-      s.enrollmentNo || s.id, s.name, s.email, s.phone, s.gender, s.dateOfBirth, s.fatherName || s.parentName, s.fatherPhone || s.parentPhone, s.correspondenceAddress || s.address, s.batchName, s.status
-    ].map(val => `"${String(val || "").replace(/"/g, '""')}"`).join(","));
-    const csvContent = [headers.join(","), ...csvRows].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a"); link.href = url; link.download = `students_export_${new Date().getTime()}.csv`;
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    notify("success", "Students CSV exported successfully!");
+      if (sortBy === "oldest") {
+        return (
+          new Date(first.createdAt || 0).getTime() -
+          new Date(second.createdAt || 0).getTime()
+        );
+      }
+
+      if (sortBy === "admission-asc") {
+        return String(first.enrollmentNo || "").localeCompare(
+          String(second.enrollmentNo || ""),
+          undefined,
+          { numeric: true },
+        );
+      }
+
+      if (sortBy === "admission-desc") {
+        return String(second.enrollmentNo || "").localeCompare(
+          String(first.enrollmentNo || ""),
+          undefined,
+          { numeric: true },
+        );
+      }
+
+      if (sortBy === "name-asc") {
+        return String(first.name || "").localeCompare(String(second.name || ""));
+      }
+
+      if (sortBy === "name-desc") {
+        return String(second.name || "").localeCompare(String(first.name || ""));
+      }
+
+      if (sortBy === "fee-due-desc") {
+        return (
+          getStudentFeeInfo(second).currentDue -
+          getStudentFeeInfo(first).currentDue
+        );
+      }
+
+      const classDifference =
+        classSerialNumber(first.className) -
+        classSerialNumber(second.className);
+
+      if (classDifference !== 0) return classDifference;
+
+      return String(first.name ?? "").localeCompare(
+        String(second.name ?? ""),
+      );
+    },
+  );
+
+  const findBatchFromCsv = (rawValue: string) => {
+    const value = String(rawValue || "").trim().toLowerCase();
+    if (!value) return null;
+
+    return (
+      (batches ?? []).find((batch: any) => {
+        const candidates = [batch.id, batch.name, (batch as any).code]
+          .filter(Boolean)
+          .map((candidate) => String(candidate).trim().toLowerCase());
+        return candidates.includes(value);
+      }) ?? null
+    );
   };
 
-  const handleBulkDownloadTemplate = () => handleExport();
+  const makeUniqueImportLoginId = (
+    name: string,
+    phone: string,
+    preferred: string,
+    usedLoginIds: Set<string>,
+    rowNumber: number,
+  ) => {
+    const requested = String(preferred || "")
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .replace(/[^a-z0-9._-]/g, "")
+      .slice(0, 40);
+
+    if (requested) {
+      if (usedLoginIds.has(requested)) return { value: "", error: `Login ID '${requested}' already exists.` };
+      usedLoginIds.add(requested);
+      return { value: requested, error: "" };
+    }
+
+    const namePart = String(name || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .slice(0, 18) || "student";
+    const phonePart = String(phone || "").replace(/\D/g, "").slice(-4);
+    const base = `${namePart}${phonePart || rowNumber}`.slice(0, 32);
+
+    let candidate = base;
+    let suffix = 2;
+    while (usedLoginIds.has(candidate)) {
+      candidate = `${base}${suffix}`.slice(0, 40);
+      suffix += 1;
+    }
+    usedLoginIds.add(candidate);
+    return { value: candidate, error: "" };
+  };
+
+  const chooseCsvFile = (file: File | null, kind: "import" | "bulk") => {
+    if (!file) {
+      if (kind === "import") setImportFile(null);
+      else setBulkUpdateFile(null);
+      return;
+    }
+
+    const error = validateCsvFile(file, kind === "import" ? 5 : 10);
+    if (error) {
+      notify("error", error);
+      if (kind === "import") setImportFile(null);
+      else setBulkUpdateFile(null);
+      return;
+    }
+
+    if (kind === "import") {
+      setImportFile(file);
+      setImportSummary(null);
+    } else {
+      setBulkUpdateFile(file);
+      setBulkUpdateSummary(null);
+    }
+  };
+
+  const exportHeaders = [
+    "admission_number",
+    "name",
+    "email",
+    "phone",
+    "gender",
+    "date_of_birth",
+    "school_name",
+    "class_name",
+    "section",
+    "board",
+    "father_name",
+    "guardian_phone",
+    "address",
+    "batch_name",
+    "course_name",
+    "academic_year",
+    "status",
+    "login_id",
+  ];
+
+  const exportRows = (source: any[]) =>
+    source.map((student: any) => [
+      student.enrollmentNo || student.id || student._id || "",
+      student.name || "",
+      student.email || "",
+      student.phone || "",
+      student.gender || "",
+      student.dateOfBirth || "",
+      student.schoolName || "",
+      student.className || "",
+      student.section || "",
+      student.board || "",
+      student.fatherName || student.parentName || "",
+      student.fatherPhone || student.parentPhone || "",
+      student.correspondenceAddress || student.address || "",
+      student.batchName || "",
+      student.courseName || "",
+      student.academicYear || "",
+      student.status || "active",
+      student.loginId || "",
+    ]);
+
+  const handleExport = () => {
+    if (classWiseStudents.length === 0) return notify("error", "No student data to export.");
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    downloadCsvFile(`students_${dateStamp}.csv`, exportHeaders, exportRows(classWiseStudents));
+    notify("success", `Exported ${classWiseStudents.length} student${classWiseStudents.length === 1 ? "" : "s"}.`);
+  };
+
+  const handleBulkDownloadTemplate = () => {
+    if (classWiseStudents.length === 0) return notify("error", "No student data is available for bulk update.");
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    downloadCsvFile(`students_bulk_update_${dateStamp}.csv`, exportHeaders, exportRows(classWiseStudents));
+    notify("success", "Bulk update CSV downloaded. Keep admission_number unchanged.");
+  };
 
   const handleDownloadImportTemplate = () => {
-    const headers = ["name", "email", "phone", "batch_code", "date_of_birth", "father_name", "guardian_phone", "address", "admission_number", "password"];
-    const sampleRow = ["Arjun Mehta", "arjun@gmail.com", "9876543210", "JEE-XI-A", "2007-04-15", "Rajiv Mehta", "9876500001", "42 Tonk Road, Jaipur", "", "Pass@123"];
-    const csvContent = [headers.join(","), sampleRow.map(v => `"${v}"`).join(",")].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a"); link.href = url; link.download = `student_import_template.csv`;
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    notify("success", "Import template downloaded!");
+    const sampleBatch = (batches ?? []).find((batch: any) => batch.status === "active") ?? (batches ?? [])[0];
+    const batchName = sampleBatch?.name || "ENTER EXACT BATCH NAME";
+    const academicYear = sampleBatch?.academicYear || generatedAcademicYear();
+    const headers = [
+      "name",
+      "email",
+      "phone",
+      "batch_name",
+      "date_of_birth",
+      "gender",
+      "school_name",
+      "class_name",
+      "section",
+      "board",
+      "father_name",
+      "guardian_phone",
+      "address",
+      "academic_year",
+      "login_id",
+      "password",
+    ];
+    const sampleRow = [
+      "Arjun Mehta",
+      "arjun@example.com",
+      "9876543210",
+      batchName,
+      "2007-04-15",
+      "male",
+      "Example School",
+      "11",
+      "A",
+      "CBSE",
+      "Rajiv Mehta",
+      "9876500001",
+      "42 Civil Lines, Prayagraj",
+      academicYear,
+      "",
+      "",
+    ];
+    downloadCsvFile("student_import_template.csv", headers, [sampleRow]);
+    notify("success", "Import template downloaded.");
+  };
+
+  const downloadTransferErrors = (kind: "import" | "bulk", summary: CsvTransferSummary | null) => {
+    if (!summary?.errors.length) return;
+    downloadCsvFile(
+      `${kind === "import" ? "student_import" : "student_bulk_update"}_errors_${new Date().toISOString().slice(0, 10)}.csv`,
+      ["row", "student", "reason"],
+      summary.errors.map((error) => [error.row, error.identifier, error.reason]),
+    );
   };
 
   const handleBulkUpdateApply = async () => {
-    if (!bulkUpdateFile) return notify("error", "Please upload an edited CSV file first!");
+    if (!bulkUpdateFile) return notify("error", "Please choose an edited CSV file first.");
+
+    const fileError = validateCsvFile(bulkUpdateFile, 10);
+    if (fileError) return notify("error", fileError);
+
     setIsBulkUpdating(true);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const text = e.target?.result as string;
-      const lines = text.split('\n').filter(line => line.trim() !== "");
-      if (lines.length <= 1) { setIsBulkUpdating(false); return notify("error", "Uploaded CSV file is empty!"); }
-      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
-      let successCount = 0;
-      for (let i = 1; i < lines.length; i++) {
-        const row = lines[i].split(',').map(cell => cell.trim().replace(/^"|"$/g, ''));
-        const rowData: any = {};
-        headers.forEach((header, idx) => { if (row[idx]) rowData[header] = row[idx]; });
-        const admissionNo = rowData.admission_number;
-        if (admissionNo) {
-          const matchedStudent = (students ?? []).find((s: any) => String(s.enrollmentNo) === String(admissionNo) || String(s.id) === String(admissionNo));
-          if (matchedStudent) {
-            try {
-              const updatePayload: any = {};
-              if (rowData.name) updatePayload.name = rowData.name;
-              if (rowData.email) updatePayload.email = rowData.email;
-              if (rowData.phone) updatePayload.phone = rowData.phone;
-              if (rowData.gender) updatePayload.gender = rowData.gender;
-              if (rowData.status) updatePayload.status = rowData.status;
-              if (rowData.father_name) updatePayload.parentName = rowData.father_name; 
-              if (rowData.address) updatePayload.correspondenceAddress = rowData.address;
-              await updateStudent.mutateAsync({ id: matchedStudent.id, data: updatePayload as any });
-              successCount++;
-            } catch (err) {}
+    setBulkUpdateSummary(null);
+
+    try {
+      const parsed = parseCsvText(await bulkUpdateFile.text());
+      if (!parsed.headers.includes("admission_number")) {
+        throw new Error("Bulk update CSV must contain the admission_number column.");
+      }
+      if (parsed.rows.length === 0) throw new Error("Bulk update CSV has no student rows.");
+      if (parsed.rows.length > 2000) throw new Error("Bulk update supports up to 2,000 rows at a time.");
+
+      const summary: CsvTransferSummary = {
+        total: parsed.rows.length,
+        success: 0,
+        skipped: 0,
+        failed: 0,
+        errors: [],
+      };
+
+      for (const { rowNumber, data } of parsed.rows) {
+        const admissionNo = String(data.admission_number || "").trim();
+        const identifier = admissionNo || data.name || `Row ${rowNumber}`;
+
+        if (!admissionNo) {
+          summary.failed += 1;
+          summary.errors.push({ row: rowNumber, identifier, reason: "admission_number is required." });
+          continue;
+        }
+
+        const matchedStudent = (students ?? []).find(
+          (student: any) =>
+            String(student.enrollmentNo || "").trim() === admissionNo ||
+            String(student.id || student._id || "").trim() === admissionNo,
+        );
+
+        if (!matchedStudent) {
+          summary.failed += 1;
+          summary.errors.push({ row: rowNumber, identifier, reason: "No existing student matched this admission_number." });
+          continue;
+        }
+
+        try {
+          const updatePayload: any = {};
+          const put = (column: string, field: string) => {
+            const value = String(data[column] ?? "").trim();
+            if (value !== "") updatePayload[field] = value;
+          };
+
+          put("name", "name");
+          put("email", "email");
+          put("phone", "phone");
+          put("school_name", "schoolName");
+          put("class_name", "className");
+          put("section", "section");
+          put("board", "board");
+          put("address", "correspondenceAddress");
+          put("academic_year", "academicYear");
+          put("login_id", "loginId");
+
+          if (data.father_name) {
+            updatePayload.fatherName = data.father_name;
+            updatePayload.parentName = data.father_name;
           }
+          if (data.guardian_phone) {
+            updatePayload.fatherPhone = data.guardian_phone;
+            updatePayload.parentPhone = data.guardian_phone;
+          }
+
+          if (data.gender) {
+            const gender = data.gender.toLowerCase();
+            if (!["male", "female", "other"].includes(gender)) {
+              throw new Error("gender must be male, female or other.");
+            }
+            updatePayload.gender = gender;
+          }
+
+          if (data.date_of_birth) {
+            const date = normalizeCsvDate(data.date_of_birth);
+            if (date === null) throw new Error("date_of_birth must be YYYY-MM-DD or DD/MM/YYYY.");
+            updatePayload.dateOfBirth = date;
+          }
+
+          if (data.status) {
+            const rawStatus = data.status.toLowerCase();
+            const status = rawStatus === "dropped" ? "inactive" : rawStatus;
+            if (!["active", "inactive", "graduated"].includes(status)) {
+              throw new Error("status must be active, inactive or graduated.");
+            }
+            updatePayload.status = status;
+          }
+
+          const batchValue = data.batch_name || data.batch_code || "";
+          if (batchValue) {
+            const batch = findBatchFromCsv(batchValue);
+            if (!batch) throw new Error(`Batch '${batchValue}' was not found. Use the exact batch name.`);
+            if (!batch.courseId) throw new Error(`Batch '${batchValue}' has no linked course.`);
+            updatePayload.batchId = String(batch.id);
+            updatePayload.courseId = String(batch.courseId);
+            if (!updatePayload.academicYear && batch.academicYear) updatePayload.academicYear = batch.academicYear;
+          }
+
+          if (Object.keys(updatePayload).length === 0) {
+            summary.skipped += 1;
+            continue;
+          }
+
+          await updateStudent.mutateAsync({
+            id: matchedStudent.id,
+            data: updatePayload as any,
+          });
+          summary.success += 1;
+        } catch (error: any) {
+          summary.failed += 1;
+          summary.errors.push({ row: rowNumber, identifier, reason: transferErrorMessage(error) });
         }
       }
-      setIsBulkUpdating(false); setBulkUpdateDialogOpen(false); setBulkUpdateFile(null);
-      queryClient.invalidateQueries({ queryKey: getListStudentsQueryKey() });
-      notify("success", `Updated ${successCount} students successfully!`);
-    };
-    reader.readAsText(bulkUpdateFile);
+
+      setBulkUpdateSummary(summary);
+      setBulkUpdateFile(null);
+      await queryClient.invalidateQueries({ queryKey: getListStudentsQueryKey() });
+
+      if (summary.failed > 0) {
+        notify("error", `Bulk update finished: ${summary.success} updated, ${summary.skipped} skipped, ${summary.failed} failed.`);
+      } else {
+        notify("success", `Bulk update complete: ${summary.success} updated${summary.skipped ? `, ${summary.skipped} skipped` : ""}.`);
+      }
+    } catch (error: any) {
+      notify("error", transferErrorMessage(error));
+    } finally {
+      setIsBulkUpdating(false);
+    }
   };
 
   const handleImportSubmit = async () => {
-    if (!importFile) return notify("error", "Please select a CSV file!");
+    if (!importFile) return notify("error", "Please choose a CSV file.");
+
+    const fileError = validateCsvFile(importFile, 5);
+    if (fileError) return notify("error", fileError);
+
     setIsImporting(true);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const text = e.target?.result as string;
-      const lines = text.split('\n').filter(line => line.trim() !== "");
-      if (lines.length <= 1) { setIsImporting(false); return notify("error", "File is empty or missing data!"); }
-      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
-      let successCount = 0;
-      for (let i = 1; i < lines.length; i++) {
-        const row = lines[i].split(',').map(cell => cell.trim().replace(/^"|"$/g, ''));
-        const rowData: any = {};
-        headers.forEach((header, index) => { if (row[index]) rowData[header] = row[index]; });
-        if (rowData.name) {
-          try {
-            await createStudent.mutateAsync({
-              data: {
-                ...blankForm, name: rowData.name, email: rowData.email || undefined, phone: rowData.phone || "",
-                parentName: rowData.father_name || undefined, parentPhone: rowData.guardian_phone || undefined,
-                correspondenceAddress: rowData.address || "", dateOfBirth: rowData.date_of_birth || "",
-                academicYear: "2026-2027", loginPassword: rowData.password || (autoGenPassword ? Math.random().toString(36).slice(-8) : "Pass@123")
-              } as any
-            });
-            successCount++;
-          } catch (err) {}
+    setImportSummary(null);
+
+    try {
+      const parsed = parseCsvText(await importFile.text());
+      const hasBatchColumn = parsed.headers.includes("batch_name") || parsed.headers.includes("batch_code");
+      for (const required of ["name", "phone"]) {
+        if (!parsed.headers.includes(required)) throw new Error(`Import CSV must contain the ${required} column.`);
+      }
+      if (!hasBatchColumn) throw new Error("Import CSV must contain batch_name (legacy batch_code is also accepted).");
+      if (parsed.rows.length === 0) throw new Error("Import CSV has no student rows.");
+      if (parsed.rows.length > 1000) throw new Error("Import supports up to 1,000 rows at a time.");
+
+      const summary: CsvTransferSummary = {
+        total: parsed.rows.length,
+        success: 0,
+        skipped: 0,
+        failed: 0,
+        errors: [],
+      };
+
+      const existingEmails = new Set(
+        (students ?? [])
+          .map((student: any) => String(student.email || "").trim().toLowerCase())
+          .filter(Boolean),
+      );
+      const usedLoginIds = new Set(
+        (students ?? [])
+          .map((student: any) => String(student.loginId || "").trim().toLowerCase())
+          .filter(Boolean),
+      );
+
+      for (const { rowNumber, data } of parsed.rows) {
+        const name = String(data.name || "").trim();
+        const phone = String(data.phone || "").trim();
+        const email = String(data.email || "").trim().toLowerCase();
+        const identifier = name || email || phone || `Row ${rowNumber}`;
+
+        try {
+          if (!name) throw new Error("name is required.");
+          if (!phone) throw new Error("phone is required.");
+
+          if (skipDuplicates && email && existingEmails.has(email)) {
+            summary.skipped += 1;
+            summary.errors.push({ row: rowNumber, identifier, reason: "Skipped because this email already exists." });
+            continue;
+          }
+
+          const batchValue = data.batch_name || data.batch_code || "";
+          const batch = findBatchFromCsv(batchValue);
+          if (!batch) throw new Error(`Batch '${batchValue || "(blank)"}' was not found. Use the exact batch name.`);
+
+          const batchId = String(batch.id || "");
+          const courseId = String(batch.courseId || "");
+          if (!batchId || !courseId) throw new Error(`Batch '${batchValue}' is not linked to a valid course.`);
+
+          const rawDate = String(data.date_of_birth || "").trim();
+          const dateOfBirth = normalizeCsvDate(rawDate);
+          if (rawDate && dateOfBirth === null) {
+            throw new Error("date_of_birth must be YYYY-MM-DD or DD/MM/YYYY.");
+          }
+
+          let gender = String(data.gender || "").trim().toLowerCase();
+          if (gender && !["male", "female", "other"].includes(gender)) {
+            throw new Error("gender must be male, female or other.");
+          }
+
+          const suppliedPassword = String(data.password || "").trim();
+          if (suppliedPassword && suppliedPassword.length < 6) {
+            throw new Error("password must be at least 6 characters.");
+          }
+          const loginPassword = suppliedPassword || (autoGenPassword ? generateTemporaryPassword() : "");
+
+          let loginId = "";
+          if (data.login_id || loginPassword) {
+            const loginResult = makeUniqueImportLoginId(name, phone, data.login_id || "", usedLoginIds, rowNumber);
+            if (loginResult.error) throw new Error(loginResult.error);
+            loginId = loginResult.value;
+          }
+
+          const academicYear = String(data.academic_year || batch.academicYear || generatedAcademicYear()).trim();
+          if (!academicYear) throw new Error("academic_year could not be determined.");
+
+          await createStudent.mutateAsync({
+            data: {
+              ...blankForm,
+              name,
+              email: email || undefined,
+              phone,
+              batchId,
+              courseId,
+              academicYear,
+              status: "active",
+              dateOfBirth: dateOfBirth || "",
+              gender: gender || undefined,
+              schoolName: data.school_name || "",
+              className: data.class_name || "",
+              section: data.section || "",
+              board: data.board || "",
+              fatherName: data.father_name || "",
+              parentName: data.father_name || undefined,
+              fatherPhone: data.guardian_phone || "",
+              parentPhone: data.guardian_phone || undefined,
+              correspondenceAddress: data.address || "",
+              loginId: loginId || undefined,
+              loginPassword: loginPassword || undefined,
+            } as any,
+          });
+
+          if (email) existingEmails.add(email);
+          summary.success += 1;
+        } catch (error: any) {
+          summary.failed += 1;
+          summary.errors.push({ row: rowNumber, identifier, reason: transferErrorMessage(error) });
         }
       }
-      setIsImporting(false); setImportDialogOpen(false); setImportFile(null);
-      queryClient.invalidateQueries({ queryKey: getListStudentsQueryKey() });
-      notify("success", `Imported ${successCount} students successfully!`);
-    };
-    reader.readAsText(importFile);
+
+      setImportSummary(summary);
+      setImportFile(null);
+      await queryClient.invalidateQueries({ queryKey: getListStudentsQueryKey() });
+
+      if (summary.failed > 0) {
+        notify("error", `Import finished: ${summary.success} imported, ${summary.skipped} skipped, ${summary.failed} failed.`);
+      } else {
+        notify("success", `Import complete: ${summary.success} imported${summary.skipped ? `, ${summary.skipped} skipped` : ""}.`);
+      }
+    } catch (error: any) {
+      notify("error", transferErrorMessage(error));
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const openAdd = () => {
@@ -702,6 +1535,8 @@ export default function Students({ preview = false }: { preview?: boolean }) {
       bOtherVal = rawBOther || (rawB.toLowerCase() !== "other" ? rawB : "");
     }
 
+    const normalizedDocuments = normalizeStudentDocuments(student);
+
     setForm({
       ...blankForm, 
       name: student.name ?? "", 
@@ -724,7 +1559,7 @@ export default function Students({ preview = false }: { preview?: boolean }) {
       lastClassPercentage: student.lastClassPercentage ?? "", 
       lastClassMarks: student.lastClassMarks ?? "",
       photoDataUrl: student.photoDataUrl ?? "", 
-      documents: Array.isArray(student.documents) ? student.documents : [],
+      documents: normalizedDocuments,
       courseId: student.courseId ?? "", 
       batchId: student.batchId ?? "", 
       academicYear: student.academicYear ?? "2026-2027",
@@ -780,26 +1615,70 @@ export default function Students({ preview = false }: { preview?: boolean }) {
     reader.readAsDataURL(file);
   };
 
+  const syncLegacyDocumentField = (
+    label: string,
+    dataUrl: string,
+    current: StudentForm,
+  ): Partial<StudentForm> => {
+    if (label === STUDENT_DOCUMENT_LABELS.AADHAAR_FRONT) {
+      return { aadhaarCard: dataUrl } as Partial<StudentForm>;
+    }
+    if (label === STUDENT_DOCUMENT_LABELS.MARKSHEET_FRONT) {
+      return { previousMarksheet: dataUrl } as Partial<StudentForm>;
+    }
+    return {};
+  };
+
   const handleDocumentChange = (label: string, file?: File) => {
     if (!file) return;
     const allowedTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
     if (!allowedTypes.includes(file.type)) return notify("error", "Only PDF, JPG, PNG or WEBP files are allowed.");
     if (file.size > 3_000_000) return notify("error", "Please choose a document smaller than 3 MB.");
+
     const reader = new FileReader();
     reader.onload = () => {
-      const newDoc: StudentDocument = { label, name: file.name, dataUrl: String(reader.result || ""), mimeType: file.type };
-      setForm((old) => ({ ...old, documents: [...old.documents.filter(d => d.label !== label), newDoc] }));
+      const dataUrl = String(reader.result || "");
+      const newDoc: StudentDocument = {
+        label,
+        name: file.name,
+        dataUrl,
+        mimeType: file.type,
+      };
+
+      setForm((old) => ({
+        ...old,
+        ...syncLegacyDocumentField(label, dataUrl, old),
+        documents: [...old.documents.filter((d) => d.label !== label), newDoc],
+      }));
     };
     reader.readAsDataURL(file);
   };
 
   const handleDocumentCapture = (label: string, dataUrl: string) => {
-    const newDoc: StudentDocument = { label, name: `${label.replace(/\s+/g, "-").toLowerCase()}-camera.jpg`, dataUrl, mimeType: "image/jpeg" };
-    setForm((old) => ({ ...old, documents: [...old.documents.filter(d => d.label !== label), newDoc] }));
+    const newDoc: StudentDocument = {
+      label,
+      name: `${label.replace(/\s+/g, "-").toLowerCase()}-camera.jpg`,
+      dataUrl,
+      mimeType: "image/jpeg",
+    };
+
+    setForm((old) => ({
+      ...old,
+      ...syncLegacyDocumentField(label, dataUrl, old),
+      documents: [...old.documents.filter((d) => d.label !== label), newDoc],
+    }));
   };
 
-  const removeDocument = (label: string) => setForm((old) => ({ ...old, documents: old.documents.filter(d => d.label !== label) }));
-  const getDocument = (label: string) => form.documents.find(d => d.label === label);
+  const removeDocument = (label: string) => {
+    setForm((old) => ({
+      ...old,
+      ...(label === STUDENT_DOCUMENT_LABELS.AADHAAR_FRONT ? { aadhaarCard: "" } : {}),
+      ...(label === STUDENT_DOCUMENT_LABELS.MARKSHEET_FRONT ? { previousMarksheet: "" } : {}),
+      documents: old.documents.filter((d) => d.label !== label),
+    }));
+  };
+
+  const getDocument = (label: string) => form.documents.find((d) => d.label === label);
 
   const viewDocument = (doc: StudentDocument) => {
     const win = window.open("", "_blank");
@@ -895,6 +1774,16 @@ export default function Students({ preview = false }: { preview?: boolean }) {
     if (!form.courseId) errs.courseId = "Course select karo";
     if (!form.batchId) errs.batchId = "Batch select karo";
 
+    if (!getDocument(STUDENT_DOCUMENT_LABELS.AADHAAR_FRONT)) {
+      errs.aadhaarFront = "Aadhaar Card ka front side upload ya camera se capture karo";
+    }
+    if (!getDocument(STUDENT_DOCUMENT_LABELS.AADHAAR_BACK)) {
+      errs.aadhaarBack = "Aadhaar Card ka back side upload ya camera se capture karo";
+    }
+    if (!getDocument(STUDENT_DOCUMENT_LABELS.MARKSHEET_FRONT)) {
+      errs.marksheetFront = "Previous Class Marksheet ka front upload ya camera se capture karo";
+    }
+
     if (form.gender === "other" && !(form.genderOther || "").trim()) {
       errs.genderOther = "Specify gender field zaroori hai";
     }
@@ -961,8 +1850,45 @@ export default function Students({ preview = false }: { preview?: boolean }) {
   };
 
   const updateStudentStatus = (student: any, status: "active" | "inactive") => {
-    if (student.status === status) return;
-    updateStudent.mutate({ id: student.id, data: { status } as any }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getListStudentsQueryKey() }) });
+    if (student.status === status || student.status === "graduated") return;
+
+    setStatusUpdatingId(student.id);
+
+    updateStudent.mutate(
+      { id: student.id, data: { status } as any },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getListStudentsQueryKey(),
+          });
+
+          if (viewingStudent?.id === student.id) {
+            setViewingStudent((current: any) =>
+              current ? { ...current, status } : current,
+            );
+          }
+
+          notify("success", `${student.name} marked ${status}.`);
+        },
+        onError: (error: any) => {
+          notify(
+            "error",
+            error?.message || "Unable to update student status.",
+          );
+        },
+        onSettled: () => setStatusUpdatingId(null),
+      },
+    );
+  };
+
+  const toggleStudentStatus = (student: any) => {
+    const current = String(student.status || "active");
+    if (current === "graduated") return;
+
+    updateStudentStatus(
+      student,
+      current === "inactive" ? "active" : "inactive",
+    );
   };
 
   const handleDelete = (student: any) => {
@@ -970,7 +1896,7 @@ export default function Students({ preview = false }: { preview?: boolean }) {
     deleteStudent.mutate({ id: student.id }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getListStudentsQueryKey() }) });
   };
 
-  const handleClearFilters = () => { setSearch(""); setBatchFilter("all"); setStatusFilter("all"); setSortBy("admission-asc"); };
+  const handleClearFilters = () => { setSearch(""); setBatchFilter("all"); setStatusFilter("all"); setFeeFilter("all"); setSortBy("newest"); };
 
   const submitResetPassword = () => {
     if (!newPassword || newPassword.length < 6) return notify("error", "Password must be at least 6 characters.");
@@ -980,42 +1906,173 @@ export default function Students({ preview = false }: { preview?: boolean }) {
     );
   };
 
+  const startStudentSupportMode = async () => {
+    const student = viewingStudent;
+    if (!student) return;
+
+    const reason = supportReason.trim();
+    if (reason.length < 5) {
+      setSupportError("Support reason minimum 5 characters hona chahiye.");
+      return;
+    }
+
+    const token = localStorage.getItem("coach_sutra_token") || "";
+    const role = localStorage.getItem("coach_sutra_user_role") || "";
+    const studentId = String(student.id || student._id || "");
+
+    if (!token || !studentId) {
+      setSupportError("Admin session ya student ID available nahi hai.");
+      return;
+    }
+
+    if (!["institute_admin", "super_admin"].includes(role)) {
+      setSupportError("Student Support Mode sirf Institute Admin/Owner aur SUPER_ADMIN use kar sakte hain.");
+      return;
+    }
+
+    if (localStorage.getItem("academy_support_original_token")) {
+      setSupportError("Ek support session already active hai. Pehle usse exit karein.");
+      return;
+    }
+
+    setSupportStarting(true);
+    setSupportError("");
+
+    try {
+      const endpoint =
+        role === "super_admin"
+          ? "/api/v1/platform/student-support/start"
+          : "/api/student-support/start";
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ studentId, reason }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.token || !data?.sessionId) {
+        throw new Error(data?.error || "Student Support Mode start nahi ho saka.");
+      }
+
+      // Keep the owner/admin session so Exit Support Mode can restore it.
+      localStorage.setItem("academy_support_original_token", token);
+      localStorage.setItem("academy_support_original_role", role);
+      localStorage.setItem("academy_support_session_id", String(data.sessionId));
+      localStorage.setItem("academy_support_student_id", studentId);
+      localStorage.setItem("academy_support_student_name", String(data.student?.name || student.name || "Student"));
+      localStorage.setItem("academy_support_return_path", `/students?view=${encodeURIComponent(studentId)}`);
+      localStorage.setItem("academy_support_expires_at", String(data.expiresAt || ""));
+
+      localStorage.setItem("coach_sutra_token", String(data.token));
+      localStorage.setItem("coach_sutra_user_role", "student");
+      window.dispatchEvent(new Event("storage"));
+      window.location.assign("/student-dashboard?support=1");
+    } catch (error: any) {
+      setSupportError(error?.message || "Student Support Mode start nahi ho saka.");
+    } finally {
+      setSupportStarting(false);
+    }
+  };
+
   const baseStudents = (students ?? []).filter((student: any) => {
     const linkedCourse = (courses ?? []).find((course: any) => course.id === student.courseId) as any;
     return studentCategory !== "academic" && studentCategory !== "computer" ? true : (linkedCourse?.courseType ?? "academic") === studentCategory;
   });
 
   const totalStudents = baseStudents.length;
-  const activeStudents = baseStudents.filter((student: any) => (student.status ?? "active") === "active").length;
-  const inactiveStudents = totalStudents - activeStudents;
-  const droppedStudents = inactiveStudents;
+  const activeStudents = baseStudents.filter(
+    (student: any) => (student.status ?? "active") === "active",
+  ).length;
+  const inactiveStudents = baseStudents.filter(
+    (student: any) => student.status === "inactive",
+  ).length;
+  const graduatedStudents = baseStudents.filter(
+    (student: any) => student.status === "graduated",
+  ).length;
+
   const newStudents = baseStudents.filter((student: any) => {
     if (!student.createdAt) return false;
-    return Math.ceil(Math.abs(new Date().getTime() - new Date(student.createdAt).getTime()) / (1000 * 60 * 60 * 24)) <= 30;
+
+    return (
+      Math.ceil(
+        Math.abs(
+          new Date().getTime() -
+            new Date(student.createdAt).getTime(),
+        ) /
+          (1000 * 60 * 60 * 24),
+      ) <= 30
+    );
   }).length;
 
-  const studentsWithDue = baseStudents.filter((student: any) => getStudentFeeInfo(student).due > 0).length;
-  const totalOutstanding = baseStudents.reduce((sum: number, student: any) => sum + getStudentFeeInfo(student).due, 0);
-  const activeRate = totalStudents > 0 ? Math.round((activeStudents / totalStudents) * 100) : 0;
-  const batchesInUse = new Set(baseStudents.map((student: any) => student.batchId).filter(Boolean)).size;
+  const studentsWithDue = baseStudents.filter(
+    (student: any) => getStudentFeeInfo(student).currentDue > 0,
+  ).length;
+  const feeNotAssignedCount = baseStudents.filter(
+    (student: any) =>
+      getStudentFeeInfo(student).status === "not_assigned",
+  ).length;
+  const totalOutstanding = baseStudents.reduce(
+    (sum: number, student: any) =>
+      sum + getStudentFeeInfo(student).outstanding,
+    0,
+  );
+  const activeRate =
+    totalStudents > 0
+      ? Math.round((activeStudents / totalStudents) * 100)
+      : 0;
+  const batchesInUse = new Set(
+    baseStudents.map((student: any) => student.batchId).filter(Boolean),
+  ).size;
 
   const filled = (s: keyof StudentForm) => String(form[s] ?? "").trim().length > 0;
   const section1Filled = filled("name") && filled("dateOfBirth") && filled("gender") && filled("schoolName") && form.courseId !== "" && form.batchId !== "";
   const section2Filled = filled("motherPhone") || filled("fatherPhone") || filled("emergencyPhone");
   const section3Filled = filled("correspondenceAddress") && filled("correspondenceState") && filled("correspondenceDistrict") && filled("correspondencePin");
+  const documentsFilled =
+    Boolean(getDocument(STUDENT_DOCUMENT_LABELS.AADHAAR_FRONT)) &&
+    Boolean(getDocument(STUDENT_DOCUMENT_LABELS.AADHAAR_BACK)) &&
+    Boolean(getDocument(STUDENT_DOCUMENT_LABELS.MARKSHEET_FRONT));
   const section4Filled = filled("loginId") && filled("loginPassword");
   const saving = createStudent.isPending || updateStudent.isPending;
 
-  const batchOptions = [{ label: "All Batches", value: "all" }, ...(batches?.map((b: any) => ({ label: b.name, value: b.id })) || [])];
-  const statusOptions = [{ label: "All Status", value: "all" }, { label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }, { label: "Dropped", value: "dropped" }, { label: "Graduated", value: "graduated" }];
-  const sortOptions = [{ label: "Admission No (A-Z)", value: "admission-asc" }, { label: "Admission No (Z-A)", value: "admission-desc" }, { label: "Name (A-Z)", value: "name-asc" }, { label: "Name (Z-A)", value: "name-desc" }];
+  const batchOptions = [
+    { label: "All Batches", value: "all" },
+    ...(batches?.map((batch: any) => ({
+      label: batch.name,
+      value: batch.id,
+    })) || []),
+  ];
+
+  const feeOptions = [
+    { label: "All Fee Health", value: "all" },
+    { label: "Due Now", value: "due" },
+    { label: "Overdue", value: "overdue" },
+    { label: "No Due", value: "clear" },
+    { label: "Upcoming Only", value: "upcoming" },
+    { label: "Fee Not Assigned", value: "not_assigned" },
+  ];
+
+  const sortOptions = [
+    { label: "Newest Admission", value: "newest" },
+    { label: "Oldest Admission", value: "oldest" },
+    { label: "Admission No (A-Z)", value: "admission-asc" },
+    { label: "Admission No (Z-A)", value: "admission-desc" },
+    { label: "Name (A-Z)", value: "name-asc" },
+    { label: "Name (Z-A)", value: "name-desc" },
+    { label: "Fee Due (High-Low)", value: "fee-due-desc" },
+  ];
 
   // ---------------------------------------------------------------------------
   // FORM PAGE VIEW (NEW ADD/EDIT full page)
   // ---------------------------------------------------------------------------
   if (formPageOpen) {
     return (
-      <div className="max-w-6xl mx-auto pb-10 overflow-x-clip">
+      <div className="min-h-full bg-[#f3f6fb] px-1 pb-10 pt-1 md:px-2">
+        <div className="mx-auto max-w-6xl overflow-x-clip">
         
         {/* Compact premium Online Admission header + sticky progress */}
         {isOnlineAdmissionPreview ? (
@@ -1053,40 +2110,71 @@ export default function Students({ preview = false }: { preview?: boolean }) {
                   { label: "Student", filled: section1Filled },
                   { label: "Parents", filled: section2Filled },
                   { label: "Address", filled: section3Filled },
-                  { label: "Docs", filled: !!(form.aadhaarCard || form.previousMarksheet) },
+                  { label: "Docs", filled: documentsFilled },
                 ]} />
               </div>
             </div>
           </>
         ) : (
-          <div className="sticky top-0 z-50 bg-[#f6f7f9] pt-1 pb-3 space-y-3 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
-              <div className="flex items-center gap-3">
-                <Button variant="ghost" size="icon" className="rounded-full bg-slate-50 border border-slate-200 hover:bg-slate-100 h-9 w-9 shrink-0" onClick={closeForm}>
-                  <ArrowLeft className="h-4 w-4 text-slate-700" />
-                </Button>
-                <div>
-                  <h1 className="text-lg md:text-xl font-bold text-slate-800 tracking-tight leading-tight">
-                    {editingStudent ? "Edit Student Admission" : "New Student Admission Form"}
-                  </h1>
-                  <p className="text-[11px] text-slate-500">
-                    {studentCategory === "academic" ? "Academic Student" : studentCategory === "computer" ? "Computer Student" : "Fill all fields carefully"}
-                  </p>
+          <div className="sticky top-0 z-50 space-y-3 bg-[#f3f6fb]/95 pb-3 pt-1 backdrop-blur">
+            <div className="relative overflow-hidden rounded-[22px] border border-slate-800 bg-[linear-gradient(105deg,#020817_0%,#020b1d_58%,#21184d_100%)] px-4 py-3.5 text-white shadow-[0_14px_36px_rgba(15,23,42,0.18)] md:px-5">
+              <div className="absolute -right-16 -top-20 h-44 w-44 rounded-full bg-violet-500/20 blur-3xl" />
+              <div className="absolute bottom-0 left-1/3 h-28 w-28 rounded-full bg-cyan-400/10 blur-2xl" />
+
+              <div className="relative flex flex-wrap items-center justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 shrink-0 rounded-xl border border-white/10 bg-white/[0.06] text-white hover:bg-white/10 hover:text-white"
+                    onClick={closeForm}
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+
+                  <div className="min-w-0">
+                    <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.16em] text-violet-200">
+                      <UserPlus className="h-3 w-3 text-cyan-300" />
+                      Student Admission
+                    </div>
+                    <h1 className="truncate text-lg font-black tracking-tight text-white md:text-xl">
+                      {editingStudent ? "Edit Student Admission" : "New Student Admission Form"}
+                    </h1>
+                    <p className="mt-1 text-[11px] text-slate-300">
+                      {studentCategory === "academic"
+                        ? "Academic Student"
+                        : studentCategory === "computer"
+                          ? "Computer Student"
+                          : "Capture complete admission details in one place"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={closeForm}
+                    className="h-9 border-white/15 bg-transparent px-4 text-xs text-white hover:bg-white/10 hover:text-white"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={saveStudent}
+                    disabled={saving}
+                    className="h-9 bg-white px-4 text-xs font-bold text-slate-950 shadow-sm hover:bg-slate-100"
+                  >
+                    {saving ? "Saving..." : (editingStudent ? "Update Student" : "Save Admission")}
+                  </Button>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={closeForm} className="h-9 text-xs bg-white">Cancel</Button>
-                <Button onClick={saveStudent} disabled={saving} className="h-9 text-xs bg-[#4d7c0f] hover:bg-[#3f660c] text-white font-medium px-4 shadow-sm">
-                  {saving ? "Saving..." : (editingStudent ? "Update Student" : "Save Admission")}
-                </Button>
-              </div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
               <FormProgress steps={[
                 { label: "Student", filled: section1Filled },
                 { label: "Parents", filled: section2Filled },
                 { label: "Address", filled: section3Filled },
-                { label: "Docs", filled: !!(form.aadhaarCard || form.previousMarksheet) },
+                { label: "Docs", filled: documentsFilled },
                 { label: "Login", filled: section4Filled }
               ]} />
             </div>
@@ -1097,9 +2185,9 @@ export default function Students({ preview = false }: { preview?: boolean }) {
         <div className={isOnlineAdmissionPreview ? "space-y-5 pt-2" : "space-y-5 pt-1"}>
           
           {/* SECTION 1: STUDENT INFO */}
-          <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white">
+          <Card className="rounded-[20px] border border-[#dfe6f0] bg-white shadow-[0_6px_20px_rgba(15,23,42,0.05)]">
             <CardContent className="p-6 space-y-5">
-              <SectionTitle number={1} icon={<GraduationCap className="h-5 w-5" />} tone="red">Student's Information</SectionTitle>
+              <AdmissionSectionTitle number={1} icon={<GraduationCap className="h-5 w-5" />}>Student's Information</AdmissionSectionTitle>
 
               <div className="grid gap-5 md:grid-cols-[1fr_200px]">
                 <div className="space-y-4">
@@ -1165,7 +2253,7 @@ export default function Students({ preview = false }: { preview?: boolean }) {
                 </div>
                 
                 {/* Photo Box */}
-                <div className="rounded-xl border-2 border-dashed bg-slate-50 p-3">
+                <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/70 p-3">
                   <Label className="block text-center text-xs font-bold uppercase tracking-wide text-slate-500">Student Photo</Label>
                   <div className="mx-auto mt-3 flex h-36 w-36 items-center justify-center overflow-hidden rounded-full border-4 border-white bg-white shadow-lg ring-2 ring-primary/20">
                     {form.photoDataUrl ? <img src={form.photoDataUrl} alt="Student" className="h-full w-full object-cover" /> : <UserRound className="h-14 w-14 text-slate-300" />}
@@ -1235,10 +2323,10 @@ export default function Students({ preview = false }: { preview?: boolean }) {
           </Card>
 
           {/* SECTION 2: PARENT */}
-          <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white">
+          <Card className="rounded-[20px] border border-[#dfe6f0] bg-white shadow-[0_6px_20px_rgba(15,23,42,0.05)]">
             <CardContent className="p-6 space-y-5">
-              <SectionTitle number={2} icon={<Users className="h-5 w-5" />} tone="red">Parent's Information</SectionTitle>
-              <div className="rounded-xl border p-4">
+              <AdmissionSectionTitle number={2} icon={<Users className="h-5 w-5" />}>Parent's Information</AdmissionSectionTitle>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
                 <h3 className="mb-4 flex items-center gap-2 font-semibold"><span className="h-2 w-2 rounded-full bg-pink-500" />Mother's Details</h3>
                 <div className="grid gap-4 md:grid-cols-2">
                   <FormInput label="Mother's Name" value={form.motherName} onChange={(v: string) => setValue("motherName", v)} />
@@ -1247,7 +2335,7 @@ export default function Students({ preview = false }: { preview?: boolean }) {
                   <WhatsappField value={form.motherWhatsapp} contact={form.motherPhone} contactCode={form.motherPhoneCode} onChange={(v: string) => setValue("motherWhatsapp", v)} code={form.motherWhatsappCode} onCodeChange={(c: string) => setValue("motherWhatsappCode", c)} />
                 </div>
               </div>
-              <div className="rounded-xl border p-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
                 <h3 className="mb-4 flex items-center gap-2 font-semibold"><span className="h-2 w-2 rounded-full bg-blue-500" />Father's Details</h3>
                 <div className="grid gap-4 md:grid-cols-2">
                   <FormInput label="Father's Name" value={form.fatherName} onChange={(v: string) => setValue("fatherName", v)} />
@@ -1265,10 +2353,10 @@ export default function Students({ preview = false }: { preview?: boolean }) {
           </Card>
 
           {/* SECTION 3: ADDRESS */}
-          <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white">
+          <Card className="rounded-[20px] border border-[#dfe6f0] bg-white shadow-[0_6px_20px_rgba(15,23,42,0.05)]">
             <CardContent className="p-6 space-y-5">
-              <SectionTitle number={3} icon={<MapPin className="h-5 w-5" />} tone="red">Address Details</SectionTitle>
-              <div className="rounded-xl border p-4">
+              <AdmissionSectionTitle number={3} icon={<MapPin className="h-5 w-5" />}>Address Details</AdmissionSectionTitle>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
                 <FormInput label="Address" value={form.correspondenceAddress} onChange={(v: string) => setValue("correspondenceAddress", v)} />
                 <div className="grid gap-4 md:grid-cols-3 mt-4">
                   <SearchableDropdown label="State" value={form.correspondenceState} options={INDIA_STATES} placeholder="Search state" onChange={(v: string) => setForm((old) => ({ ...old, correspondenceState: v, correspondenceDistrict: "" }))} />
@@ -1279,78 +2367,208 @@ export default function Students({ preview = false }: { preview?: boolean }) {
             </CardContent>
           </Card>
 
-          {/* SECTION 4: DOCUMENTS (Only Aadhaar & Marksheet) */}
-          <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white">
+          {/* SECTION 4: DOCUMENTS */}
+          <Card className="rounded-[20px] border border-[#dfe6f0] bg-white shadow-[0_6px_20px_rgba(15,23,42,0.05)]">
             <CardContent className="p-6 space-y-5">
-              <SectionTitle number={4} icon={<FileText className="h-5 w-5" />} tone="red">
+              <AdmissionSectionTitle number={4} icon={<FileText className="h-5 w-5" />}>
                 Documents
-              </SectionTitle>
-              <p className="text-xs text-slate-500 -mt-2">
-                Upload Aadhaar Card and Previous Class Marksheet (Image/PDF, Max 5MB)
-              </p>
+              </AdmissionSectionTitle>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                {/* Aadhaar Card */}
-                <div className="rounded-xl border p-4 space-y-3">
-                  <Label className="text-xs font-medium text-slate-600">Aadhaar Card</Label>
-                  {form.aadhaarCard ? (
-                    <div className="space-y-2">
-                      <div className="text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 flex items-center">
-                        ✅ Aadhaar uploaded
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="h-8 w-full text-xs text-red-600 hover:bg-red-50"
-                        onClick={() => setValue("aadhaarCard", "")}
-                      >
-                        Remove
-                      </Button>
+              <div className="-mt-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-slate-500">
+                  Aadhaar ke Front + Back dono aur Previous Class Marksheet ka Front upload/capture karein.
+                </p>
+                <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-red-600">
+                  Required
+                </span>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
+                {/* Aadhaar: front + back */}
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <Label className="text-sm font-bold text-slate-800">Aadhaar Card</Label>
+                      <p className="mt-0.5 text-[11px] text-slate-500">Front aur back dono alag capture/upload honge.</p>
                     </div>
-                  ) : (
-                    <label className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border bg-slate-50 text-xs font-semibold hover:bg-slate-100 transition-colors">
-                      <Upload className="h-4 w-4 text-slate-500" />
-                      Upload Aadhaar
-                      <input
-                        type="file"
-                        accept="image/*,application/pdf"
-                        className="hidden"
-                        onChange={(e: any) => handleDocumentUpload("aadhaarCard", e.target.files?.[0])}
-                      />
-                    </label>
-                  )}
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-600">2 SIDES</span>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {[
+                      { label: STUDENT_DOCUMENT_LABELS.AADHAAR_FRONT, title: "Front Side", helper: "Photo & Aadhaar number side" },
+                      { label: STUDENT_DOCUMENT_LABELS.AADHAAR_BACK, title: "Back Side", helper: "Address side" },
+                    ].map((item) => {
+                      const document = getDocument(item.label);
+
+                      return (
+                        <div key={item.label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="text-xs font-bold text-slate-800">{item.title}</div>
+                              <div className="mt-0.5 text-[10px] text-slate-400">{item.helper}</div>
+                            </div>
+                            <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                              document ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                            }`}>
+                              {document ? "READY" : "PENDING"}
+                            </span>
+                          </div>
+
+                          {document && (
+                            <div className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2">
+                              <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                              <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-emerald-700">
+                                {document.name}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => viewDocument(document)}
+                                className="rounded-md p-1 text-emerald-700 hover:bg-emerald-100"
+                                title="View document"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          )}
+
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <label className="flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50">
+                              <Upload className="h-3.5 w-3.5 text-slate-500" />
+                              {document ? "Replace" : "Upload"}
+                              <input
+                                type="file"
+                                accept="image/*,application/pdf"
+                                className="hidden"
+                                onChange={(e: any) => handleDocumentChange(item.label, e.target.files?.[0])}
+                              />
+                            </label>
+
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-9 bg-white text-[11px] font-semibold shadow-sm"
+                              onClick={() => {
+                                setDocCameraLabel(item.label);
+                                setCameraOpen(true);
+                              }}
+                            >
+                              <Camera className="mr-1.5 h-3.5 w-3.5" />
+                              Camera
+                            </Button>
+                          </div>
+
+                          {document && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="mt-2 h-7 w-full text-[10px] text-red-600 hover:bg-red-50"
+                              onClick={() => removeDocument(item.label)}
+                            >
+                              <X className="mr-1 h-3 w-3" />
+                              Remove {item.title}
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                {/* Previous Class Marksheet */}
-                <div className="rounded-xl border p-4 space-y-3">
-                  <Label className="text-xs font-medium text-slate-600">Previous Class Marksheet</Label>
-                  {form.previousMarksheet ? (
-                    <div className="space-y-2">
-                      <div className="text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 flex items-center">
-                        ✅ Marksheet uploaded
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="h-8 w-full text-xs text-red-600 hover:bg-red-50"
-                        onClick={() => setValue("previousMarksheet", "")}
-                      >
-                        Remove
-                      </Button>
+                {/* Marksheet: front only */}
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <Label className="text-sm font-bold text-slate-800">Previous Class Marksheet</Label>
+                      <p className="mt-0.5 text-[11px] text-slate-500">Sirf front side required hai.</p>
                     </div>
-                  ) : (
-                    <label className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border bg-slate-50 text-xs font-semibold hover:bg-slate-100 transition-colors">
-                      <Upload className="h-4 w-4 text-slate-500" />
-                      Upload Marksheet
-                      <input
-                        type="file"
-                        accept="image/*,application/pdf"
-                        className="hidden"
-                        onChange={(e: any) => handleDocumentUpload("previousMarksheet", e.target.files?.[0])}
-                      />
-                    </label>
-                  )}
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-600">FRONT ONLY</span>
+                  </div>
+
+                  {(() => {
+                    const document = getDocument(STUDENT_DOCUMENT_LABELS.MARKSHEET_FRONT);
+
+                    return (
+                      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="text-xs font-bold text-slate-800">Front Side</div>
+                            <div className="mt-0.5 text-[10px] text-slate-400">Marks / result details side</div>
+                          </div>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                            document ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                          }`}>
+                            {document ? "READY" : "PENDING"}
+                          </span>
+                        </div>
+
+                        {document && (
+                          <div className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2">
+                            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                            <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-emerald-700">
+                              {document.name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => viewDocument(document)}
+                              className="rounded-md p-1 text-emerald-700 hover:bg-emerald-100"
+                              title="View document"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <label className="flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50">
+                            <Upload className="h-3.5 w-3.5 text-slate-500" />
+                            {document ? "Replace" : "Upload"}
+                            <input
+                              type="file"
+                              accept="image/*,application/pdf"
+                              className="hidden"
+                              onChange={(e: any) =>
+                                handleDocumentChange(
+                                  STUDENT_DOCUMENT_LABELS.MARKSHEET_FRONT,
+                                  e.target.files?.[0],
+                                )
+                              }
+                            />
+                          </label>
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-9 bg-white text-[11px] font-semibold shadow-sm"
+                            onClick={() => {
+                              setDocCameraLabel(STUDENT_DOCUMENT_LABELS.MARKSHEET_FRONT);
+                              setCameraOpen(true);
+                            }}
+                          >
+                            <Camera className="mr-1.5 h-3.5 w-3.5" />
+                            Camera
+                          </Button>
+                        </div>
+
+                        {document && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="mt-2 h-7 w-full text-[10px] text-red-600 hover:bg-red-50"
+                            onClick={() => removeDocument(STUDENT_DOCUMENT_LABELS.MARKSHEET_FRONT)}
+                          >
+                            <X className="mr-1 h-3 w-3" />
+                            Remove Marksheet
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-[11px] leading-5 text-slate-600">
+                <span className="font-bold">Tip:</span> Camera use karte waqt document ko seedha rakhein, glare avoid karein aur poora card/page frame ke andar rakhein.
               </div>
             </CardContent>
           </Card>
@@ -1358,10 +2576,10 @@ export default function Students({ preview = false }: { preview?: boolean }) {
           {!isOnlineAdmissionPreview && (
           <>
           {/* SECTION 4: LOGIN */}
-          <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white">
+          <Card className="rounded-[20px] border border-[#dfe6f0] bg-white shadow-[0_6px_20px_rgba(15,23,42,0.05)]">
             <CardContent className="p-6 space-y-5">
-              <SectionTitle number={5} icon={<KeyRound className="h-5 w-5" />} tone="red">Student Login Details</SectionTitle>
-              <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-4">
+              <AdmissionSectionTitle number={5} icon={<KeyRound className="h-5 w-5" />}>Student Login Details</AdmissionSectionTitle>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                 <p className="mb-4 text-xs text-muted-foreground">Student in details se portal me login karega. Login ID unique honi chahiye.</p>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-1.5">
@@ -1413,7 +2631,7 @@ export default function Students({ preview = false }: { preview?: boolean }) {
             {!isOnlineAdmissionPreview && (
               <Button variant="outline" onClick={closeForm} className="h-11 px-6">Cancel</Button>
             )}
-            <Button onClick={saveStudent} disabled={saving} className="h-11 bg-[#4d7c0f] hover:bg-[#3f660c] text-white font-medium px-6 shadow-sm">
+            <Button onClick={saveStudent} disabled={saving} className="h-11 bg-slate-950 hover:bg-slate-900 text-white font-bold px-6 shadow-sm">
               {saving ? "Submitting..." : (isOnlineAdmissionPreview ? "Submit Application" : (editingStudent ? "Update Student" : "Save Student Admission"))}
             </Button>
           </div>
@@ -1425,7 +2643,8 @@ export default function Students({ preview = false }: { preview?: boolean }) {
           onCapture={(dataUrl) => { 
             if (docCameraLabel) handleDocumentCapture(docCameraLabel, dataUrl); 
             else { setValue("photoDataUrl", dataUrl); setIsPhotoRemoved(false); } 
-            setDocCameraLabel(null); 
+            setDocCameraLabel(null);
+            setCameraOpen(false); 
           }} 
         />
         
@@ -1436,6 +2655,7 @@ export default function Students({ preview = false }: { preview?: boolean }) {
             <span>{toast.msg}</span>
           </div>
         )}
+        </div>
       </div>
     );
   }
@@ -1445,345 +2665,1024 @@ export default function Students({ preview = false }: { preview?: boolean }) {
   // ---------------------------------------------------------------------------
   if (viewingStudent) {
     const s = viewingStudent;
-    const initials = String(s.name || "S").split(" ").map((p: string) => p[0]).join("").slice(0, 2).toUpperCase();
+
+    const studentId = String(s.id || s._id || "");
+    const initials = String(s.name || "S")
+      .split(" ")
+      .map((p: string) => p[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
+
     const isInactive = s.status === "inactive";
-    const enrolled = s.createdAt ? new Date(s.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "-";
+    const enrolled = s.createdAt
+      ? new Date(s.createdAt).toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        })
+      : "Not available";
 
     const feeInfo = getStudentFeeInfo(s);
+    const hasFeeData = feeInfo.total > 0 || feeInfo.paid > 0 || feeInfo.due > 0;
+    const feeProgress =
+      feeInfo.total > 0
+        ? Math.min(100, Math.round((feeInfo.paid / feeInfo.total) * 100))
+        : 0;
+
+    const linkedCourse = (courses ?? []).find(
+      (course: any) => String(course.id || course._id) === String(s.courseId || ""),
+    ) as any;
+    const linkedBatch = (batches ?? []).find(
+      (batch: any) => String(batch.id) === String(s.batchId || ""),
+    ) as any;
+
+    const courseLabel = s.courseName || linkedCourse?.name || "Not assigned";
+    const batchLabel = s.batchName || linkedBatch?.name || "Not assigned";
+
+    const profileDocuments = normalizeStudentDocuments(s);
+    const expectedDocumentLabels = [
+      STUDENT_DOCUMENT_LABELS.AADHAAR_FRONT,
+      STUDENT_DOCUMENT_LABELS.AADHAAR_BACK,
+      STUDENT_DOCUMENT_LABELS.MARKSHEET_FRONT,
+    ];
+    const requiredDocumentsReady = expectedDocumentLabels.filter((label) =>
+      profileDocuments.some((doc) => doc.label === label),
+    ).length;
+
+    const attendanceSource =
+      s.attendanceSummary && typeof s.attendanceSummary === "object"
+        ? s.attendanceSummary
+        : s.attendanceStats && typeof s.attendanceStats === "object"
+          ? s.attendanceStats
+          : null;
+
+    const attendanceTotal = Number(
+      attendanceSource?.total ??
+        attendanceSource?.totalClasses ??
+        attendanceSource?.workingDays ??
+        0,
+    );
+    const attendancePresent = Number(
+      attendanceSource?.present ??
+        attendanceSource?.presentDays ??
+        0,
+    );
+    const attendanceAbsent = Number(
+      attendanceSource?.absent ??
+        attendanceSource?.absentDays ??
+        0,
+    );
+    const attendanceLate = Number(
+      attendanceSource?.late ??
+        attendanceSource?.lateDays ??
+        0,
+    );
+    const attendanceRate =
+      attendanceTotal > 0
+        ? Math.round((attendancePresent / attendanceTotal) * 100)
+        : null;
+
+    const profileTests = (
+      Array.isArray(s.testResults)
+        ? s.testResults
+        : Array.isArray(s.examResults)
+          ? s.examResults
+          : Array.isArray(s.results)
+            ? s.results
+            : Array.isArray(s.exams)
+              ? s.exams
+              : []
+    ) as any[];
+
+    const parentContact =
+      s.fatherPhone ||
+      s.motherPhone ||
+      s.parentPhone ||
+      s.emergencyPhone ||
+      "";
+
+    const addressLine = [
+      s.correspondenceAddress || s.address,
+      s.correspondenceDistrict,
+      s.correspondenceState,
+      s.correspondencePin,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+    const completenessChecks = [
+      Boolean(s.name),
+      Boolean(s.dateOfBirth),
+      Boolean(s.gender),
+      Boolean(s.photoDataUrl),
+      courseLabel !== "Not assigned",
+      batchLabel !== "Not assigned",
+      Boolean(parentContact),
+      Boolean(addressLine),
+      requiredDocumentsReady === expectedDocumentLabels.length,
+      Boolean(s.loginId),
+    ];
+    const profileCompleteness = Math.round(
+      (completenessChecks.filter(Boolean).length / completenessChecks.length) * 100,
+    );
+
+    const InfoRow = ({
+      label,
+      value,
+      mono = false,
+    }: {
+      label: string;
+      value: any;
+      mono?: boolean;
+    }) => (
+      <div className="flex items-start justify-between gap-4 border-b border-slate-100 py-2.5 last:border-0">
+        <span className="text-xs font-semibold text-slate-500">{label}</span>
+        <span
+          className={`max-w-[62%] text-right text-sm font-bold text-slate-800 ${
+            mono ? "font-mono text-xs" : ""
+          }`}
+        >
+          {value || "—"}
+        </span>
+      </div>
+    );
+
+    const EmptyState = ({
+      icon: Icon,
+      title,
+      text,
+    }: {
+      icon: any;
+      title: string;
+      text: string;
+    }) => (
+      <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-6 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm ring-1 ring-slate-200">
+          <Icon className="h-5 w-5" />
+        </div>
+        <h4 className="mt-4 text-sm font-black text-slate-800">{title}</h4>
+        <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">{text}</p>
+      </div>
+    );
+
+    const profileTabs = [
+      { id: "overview", label: "Overview", icon: User },
+      { id: "academic", label: "Course & Batch", icon: GraduationCap },
+      { id: "fees", label: "Fees", icon: Wallet },
+      { id: "attendance", label: "Attendance", icon: CalendarDays },
+      { id: "tests", label: "Tests", icon: BarChart3 },
+      { id: "documents", label: "Documents", icon: FolderOpen },
+    ] as const;
 
     return (
-      <div className="space-y-4">
-        {/* Top bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="rounded-full bg-white shadow-sm border border-slate-200" onClick={() => setViewingStudent(null)}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-800">{s.name}</h1>
-              <p className="text-xs text-slate-500">{s.enrollmentNo || s.id} {s.batchName ? `· ${s.batchName}` : ""}</p>
-            </div>
-          </div>
+      <div className="min-h-full space-y-4 bg-[#f3f6fb] pb-8">
+        {/* Student 360 hero */}
+        <section className="relative overflow-hidden rounded-[28px] border border-slate-800 bg-[linear-gradient(105deg,#020817_0%,#020b1d_58%,#21184d_100%)] px-5 py-5 text-white shadow-[0_22px_70px_-38px_rgba(15,23,42,0.65)] sm:px-6">
+          <div className="absolute -right-24 -top-28 h-72 w-72 rounded-full bg-violet-500/20 blur-3xl" />
+          <div className="absolute -bottom-24 left-1/3 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl" />
 
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="h-9 shadow-sm" onClick={() => { setViewingStudent(null); openEdit(s); }}>
-              <Pencil className="mr-1.5 h-4 w-4" /> Edit
-            </Button>
-            <Button variant="outline" className="h-9 text-red-600 border-red-200 hover:bg-red-50 shadow-sm font-semibold" onClick={() => { setNewPassword(Math.random().toString(36).slice(-10)); setResetPasswordOpen(true); }}>
-              <KeyRound className="mr-1.5 h-4 w-4" /> Reset Password
-            </Button>
-            <Button variant="outline" className="h-9 text-amber-700 border-amber-200 hover:bg-amber-50 shadow-sm" onClick={() => updateStudentStatus(s, isInactive ? "active" : "inactive")}>
-              <Ban className="mr-1.5 h-4 w-4" /> {isInactive ? "Activate" : "Deactivate"}
-            </Button>
-          </div>
-        </div>
+          <div className="relative flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 items-start gap-4">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="mt-1 h-10 w-10 shrink-0 rounded-xl border border-white/10 bg-white/[0.06] text-white hover:bg-white/10 hover:text-white"
+                onClick={() => setViewingStudent(null)}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-5">
-          {/* LEFT PROFILE CARD */}
-          <div className="space-y-4">
-            <Card className="rounded-2xl border-slate-200 shadow-sm overflow-hidden bg-white">
-              <CardContent className="p-5">
-                <div className="flex flex-col items-center text-center">
-                  {s.photoDataUrl ? (
-                    <img src={s.photoDataUrl} alt={s.name} className="h-24 w-24 rounded-full object-cover border-4 border-white shadow" />
-                  ) : (
-                    <div className="h-24 w-24 rounded-full bg-blue-600 text-white flex items-center justify-center text-3xl font-bold border-4 border-white shadow">
-                      {initials}
-                    </div>
-                  )}
-                  <h2 className="mt-3 text-lg font-bold text-[#4d7c0f]">{s.name}</h2>
-                  <p className="text-xs text-slate-500">{s.email || "No email"}</p>
-                  <p className="text-xs text-slate-500 mt-1">{s.phone || "-"} {s.batchName ? `· ${s.batchName}` : ""}</p>
-
-                  <div className="mt-3 flex flex-wrap justify-center gap-2">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isInactive ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-700"}`}>
-                      ● {isInactive ? "Inactive" : "Active"}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 flex items-center gap-1">
-                      <CalendarDays className="h-3 w-3" /> Enrolled: {enrolled}
-                    </span>
-                  </div>
+              {s.photoDataUrl ? (
+                <img
+                  src={s.photoDataUrl}
+                  alt={s.name}
+                  className="h-20 w-20 shrink-0 rounded-2xl border border-white/15 object-cover shadow-lg"
+                />
+              ) : (
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] text-2xl font-black text-cyan-200">
+                  {initials}
                 </div>
+              )}
 
-                <div className="mt-5 grid grid-cols-2 gap-2 text-center">
-                  <div className="rounded-xl border border-slate-100 p-2">
-                    <p className="text-lg font-bold text-emerald-600">100%</p>
-                    <p className="text-[10px] text-slate-400 font-bold tracking-wider">ATTEND.</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-100 p-2">
-                    <p className="text-lg font-bold text-slate-600">0%</p>
-                    <p className="text-[10px] text-slate-400 font-bold tracking-wider">SCORE</p>
-                  </div>
-                </div>
-
-                <div className="mt-5 space-y-3 text-sm">
-                  <div className="flex items-center justify-between gap-2 border-b border-slate-50 pb-2">
-                    <span className="text-slate-500 flex items-center gap-2"><Phone className="h-4 w-4 text-slate-400" /> Phone</span>
-                    <span className="font-medium text-slate-800">{s.phone || "-"}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 border-b border-slate-50 pb-2">
-                    <span className="text-slate-500 flex items-center gap-2"><Mail className="h-4 w-4 text-slate-400" /> Student email</span>
-                    <span className="font-medium text-slate-800 truncate max-w-[180px]">{s.email || "-"}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 border-b border-slate-50 pb-2">
-                    <span className="text-slate-500 flex items-center gap-2"><User className="h-4 w-4 text-slate-400" /> Class Teacher</span>
-                    <span className="font-medium text-slate-800">{s.classTeacher || s.name || "-"}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 border-b border-slate-50 pb-2">
-                    <span className="text-slate-500 flex items-center gap-2"><User className="h-4 w-4 text-slate-400" /> Father</span>
-                    <span className="font-medium text-slate-800">{s.fatherName || s.parentName || "-"}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 border-b border-slate-50 pb-2">
-                    <span className="text-slate-500 flex items-center gap-2"><Mail className="h-4 w-4 text-slate-400" /> Parent email</span>
-                    <span className="font-medium text-slate-800">-</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-slate-500 flex items-center gap-2"><CalendarDays className="h-4 w-4 text-slate-400" /> Enrollment Date</span>
-                    <span className="font-medium text-slate-800">{enrolled}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Student Login Details Card */}
-            <Card className="rounded-2xl border-amber-200 bg-amber-50/50 shadow-sm">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-amber-700 uppercase mb-3">
-                  <ShieldCheck className="h-4 w-4" /> Student Login Details
-                </div>
-                <div className="flex items-center justify-between gap-2 bg-white p-2.5 rounded-lg border border-amber-100">
-                  <div className="text-xs text-slate-700 truncate flex flex-wrap items-center gap-2">
-                    <span className="font-bold text-slate-800">{s.loginId || s.name?.toLowerCase().replace(/\s/g, "") || "student"}</span>
-                    <span className="text-slate-400">·</span>
-                    <span className="text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">{s.email || "no@email.com"}</span>
-                  </div>
-                  <Button variant="outline" size="sm" className="h-7 text-[10px] border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 shrink-0 font-bold" onClick={() => { setNewPassword(Math.random().toString(36).slice(-10)); setResetPasswordOpen(true); }}>
-                    <KeyRound className="mr-1 h-3 w-3" /> Reset Password
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Dynamic Fee Summary */}
-            <Card className="rounded-2xl border-slate-200 shadow-sm bg-white">
-              <CardContent className="p-4">
-                <p className="text-[11px] font-bold tracking-wide text-slate-400 uppercase">
-                  Fee Summary
-                </p>
-                <div className="h-1.5 w-full bg-slate-100 rounded-full mt-2 mb-4 overflow-hidden">
-                  {feeInfo.paid > 0 && <div className="h-full bg-[#4d7c0f] rounded-full transition-all" style={{ width: `${Math.min(100, (feeInfo.paid / (feeInfo.total || 1)) * 100)}%` }}></div>}
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-slate-500">Total Billed</span><span className="font-semibold text-slate-700">₹{feeInfo.total.toLocaleString("en-IN")}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Paid</span><span className="font-semibold text-emerald-600">₹{feeInfo.paid.toLocaleString("en-IN")}</span></div>
-                  <div className="flex justify-between border-t border-slate-100 pt-2 mt-1"><span className="text-slate-700 font-bold">Due</span><span className="font-bold text-red-500">₹{feeInfo.due.toLocaleString("en-IN")}</span></div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* RIGHT CONTENT (TABS) */}
-          <div className="space-y-4">
-            <div className="bg-white border border-slate-200 rounded-2xl p-1.5 flex flex-wrap gap-1 shadow-sm">
-              {[
-                { id: "attendance", label: "Attendance", icon: CalendarDays },
-                { id: "fees", label: "Tuition Fees", icon: Wallet },
-                { id: "results", label: "Results", icon: BarChart3 },
-                { id: "exams", label: "Exams", icon: ClipboardList },
-                { id: "info", label: "More Info", icon: Info },
-                { id: "documents", label: "Documents", icon: FolderOpen },
-              ].map((t) => {
-                const Icon = t.icon;
-                const active = profileTab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setProfileTab(t.id as any)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition ${
-                      active ? "bg-white text-emerald-700 shadow-sm border border-emerald-100" : "text-slate-500 hover:bg-slate-50"
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-cyan-200">
+                    Student 360°
+                  </span>
+                  <span
+                    className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${
+                      isInactive
+                        ? "border-slate-500/30 bg-slate-500/10 text-slate-300"
+                        : "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
                     }`}
                   >
-                    <Icon className="h-3.5 w-3.5" />
-                    {t.label}
-                  </button>
-                );
-              })}
+                    {isInactive ? "Inactive" : "Active"}
+                  </span>
+                </div>
+
+                <h1 className="truncate text-2xl font-black tracking-tight sm:text-3xl">
+                  {s.name}
+                </h1>
+                <p className="mt-1 text-sm text-slate-300">
+                  {s.enrollmentNo || studentId || "Student ID pending"}
+                </p>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-slate-200">
+                    {courseLabel}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-slate-200">
+                    {batchLabel}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-slate-200">
+                    Joined {enrolled}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <Card className="rounded-2xl border-slate-200 shadow-sm min-h-[420px] bg-white">
-              <CardContent className="p-5">
-                {profileTab === "attendance" && (
-                  <div>
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-                      <h3 className="font-bold text-slate-800 text-lg">
-                        Monthly Attendance — {new Date().toLocaleString("en-US", { month: "long", year: "numeric" })}
-                      </h3>
+            <div className="flex flex-wrap gap-2 xl:justify-end">
+              <Button
+                variant="outline"
+                className="h-10 border-white/15 bg-white/[0.05] text-white hover:bg-white/10 hover:text-white"
+                onClick={() => {
+                  setViewingStudent(null);
+                  openEdit(s);
+                }}
+              >
+                <Pencil className="mr-2 h-4 w-4" /> Edit Profile
+              </Button>
+              <Button
+                variant="outline"
+                className="h-10 border-white/15 bg-white/[0.05] text-white hover:bg-white/10 hover:text-white"
+                onClick={() => {
+                  setNewPassword(Math.random().toString(36).slice(-10));
+                  setResetPasswordOpen(true);
+                }}
+              >
+                <KeyRound className="mr-2 h-4 w-4" /> Reset Login
+              </Button>
+              {["institute_admin", "super_admin"].includes(localStorage.getItem("coach_sutra_user_role") || "") && (
+                <Button
+                  variant="outline"
+                  className="h-10 border-cyan-300/20 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/15 hover:text-white"
+                  onClick={() => {
+                    setSupportReason("");
+                    setSupportError("");
+                    setSupportDialogOpen(true);
+                  }}
+                >
+                  <Eye className="mr-2 h-4 w-4" /> View as Student
+                </Button>
+              )}
+              <Button
+                className={`h-10 font-bold ${
+                  isInactive
+                    ? "bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+                    : "bg-white text-slate-950 hover:bg-slate-100"
+                }`}
+                onClick={() =>
+                  updateStudentStatus(s, isInactive ? "active" : "inactive")
+                }
+              >
+                <Ban className="mr-2 h-4 w-4" />
+                {isInactive ? "Activate" : "Deactivate"}
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        {/* Profile health strip */}
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-50">
+                  <UserCheck className="h-4 w-4 text-cyan-700" />
+                </div>
+                <span className="text-xs font-black text-slate-950">
+                  {profileCompleteness}%
+                </span>
+              </div>
+              <p className="mt-3 text-sm font-black text-slate-900">Record completeness</p>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className="h-full rounded-full bg-cyan-500"
+                  style={{ width: `${profileCompleteness}%` }}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100">
+                  <Wallet className="h-4 w-4 text-slate-700" />
+                </div>
+                <span
+                  className={`text-xs font-black ${
+                    !hasFeeData
+                      ? "text-slate-400"
+                      : feeInfo.due > 0
+                        ? "text-amber-600"
+                        : "text-emerald-600"
+                  }`}
+                >
+                  {feeInfo.status === "not_assigned" ? "Not assigned" : !hasFeeData ? "Unavailable" : feeInfo.overdue > 0 ? "Overdue" : feeInfo.currentDue > 0 ? "Due" : feeInfo.isNoDue ? "Clear" : "Upcoming"}
+                </span>
+              </div>
+              <p className="mt-3 text-xl font-black text-slate-950">
+                {feeInfo.status === "not_assigned" ? "—" : hasFeeData ? `₹${feeInfo.currentDue.toLocaleString("en-IN")}` : "—"}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">Current due</p>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50">
+                  <FolderOpen className="h-4 w-4 text-violet-700" />
+                </div>
+                <span className="text-xs font-black text-slate-500">
+                  {requiredDocumentsReady}/3 required
+                </span>
+              </div>
+              <p className="mt-3 text-xl font-black text-slate-950">
+                {profileDocuments.length}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">Documents on record</p>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50">
+                  <ShieldCheck className="h-4 w-4 text-blue-700" />
+                </div>
+                <span
+                  className={`text-xs font-black ${
+                    s.loginId ? "text-emerald-600" : "text-slate-400"
+                  }`}
+                >
+                  {s.loginId ? "Enabled" : "Not created"}
+                </span>
+              </div>
+              <p className="mt-3 truncate text-sm font-black text-slate-950">
+                {s.loginId || "Portal login pending"}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">Student portal access</p>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* Navigation */}
+        <section className="sticky top-0 z-40 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-sm backdrop-blur">
+          <div className="flex gap-1 overflow-x-auto">
+            {profileTabs.map((tab) => {
+              const Icon = tab.icon;
+              const active = profileTab === tab.id;
+
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setProfileTab(tab.id)}
+                  className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-bold transition ${
+                    active
+                      ? "bg-slate-950 text-white shadow-sm"
+                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                  }`}
+                >
+                  <Icon className={`h-3.5 w-3.5 ${active ? "text-cyan-300" : ""}`} />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Tab content */}
+        <section className="rounded-[24px] border border-slate-200/80 bg-white shadow-sm">
+          <div className="p-4 sm:p-5">
+            {profileTab === "overview" && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
+                    Student overview
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-slate-950">
+                    Identity, contacts and admission record
+                  </h2>
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <User className="h-4 w-4 text-cyan-700" />
+                      <h3 className="text-sm font-black text-slate-900">Personal details</h3>
+                    </div>
+                    <InfoRow label="Date of birth" value={s.dateOfBirth} />
+                    <InfoRow
+                      label="Gender"
+                      value={
+                        s.gender === "other"
+                          ? s.genderOther || "Other"
+                          : s.gender
+                            ? String(s.gender).replace(/^./, (c: string) => c.toUpperCase())
+                            : ""
+                      }
+                    />
+                    <InfoRow label="Blood group" value={s.bloodGroup} />
+                    <InfoRow label="Academic year" value={s.academicYear} />
+                    <InfoRow label="Enrollment date" value={enrolled} />
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <Users className="h-4 w-4 text-cyan-700" />
+                      <h3 className="text-sm font-black text-slate-900">Parent / guardian</h3>
+                    </div>
+                    <InfoRow label="Father" value={s.fatherName || s.parentName} />
+                    <InfoRow label="Father phone" value={s.fatherPhone || s.parentPhone} />
+                    <InfoRow label="Mother" value={s.motherName} />
+                    <InfoRow label="Mother phone" value={s.motherPhone} />
+                    <InfoRow label="Emergency" value={s.emergencyPhone} />
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-cyan-700" />
+                      <h3 className="text-sm font-black text-slate-900">Contact & access</h3>
+                    </div>
+                    <InfoRow label="Primary phone" value={s.phone || parentContact} />
+                    <InfoRow label="Email" value={s.email} />
+                    <InfoRow label="Login ID" value={s.loginId || "Not created"} mono />
+                    <InfoRow
+                      label="Portal"
+                      value={s.loginId ? "Enabled" : "Login not created"}
+                    />
+                    <InfoRow label="Status" value={isInactive ? "Inactive" : "Active"} />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <div className="mb-3 flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-cyan-700" />
+                      <h3 className="text-sm font-black text-slate-900">Address</h3>
+                    </div>
+                    {addressLine ? (
+                      <p className="text-sm leading-6 text-slate-700">{addressLine}</p>
+                    ) : (
+                      <p className="text-sm text-slate-400">No address has been added yet.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
-                        <Select defaultValue={new Date().toLocaleString("en-US", { month: "long" })}>
-                          <SelectTrigger className="h-8 text-xs font-medium w-[110px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map(m => (
-                              <SelectItem key={m} value={m}>{m}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Select defaultValue="2026"><SelectTrigger className="h-8 text-xs font-medium"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="2026">2026</SelectItem></SelectContent></Select>
-                        <div className="text-xl font-bold text-emerald-600 ml-2">100<span className="text-sm">%</span></div>
+                        <ShieldCheck className="h-4 w-4 text-cyan-700" />
+                        <h3 className="text-sm font-black text-slate-900">Student login</h3>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 rounded-lg border-slate-200 text-xs font-bold"
+                        onClick={() => {
+                          setNewPassword(Math.random().toString(36).slice(-10));
+                          setResetPasswordOpen(true);
+                        }}
+                      >
+                        <KeyRound className="mr-1.5 h-3.5 w-3.5" />
+                        Reset
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500">Login ID</p>
+                    <p className="mt-1 font-mono text-sm font-bold text-slate-800">
+                      {s.loginId || "Not created"}
+                    </p>
+                    <p className="mt-3 text-xs text-slate-500">
+                      Password is not displayed for security reasons.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {profileTab === "academic" && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
+                    Academic assignment
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-slate-950">
+                    Course, batch and previous academic details
+                  </h2>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <GraduationCap className="h-4 w-4 text-cyan-700" />
+                      <h3 className="text-sm font-black text-slate-900">Current assignment</h3>
+                    </div>
+                    <InfoRow label="Course" value={courseLabel} />
+                    <InfoRow label="Batch" value={batchLabel} />
+                    <InfoRow label="Class" value={s.className} />
+                    <InfoRow label="Section" value={s.section} />
+                    <InfoRow label="Academic year" value={s.academicYear} />
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <ClipboardList className="h-4 w-4 text-cyan-700" />
+                      <h3 className="text-sm font-black text-slate-900">Previous academics</h3>
+                    </div>
+                    <InfoRow label="School" value={s.schoolName} />
+                    <InfoRow
+                      label="Board"
+                      value={
+                        s.board === "Other"
+                          ? s.boardOther || "Other"
+                          : s.board
+                      }
+                    />
+                    <InfoRow label="Previous %" value={s.lastClassPercentage} />
+                    <InfoRow label="Previous marks" value={s.lastClassMarks} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {profileTab === "fees" && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
+                    Fee health
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-slate-950">
+                    Student fee position
+                  </h2>
+                </div>
+
+                {hasFeeData ? (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-bold text-slate-500">Total billed</p>
+                        <p className="mt-2 text-2xl font-black text-slate-950">
+                          ₹{feeInfo.total.toLocaleString("en-IN")}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+                        <p className="text-xs font-bold text-emerald-700">Paid</p>
+                        <p className="mt-2 text-2xl font-black text-emerald-700">
+                          ₹{feeInfo.paid.toLocaleString("en-IN")}
+                        </p>
+                      </div>
+                      <div
+                        className={`rounded-2xl border p-4 ${
+                          feeInfo.due > 0
+                            ? "border-amber-200 bg-amber-50/60"
+                            : "border-emerald-200 bg-emerald-50/60"
+                        }`}
+                      >
+                        <p
+                          className={`text-xs font-bold ${
+                            feeInfo.due > 0 ? "text-amber-700" : "text-emerald-700"
+                          }`}
+                        >
+                          Outstanding
+                        </p>
+                        <p
+                          className={`mt-2 text-2xl font-black ${
+                            feeInfo.due > 0 ? "text-amber-700" : "text-emerald-700"
+                          }`}
+                        >
+                          ₹{feeInfo.due.toLocaleString("en-IN")}
+                        </p>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-4 gap-0 border rounded-xl overflow-hidden mb-6 text-center divide-x">
-                      <div className="bg-slate-50 p-4"><p className="text-2xl font-bold text-slate-700">1</p><p className="text-[10px] font-bold text-slate-400 tracking-wider">TOTAL</p></div>
-                      <div className="bg-white p-4"><p className="text-2xl font-bold text-emerald-600">1</p><p className="text-[10px] font-bold text-slate-400 tracking-wider">PRESENT</p></div>
-                      <div className="bg-white p-4"><p className="text-2xl font-bold text-red-500">0</p><p className="text-[10px] font-bold text-slate-400 tracking-wider">ABSENT</p></div>
-                      <div className="bg-white p-4"><p className="text-2xl font-bold text-amber-500">0</p><p className="text-[10px] font-bold text-slate-400 tracking-wider">LATE</p></div>
+                    <div className="rounded-2xl border border-slate-200 p-4">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-slate-500">Collection progress</span>
+                        <span className="font-black text-slate-800">{feeProgress}%</span>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-cyan-500"
+                          style={{ width: `${feeProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <EmptyState
+                    icon={Wallet}
+                    title="Fee structure is not available on this student record"
+                    text="No billed, paid or due amount is currently present in the student data. This avoids showing a fake 'No Due' status when fees are not configured."
+                  />
+                )}
+              </div>
+            )}
+
+            {profileTab === "attendance" && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
+                    Attendance
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-slate-950">
+                    Attendance summary
+                  </h2>
+                </div>
+
+                {attendanceSource && attendanceTotal > 0 ? (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-4">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-bold text-slate-500">Total</p>
+                        <p className="mt-2 text-2xl font-black text-slate-950">{attendanceTotal}</p>
+                      </div>
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+                        <p className="text-xs font-bold text-emerald-700">Present</p>
+                        <p className="mt-2 text-2xl font-black text-emerald-700">{attendancePresent}</p>
+                      </div>
+                      <div className="rounded-2xl border border-red-200 bg-red-50/60 p-4">
+                        <p className="text-xs font-bold text-red-700">Absent</p>
+                        <p className="mt-2 text-2xl font-black text-red-700">{attendanceAbsent}</p>
+                      </div>
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+                        <p className="text-xs font-bold text-amber-700">Late</p>
+                        <p className="mt-2 text-2xl font-black text-amber-700">{attendanceLate}</p>
+                      </div>
                     </div>
 
-                    <div className="mb-2 flex justify-between text-xs text-slate-500"><span>Monthly Attendance Rate</span><span className="font-bold text-emerald-600">100%</span></div>
-                    <div className="h-2 rounded-full bg-slate-100 overflow-hidden mb-6"><div className="h-full w-full bg-emerald-500" /></div>
-
-                    <div className="grid grid-cols-7 gap-2 text-center text-[10px] font-bold text-slate-400 mb-2">
-                      {["SUN","MON","TUE","WED","THU","FRI","SAT"].map((d) => <div key={d}>{d}</div>)}
+                    <div className="rounded-2xl border border-slate-200 p-4">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-slate-500">Attendance rate</span>
+                        <span className="font-black text-slate-800">{attendanceRate}%</span>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-emerald-500"
+                          style={{ width: `${attendanceRate ?? 0}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="grid grid-cols-7 gap-2 text-center text-xs">
-                      {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                        <div key={d} className={`py-2 rounded-lg border ${d === new Date().getDate() ? "bg-white border-emerald-400 text-emerald-700 font-bold shadow-sm" : "bg-slate-50 border-transparent text-slate-400"}`}>
-                          {d}
+                  </>
+                ) : (
+                  <EmptyState
+                    icon={CalendarDays}
+                    title="No attendance summary is attached to this student record"
+                    text="The old profile was showing a hard-coded 100% attendance. That has been removed. Real attendance should appear here only when the attendance API returns student-level data."
+                  />
+                )}
+              </div>
+            )}
+
+            {profileTab === "tests" && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
+                    Tests & performance
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-slate-950">
+                    Test history and scores
+                  </h2>
+                </div>
+
+                {profileTests.length > 0 ? (
+                  <div className="space-y-2">
+                    {profileTests.map((test: any, index: number) => {
+                      const title =
+                        test.name ||
+                        test.title ||
+                        test.examName ||
+                        test.testName ||
+                        `Test ${index + 1}`;
+                      const obtained =
+                        test.obtainedMarks ??
+                        test.marksObtained ??
+                        test.score ??
+                        test.marks;
+                      const totalMarks =
+                        test.totalMarks ??
+                        test.maxMarks ??
+                        test.outOf;
+                      const testDate = test.date || test.examDate || test.createdAt;
+
+                      return (
+                        <div
+                          key={test.id || test._id || `${title}-${index}`}
+                          className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div>
+                            <p className="font-black text-slate-900">{title}</p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {test.subjectName || test.subject || "Subject not specified"}
+                              {testDate
+                                ? ` · ${new Date(testDate).toLocaleDateString("en-GB")}`
+                                : ""}
+                            </p>
+                          </div>
+                          <div className="text-left sm:text-right">
+                            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                              Score
+                            </p>
+                            <p className="mt-1 text-lg font-black text-slate-950">
+                              {obtained !== undefined && obtained !== null
+                                ? `${obtained}${totalMarks ? ` / ${totalMarks}` : ""}`
+                                : "Not published"}
+                            </p>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                    <div className="mt-5 flex flex-wrap gap-4 text-xs font-medium text-slate-500">
-                      <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-white border border-emerald-400 shadow-sm" /> Present</span>
-                      <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-red-100 border border-red-200" /> Absent</span>
-                      <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-amber-100 border border-amber-200" /> Late</span>
-                      <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-slate-50 border border-slate-200" /> No record</span>
-                    </div>
+                      );
+                    })}
                   </div>
+                ) : (
+                  <EmptyState
+                    icon={BarChart3}
+                    title="No test results are available on this student record"
+                    text="Results and exams were previously shown as separate empty placeholders. They are now combined into one cleaner Tests area and will display actual data when the student API provides it."
+                  />
                 )}
+              </div>
+            )}
 
-                {profileTab === "fees" && (
-                  <div className="text-sm text-slate-600 space-y-3">
-                    <h3 className="font-bold text-slate-800 text-base border-b pb-2">Tuition Fees Ledger</h3>
-                    <p>No fee records found for this student.</p>
-                  </div>
-                )}
-                {profileTab === "results" && (
-                  <div className="text-sm text-slate-600 space-y-3">
-                    <h3 className="font-bold text-slate-800 text-base border-b pb-2">Exam Results</h3>
-                    <p>No results published yet.</p>
-                  </div>
-                )}
-                {profileTab === "exams" && (
-                  <div className="text-sm text-slate-600 space-y-3">
-                    <h3 className="font-bold text-slate-800 text-base border-b pb-2">Upcoming & Past Exams</h3>
-                    <p>No exams assigned.</p>
-                  </div>
-                )}
-                {profileTab === "info" && (
-                  <div className="grid md:grid-cols-2 gap-4 text-sm">
-                    <div className="rounded-xl border p-4 space-y-2 bg-slate-50">
-                      <h4 className="font-bold text-slate-800 border-b pb-2 mb-3">Academic Info</h4>
-                      <p className="flex justify-between"><span className="text-slate-500">Class</span> <span className="font-medium text-slate-700">{s.className || "-"}</span></p>
-                      <p className="flex justify-between"><span className="text-slate-500">Section</span> <span className="font-medium text-slate-700">{s.section || "-"}</span></p>
-                      <p className="flex justify-between"><span className="text-slate-500">Board</span> <span className="font-medium text-slate-700">{s.board || "-"}</span></p>
-                      <p className="flex justify-between"><span className="text-slate-500">School</span> <span className="font-medium text-slate-700">{s.schoolName || "-"}</span></p>
-                      <p className="flex justify-between"><span className="text-slate-500">Course</span> <span className="font-medium text-slate-700">{s.courseName || "-"}</span></p>
-                      <p className="flex justify-between"><span className="text-slate-500">Batch</span> <span className="font-medium text-slate-700">{s.batchName || "-"}</span></p>
-                    </div>
-                    <div className="rounded-xl border p-4 space-y-2 bg-slate-50">
-                      <h4 className="font-bold text-slate-800 border-b pb-2 mb-3">Address Info</h4>
-                      <p className="text-slate-700">{s.correspondenceAddress || s.address || "-"}</p>
-                      <p className="text-slate-700">{s.correspondenceDistrict || ""} {s.correspondenceState || ""}</p>
-                      <p className="text-slate-700">PIN: {s.correspondencePin || "-"}</p>
-                    </div>
-                  </div>
-                )}
-                {profileTab === "documents" && (
-                  <div className="text-sm text-slate-600">
-                    <h3 className="font-bold text-slate-800 text-base mb-4 border-b pb-2">Uploaded Documents</h3>
-                    {Array.isArray(s.documents) && s.documents.length > 0 ? (
-                      <div className="grid sm:grid-cols-2 gap-3">
-                        {s.documents.map((d: any, i: number) => (
-                          <div key={i} className="flex items-center justify-between rounded-xl border p-3 bg-white shadow-sm">
-                            <div className="flex items-center gap-3 overflow-hidden">
-                              <div className="bg-blue-50 p-2 rounded-lg text-blue-500"><FolderOpen className="h-5 w-5" /></div>
-                              <div className="min-w-0">
-                                <p className="font-bold text-slate-800 truncate">{d.label || d.name}</p>
-                                <p className="text-[10px] text-slate-400 truncate">{d.name}</p>
-                              </div>
+            {profileTab === "documents" && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
+                    Documents
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-slate-950">
+                    Admission documents
+                  </h2>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  {expectedDocumentLabels.map((label) => {
+                    const document = profileDocuments.find((doc) => doc.label === label);
+
+                    return (
+                      <div
+                        key={label}
+                        className={`rounded-2xl border p-4 ${
+                          document
+                            ? "border-emerald-200 bg-emerald-50/40"
+                            : "border-slate-200 bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                            <FileText
+                              className={`h-4 w-4 ${
+                                document ? "text-emerald-600" : "text-slate-400"
+                              }`}
+                            />
+                          </div>
+                          <span
+                            className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-wide ${
+                              document
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-slate-200 text-slate-500"
+                            }`}
+                          >
+                            {document ? "Ready" : "Missing"}
+                          </span>
+                        </div>
+                        <p className="mt-3 text-sm font-black text-slate-900">{label}</p>
+                        <p className="mt-1 truncate text-[10px] text-slate-500">
+                          {document?.name || "No document uploaded"}
+                        </p>
+                        {document && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="mt-3 h-8 w-full rounded-lg border-slate-200 text-xs font-bold"
+                            onClick={() => viewDocument(document)}
+                          >
+                            <Eye className="mr-1.5 h-3.5 w-3.5" /> View
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {profileDocuments.filter(
+                  (doc) => !expectedDocumentLabels.includes(doc.label as any),
+                ).length > 0 && (
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <h3 className="text-sm font-black text-slate-900">Other documents</h3>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {profileDocuments
+                        .filter(
+                          (doc) => !expectedDocumentLabels.includes(doc.label as any),
+                        )
+                        .map((doc, index) => (
+                          <div
+                            key={`${doc.label}-${index}`}
+                            className="flex items-center justify-between rounded-xl bg-slate-50 p-3"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-bold text-slate-800">
+                                {doc.label || doc.name}
+                              </p>
+                              <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                                {doc.name}
+                              </p>
                             </div>
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-600 hover:bg-blue-50 shrink-0" onClick={() => viewDocument(d)}>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 shrink-0 rounded-lg"
+                              onClick={() => viewDocument(doc)}
+                            >
                               <Eye className="h-4 w-4" />
                             </Button>
                           </div>
                         ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-10">
-                        <FolderOpen className="h-10 w-10 text-slate-200 mx-auto mb-2" />
-                        <p className="text-slate-400">No documents uploaded.</p>
-                      </div>
-                    )}
+                    </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-        
-        {/* Reset Password Modal */}
-        <Dialog open={resetPasswordOpen} onOpenChange={setResetPasswordOpen}>
-          <DialogContent className="max-w-sm p-0 rounded-2xl border-0 shadow-2xl overflow-hidden">
-            <div className="bg-[#4d7c0f] text-white px-5 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-lg font-bold">
-                <KeyRound className="h-5 w-5" />
-                <span>Reset Password</span>
               </div>
-              <button onClick={() => setResetPasswordOpen(false)} className="text-white/80 hover:text-white">
-                <X className="h-5 w-5" />
-              </button>
+            )}
+          </div>
+        </section>
+
+        {/* Read-only Student Support Mode */}
+        <Dialog open={supportDialogOpen} onOpenChange={(open) => {
+          if (!supportStarting) setSupportDialogOpen(open);
+        }}>
+          <DialogContent className="max-w-md overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
+            <div className="bg-[linear-gradient(105deg,#020817_0%,#07112a_58%,#21184d_100%)] px-5 py-4 text-white">
+              <div className="flex items-center gap-2 text-lg font-black">
+                <Eye className="h-5 w-5 text-cyan-300" />
+                <span>View as Student</span>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-slate-300">
+                Student ka password dekhe bina uska portal exactly student ki tarah open hoga. Session read-only rahega.
+              </p>
             </div>
-            
-            <div className="p-5 space-y-4 bg-white">
-              <div className="border border-slate-200 rounded-xl p-3 bg-slate-50">
-                <p className="font-bold text-[#4d7c0f]">{viewingStudent?.name}</p>
-                <p className="text-sm text-slate-500">{viewingStudent?.email || "No email provided"}</p>
+
+            <div className="space-y-4 bg-white p-5">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold text-slate-500">Student</p>
+                <p className="mt-1 font-black text-slate-900">{viewingStudent?.name || "Student"}</p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {viewingStudent?.enrollmentNo || viewingStudent?.id || "Student ID"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-cyan-200 bg-cyan-50/60 p-3 text-xs leading-5 text-cyan-950">
+                <span className="font-black">Read-only Support Mode:</span> profile, fees, attendance, homework, timetable aur results dekh sakte ho; edit/payment/password-change jaise mutation actions backend se blocked rahenge.
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">New Password *</Label>
+                <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">Support reason *</Label>
+                <textarea
+                  value={supportReason}
+                  onChange={(event) => setSupportReason(event.target.value.slice(0, 240))}
+                  placeholder="Example: Parent reported fee receipt issue"
+                  className="min-h-[88px] w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                  disabled={supportStarting}
+                />
+                <div className="flex items-center justify-between text-[10px] text-slate-400">
+                  <span>Audit log me reason save hoga.</span>
+                  <span>{supportReason.length}/240</span>
+                </div>
+              </div>
+
+              {supportError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                  {supportError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 border-t border-slate-100 bg-slate-50 px-5 py-3">
+              <Button
+                variant="outline"
+                className="h-10 flex-1 rounded-xl"
+                disabled={supportStarting}
+                onClick={() => setSupportDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="h-10 flex-1 rounded-xl bg-slate-950 font-bold text-white hover:bg-slate-900"
+                disabled={supportStarting}
+                onClick={() => void startStudentSupportMode()}
+              >
+                <Eye className="mr-2 h-4 w-4" />
+                {supportStarting ? "Opening..." : "Start Support Mode"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Reset Password Modal */}
+        <Dialog open={resetPasswordOpen} onOpenChange={setResetPasswordOpen}>
+          <DialogContent className="max-w-sm overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
+            <div className="bg-[linear-gradient(105deg,#020817_0%,#07112a_58%,#21184d_100%)] px-5 py-4 text-white">
+              <div className="flex items-center gap-2 text-lg font-black">
+                <KeyRound className="h-5 w-5 text-cyan-300" />
+                <span>Reset Student Login</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-300">
+                Set a new password for {viewingStudent?.name || "this student"}.
+              </p>
+            </div>
+
+            <div className="space-y-4 bg-white p-5">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold text-slate-500">Login ID</p>
+                <p className="mt-1 font-mono text-sm font-black text-slate-900">
+                  {viewingStudent?.loginId || "Not created"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {viewingStudent?.email || "Email not provided"}
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  New Password *
+                </Label>
                 <div className="flex">
-                  <Input autoComplete="new-password" value={newPassword} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewPassword(e.target.value)} className="rounded-r-none h-10 shadow-sm" />
-                  <Button variant="outline" className="rounded-l-none h-10 px-3 shadow-sm border-l-0" onClick={() => setNewPassword(Math.random().toString(36).slice(-10))}>
+                  <Input
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setNewPassword(e.target.value)
+                    }
+                    className="h-10 rounded-r-none shadow-sm"
+                  />
+                  <Button
+                    variant="outline"
+                    className="h-10 rounded-l-none border-l-0 px-3 shadow-sm"
+                    onClick={() =>
+                      setNewPassword(Math.random().toString(36).slice(-10))
+                    }
+                  >
                     <RefreshCw className="h-4 w-4 text-slate-500" />
                   </Button>
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={resetParentPwd} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setResetParentPwd(e.target.checked)} className="h-4 w-4 rounded border-slate-300 accent-[#4d7c0f]" />
-                <span className="text-sm font-semibold text-slate-700">Also reset parent password</span>
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={resetParentPwd}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setResetParentPwd(e.target.checked)
+                  }
+                  className="h-4 w-4 rounded border-slate-300 accent-slate-950"
+                />
+                <span className="text-sm font-semibold text-slate-700">
+                  Also reset parent password
+                </span>
               </label>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2 text-amber-900 text-xs">
-                <Mail className="h-4 w-4 text-amber-600 shrink-0" />
-                <span>Password will be emailed to user.</span>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                Password delivery depends on the configured communication/email flow.
               </div>
             </div>
 
-            <div className="border-t border-slate-100 px-5 py-3 bg-slate-50 flex justify-between gap-3">
-              <Button variant="outline" className="flex-1 rounded-xl h-10" onClick={() => setResetPasswordOpen(false)}>Cancel</Button>
-              <Button className="flex-1 rounded-xl h-10 bg-red-600 hover:bg-red-700 text-white shadow-sm" onClick={submitResetPassword}>
-                <KeyRound className="h-4 w-4 mr-2" /> Reset
+            <div className="flex gap-3 border-t border-slate-100 bg-slate-50 px-5 py-3">
+              <Button
+                variant="outline"
+                className="h-10 flex-1 rounded-xl"
+                onClick={() => setResetPasswordOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="h-10 flex-1 rounded-xl bg-slate-950 text-white hover:bg-slate-900"
+                onClick={submitResetPassword}
+              >
+                <KeyRound className="mr-2 h-4 w-4" /> Reset Password
               </Button>
             </div>
           </DialogContent>
         </Dialog>
-        
+
         {toast && (
-          <div className={`fixed bottom-4 right-4 z-[200] flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm shadow-lg ${toast.type === "success" ? "border-green-300 bg-green-50 text-green-800" : "border-red-300 bg-red-50 text-red-800"}`}>
+          <div
+            className={`fixed bottom-4 right-4 z-[200] flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm shadow-lg ${
+              toast.type === "success"
+                ? "border-green-300 bg-green-50 text-green-800"
+                : "border-red-300 bg-red-50 text-red-800"
+            }`}
+          >
             {toast.type === "success" ? "✅" : "⚠️"}
             <span>{toast.msg}</span>
           </div>
@@ -1875,7 +3774,7 @@ export default function Students({ preview = false }: { preview?: boolean }) {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50"><ClipboardList className="h-5 w-5 text-violet-600" /></div>
-              <span className="text-xs font-bold text-slate-400">{droppedStudents} inactive</span>
+              <span className="text-xs font-bold text-slate-400">{inactiveStudents} inactive · {graduatedStudents} graduated</span>
             </div>
             <p className="mt-4 text-2xl font-black text-slate-950">{batchesInUse}</p>
             <p className="mt-1 text-xs font-semibold text-slate-500">Batches with enrolled students</p>
@@ -1910,35 +3809,148 @@ export default function Students({ preview = false }: { preview?: boolean }) {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-2 lg:grid-cols-[minmax(260px,1fr)_200px_155px_190px_auto]">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                autoComplete="off"
-                name="student_search_filter_box"
-                className="h-10 rounded-xl border-slate-200 bg-slate-50/70 pl-9 shadow-none focus-visible:bg-white focus-visible:ring-slate-300"
-                placeholder="Search name, phone, email or student ID"
-                value={search}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-              />
-            </div>
-            <SearchableFilterDropdown value={batchFilter} onChange={setBatchFilter} options={batchOptions} placeholder="All Batches" />
-            <SearchableFilterDropdown value={statusFilter} onChange={setStatusFilter} options={statusOptions} placeholder="All Status" />
-            <SearchableFilterDropdown value={sortBy} onChange={setSortBy} options={sortOptions} placeholder="Sort By" />
-            <Button variant="ghost" onClick={handleClearFilters} className="h-10 rounded-xl px-3 text-slate-500 hover:bg-slate-100 hover:text-slate-800">
-              <RefreshCw className="mr-1.5 h-4 w-4" /> Reset
-            </Button>
-          </div>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
+            <div className="grid gap-2 xl:grid-cols-[minmax(320px,1fr)_210px_190px_205px_auto]">
+              <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  autoComplete="off"
+                  name="student_search_filter_box"
+                  className="h-11 rounded-xl border-slate-200 bg-white pl-10 pr-10 shadow-sm focus-visible:border-cyan-500 focus-visible:ring-cyan-500/20"
+                  placeholder="Search student, ID, phone, parent, course, batch, class..."
+                  value={search}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setSearch(e.target.value)
+                  }
+                />
+                {search && (
+                  <button
+                    type="button"
+                    title="Clear search"
+                    onClick={() => setSearch("")}
+                    className="absolute right-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
 
-          {(search || batchFilter !== "all" || statusFilter !== "all") && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-              <FilterIcon className="h-3.5 w-3.5" />
-              <span className="font-semibold">Showing {classWiseStudents.length} of {totalStudents} students</span>
-              {search && <span className="rounded-full bg-slate-100 px-2 py-1">Search: {search}</span>}
-              {batchFilter !== "all" && <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">Batch filter active</span>}
-              {statusFilter !== "all" && <span className="rounded-full bg-violet-50 px-2 py-1 text-violet-700">Status: {statusFilter}</span>}
+              <SearchableFilterDropdown
+                value={batchFilter}
+                onChange={setBatchFilter}
+                options={batchOptions}
+                placeholder="All Batches"
+              />
+              <SearchableFilterDropdown
+                value={feeFilter}
+                onChange={setFeeFilter}
+                options={feeOptions}
+                placeholder="All Fee Health"
+              />
+              <SearchableFilterDropdown
+                value={sortBy}
+                onChange={setSortBy}
+                options={sortOptions}
+                placeholder="Sort Students"
+              />
+
+              <Button
+                variant="ghost"
+                onClick={handleClearFilters}
+                className="h-11 rounded-xl px-3 text-slate-500 hover:bg-white hover:text-slate-900"
+              >
+                <RefreshCw className="mr-1.5 h-4 w-4" />
+                Reset
+              </Button>
             </div>
-          )}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {[
+                { value: "all", label: "All", count: totalStudents },
+                { value: "active", label: "Active", count: activeStudents },
+                { value: "inactive", label: "Inactive", count: inactiveStudents },
+                { value: "graduated", label: "Graduated", count: graduatedStudents },
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setStatusFilter(item.value)}
+                  className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-bold transition ${
+                    statusFilter === item.value
+                      ? "border-slate-950 bg-slate-950 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900"
+                  }`}
+                >
+                  <span>{item.label}</span>
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                      statusFilter === item.value
+                        ? "bg-white/10 text-cyan-200"
+                        : "bg-slate-100 text-slate-500"
+                    }`}
+                  >
+                    {item.count}
+                  </span>
+                </button>
+              ))}
+
+              <div className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" />
+
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                <FilterIcon className="h-3.5 w-3.5" />
+                {classWiseStudents.length} shown
+              </span>
+
+              {feeNotAssignedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setFeeFilter("not_assigned")}
+                  className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700 hover:bg-amber-100"
+                >
+                  {feeNotAssignedCount} fee not assigned
+                </button>
+              )}
+            </div>
+
+            {(search ||
+              batchFilter !== "all" ||
+              statusFilter !== "all" ||
+              feeFilter !== "all") && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3 text-[11px] text-slate-500">
+                <span className="font-bold text-slate-700">Active filters:</span>
+
+                {search && (
+                  <span className="rounded-full bg-white px-2.5 py-1 shadow-sm">
+                    Search: “{search}”
+                  </span>
+                )}
+
+                {batchFilter !== "all" && (
+                  <span className="rounded-full bg-white px-2.5 py-1 shadow-sm">
+                    Batch:{" "}
+                    {batchOptions.find(
+                      (option: any) => option.value === batchFilter,
+                    )?.label || "Selected"}
+                  </span>
+                )}
+
+                {statusFilter !== "all" && (
+                  <span className="rounded-full bg-white px-2.5 py-1 shadow-sm">
+                    Status: {statusFilter}
+                  </span>
+                )}
+
+                {feeFilter !== "all" && (
+                  <span className="rounded-full bg-white px-2.5 py-1 shadow-sm">
+                    Fee:{" "}
+                    {feeOptions.find(
+                      (option: any) => option.value === feeFilter,
+                    )?.label || feeFilter}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="p-3 sm:p-4">
@@ -1969,7 +3981,45 @@ export default function Students({ preview = false }: { preview?: boolean }) {
                             <h3 className="truncate font-black text-slate-900">{student.name}</h3>
                             <p className="mt-0.5 text-xs font-medium text-slate-500">{student.enrollmentNo || "Student ID pending"}</p>
                           </div>
-                          <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wide ${student.status === "inactive" ? "bg-slate-100 text-slate-500" : "bg-emerald-50 text-emerald-700"}`}>{student.status === "inactive" ? "Inactive" : "Active"}</span>
+                          {(() => {
+                            const meta = studentStatusMeta(
+                              String(student.status || "active"),
+                            );
+                            const canToggle = student.status !== "graduated";
+
+                            return (
+                              <button
+                                type="button"
+                                title={meta.nextLabel}
+                                disabled={
+                                  !canToggle ||
+                                  statusUpdatingId === student.id
+                                }
+                                onClick={() =>
+                                  canToggle &&
+                                  toggleStudentStatus(student)
+                                }
+                                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide transition ${meta.className} ${
+                                  canToggle
+                                    ? "cursor-pointer"
+                                    : "cursor-default"
+                                }`}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${
+                                    student.status === "inactive"
+                                      ? "bg-slate-400"
+                                      : student.status === "graduated"
+                                        ? "bg-violet-500"
+                                        : "bg-emerald-500"
+                                  }`}
+                                />
+                                {statusUpdatingId === student.id
+                                  ? "Updating..."
+                                  : meta.label}
+                              </button>
+                            );
+                          })()}
                         </div>
 
                         <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
@@ -1980,7 +4030,7 @@ export default function Students({ preview = false }: { preview?: boolean }) {
                         <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
                           <div>
                             <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Fee status</p>
-                            <p className={`mt-1 text-xs font-black ${feeInfo.isNoDue ? "text-emerald-600" : "text-amber-600"}`}>{feeInfo.statusText}</p>
+                            <span className={`mt-1 inline-flex rounded-full border px-2 py-1 text-[10px] font-black ${feeHealthClasses(feeInfo.status)}`}>{feeInfo.statusText}</span>
                           </div>
                           <p className="truncate text-xs font-medium text-slate-500">{student.phone || student.email || "No contact"}</p>
                         </div>
@@ -1988,7 +4038,7 @@ export default function Students({ preview = false }: { preview?: boolean }) {
                     </div>
 
                     <div className="mt-4 grid grid-cols-3 gap-2">
-                      <Button type="button" size="sm" variant="outline" className="h-9 rounded-xl border-slate-200 text-xs font-bold" onClick={() => { setViewingStudent(student); setProfileTab("info"); }}><Eye className="mr-1.5 h-3.5 w-3.5" /> Profile</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-9 rounded-xl border-slate-200 text-xs font-bold" onClick={() => { setViewingStudent(student); setProfileTab("overview"); }}><Eye className="mr-1.5 h-3.5 w-3.5" /> Profile</Button>
                       <Button type="button" size="sm" variant="outline" className="h-9 rounded-xl border-slate-200 text-xs font-bold" onClick={() => openEdit(student)}><Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit</Button>
                       <Button type="button" size="sm" variant="outline" className="h-9 rounded-xl border-slate-200 text-xs font-bold" onClick={() => downloadAdmissionForm(student)}><Download className="mr-1.5 h-3.5 w-3.5" /> Form</Button>
                     </div>
@@ -2032,7 +4082,7 @@ export default function Students({ preview = false }: { preview?: boolean }) {
                                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100"><UserRound className="h-5 w-5 text-slate-400" /></div>
                               )}
                               <div className="min-w-0">
-                                <button type="button" onClick={() => { setViewingStudent(student); setProfileTab("info"); }} className="block max-w-[220px] truncate text-left text-sm font-black text-slate-900 hover:text-blue-700">{student.name}</button>
+                                <button type="button" onClick={() => { setViewingStudent(student); setProfileTab("overview"); }} className="block max-w-[220px] truncate text-left text-sm font-black text-slate-900 hover:text-blue-700">{student.name}</button>
                                 <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500"><span>{student.enrollmentNo || "No ID"}</span><span>·</span><span className="max-w-[120px] truncate">{student.phone || student.email || "No contact"}</span></div>
                               </div>
                             </div>
@@ -2046,22 +4096,54 @@ export default function Students({ preview = false }: { preview?: boolean }) {
                             <p className="mt-0.5 max-w-[180px] truncate text-[11px] text-slate-500">{student.batchName || "Batch not assigned"}</p>
                           </TableCell>
                           <TableCell>
-                            <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${feeInfo.isNoDue ? "bg-emerald-50 text-emerald-700" : feeInfo.paid > 0 ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"}`}>
-                              {feeInfo.isNoDue ? "No due" : feeInfo.statusText}
+                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black ${feeHealthClasses(feeInfo.status)}`}>
+                              {feeInfo.statusText}
                             </span>
                           </TableCell>
                           <TableCell>
-                            <Select value={student.status === "inactive" ? "inactive" : "active"} onValueChange={(value: "active" | "inactive") => updateStudentStatus(student, value)} disabled={updateStudent.isPending}>
-                              <SelectTrigger className="h-8 w-[104px] rounded-xl border-slate-200 bg-white text-xs font-bold shadow-none focus:ring-0"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="active">Active</SelectItem>
-                                <SelectItem value="inactive">Inactive</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            {(() => {
+                              const meta = studentStatusMeta(
+                                String(student.status || "active"),
+                              );
+                              const canToggle = student.status !== "graduated";
+
+                              return (
+                                <button
+                                  type="button"
+                                  title={meta.nextLabel}
+                                  disabled={
+                                    !canToggle ||
+                                    statusUpdatingId === student.id
+                                  }
+                                  onClick={() =>
+                                    canToggle &&
+                                    toggleStudentStatus(student)
+                                  }
+                                  className={`inline-flex h-8 min-w-[106px] items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-black transition ${meta.className} ${
+                                    canToggle
+                                      ? "cursor-pointer"
+                                      : "cursor-default"
+                                  }`}
+                                >
+                                  <span
+                                    className={`h-1.5 w-1.5 rounded-full ${
+                                      student.status === "inactive"
+                                        ? "bg-slate-400"
+                                        : student.status === "graduated"
+                                          ? "bg-violet-500"
+                                          : "bg-emerald-500"
+                                    }`}
+                                  />
+                                  {statusUpdatingId === student.id
+                                    ? "Updating"
+                                    : meta.label}
+                                </button>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell className="pr-5 text-right">
                             <div className="flex items-center justify-end gap-1 opacity-80 transition-opacity group-hover:opacity-100">
-                              <Button variant="ghost" size="icon" title="View profile" className="h-8 w-8 rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-700" onClick={() => { setViewingStudent(student); setProfileTab("info"); }}><Eye className="h-4 w-4" /></Button>
+                              <Button variant="ghost" size="icon" title="View profile" className="h-8 w-8 rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-700" onClick={() => { setViewingStudent(student); setProfileTab("overview"); }}><Eye className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="icon" title="Edit student" className="h-8 w-8 rounded-lg text-slate-500 hover:bg-amber-50 hover:text-amber-700" onClick={() => openEdit(student)}><Pencil className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="icon" title="Download form" className="h-8 w-8 rounded-lg text-slate-500 hover:bg-emerald-50 hover:text-emerald-700" onClick={() => downloadAdmissionForm(student)}><Download className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="icon" title="Delete student" className="h-8 w-8 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600" onClick={() => handleDelete(student)}><Trash2 className="h-4 w-4" /></Button>
@@ -2081,149 +4163,255 @@ export default function Students({ preview = false }: { preview?: boolean }) {
       {/* ===================== ALL DIALOGS ===================== */}
 
       {/* BULK UPDATE DIALOG */}
-      <Dialog open={bulkUpdateDialogOpen} onOpenChange={setBulkUpdateDialogOpen}>
-        <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto p-0 rounded-2xl gap-0 border-0 shadow-2xl">
-          <div className="bg-[#4d7c0f] text-white px-6 py-4 flex items-center justify-between sticky top-0 z-20 shadow-md">
-            <div>
-              <div className="flex items-center gap-2 text-xl font-bold">
-                <Edit className="h-5 w-5" />
-                <span>Bulk Update Students</span>
+      <Dialog
+        open={bulkUpdateDialogOpen}
+        onOpenChange={(open) => {
+          setBulkUpdateDialogOpen(open);
+          if (!open) {
+            setBulkUpdateFile(null);
+            setBulkUpdateSummary(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto rounded-[24px] border-0 p-0 shadow-2xl">
+          <div className="sticky top-0 z-20 bg-[linear-gradient(105deg,#020817_0%,#07112a_58%,#21184d_100%)] px-6 py-4 text-white shadow-md">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-xl font-black">
+                  <Edit className="h-5 w-5 text-cyan-300" />
+                  <span>Bulk Update Students</span>
+                </div>
+                <p className="mt-1 text-xs text-slate-300">Download current records, edit safe columns and upload the CSV again.</p>
               </div>
-              <p className="text-xs text-white/80 mt-0.5 font-normal">Download, edit in Excel, and re-upload to update existing student records</p>
+              <button onClick={() => setBulkUpdateDialogOpen(false)} className="rounded-lg p-1 text-white/75 transition hover:bg-white/10 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
             </div>
-            <button onClick={() => setBulkUpdateDialogOpen(false)} className="text-white/80 hover:text-white rounded-lg p-1 transition-colors"><X className="h-5 w-5" /></button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-slate-50/50">
-            <div className="space-y-6">
-              <h3 className="text-xs font-bold text-slate-400 tracking-wider uppercase">HOW TO BULK UPDATE</h3>
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-800">1</span>
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-800">Download Current Data</h4>
-                    <p className="text-xs text-slate-500 mt-0.5">Click below to export a pre-filled CSV.</p>
-                    <Button onClick={handleBulkDownloadTemplate} variant="outline" className="mt-2.5 h-9 border-emerald-300 bg-emerald-50/50 text-emerald-700 hover:bg-emerald-100 font-semibold text-xs rounded-lg shadow-sm">
-                      <FileSpreadsheet className="mr-1.5 h-4 w-4 text-emerald-600" />
-                      Download Student Data (CSV)
-                    </Button>
+          <div className="grid gap-6 bg-[#f3f6fb] p-6 md:grid-cols-2">
+            <div className="space-y-5">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Workflow</p>
+                <h3 className="mt-1 text-lg font-black text-slate-950">Safe CSV update</h3>
+              </div>
+
+              <div className="space-y-3">
+                {[
+                  ["1", "Download current data", "The export contains the admission number used to match every student."],
+                  ["2", "Edit required values", "Keep admission_number unchanged. Blank cells are treated as no change."],
+                  ["3", "Use exact batch names", "Changing batch_name also updates the linked course safely."],
+                  ["4", "Upload and review", "Invalid rows are reported instead of being silently ignored."],
+                ].map(([number, title, copy]) => (
+                  <div key={number} className="flex gap-3 rounded-2xl border border-slate-200 bg-white p-3.5">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-xs font-black text-cyan-300">{number}</span>
+                    <div>
+                      <p className="text-sm font-black text-slate-900">{title}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">{copy}</p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700">2</span>
-                  <div><h4 className="text-sm font-semibold text-slate-800">Edit in Excel</h4><p className="text-xs text-slate-500 mt-0.5">Update any column. Do NOT change <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-700 font-mono">admission_number</code>.</p></div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700">3</span>
-                  <div><h4 className="text-sm font-semibold text-slate-800">Upload & Apply</h4><p className="text-xs text-slate-500 mt-0.5">Upload edited CSV. Each row is matched by <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-700 font-mono">admission_number</code>.</p></div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700">4</span>
-                  <div><h4 className="text-sm font-semibold text-slate-800">Review Results</h4><p className="text-xs text-slate-500 mt-0.5">See how many students were updated.</p></div>
-                </div>
+                ))}
               </div>
+
+              <Button onClick={handleBulkDownloadTemplate} variant="outline" className="h-10 w-full rounded-xl border-slate-300 bg-white font-bold text-slate-800 hover:bg-slate-50">
+                <FileSpreadsheet className="mr-2 h-4 w-4" /> Download Current Student CSV
+              </Button>
             </div>
+
             <div className="space-y-4">
-              <h3 className="text-xs font-bold text-slate-400 tracking-wider uppercase">UPLOAD EDITED CSV</h3>
-              <div className="border-2 border-dashed border-emerald-300 bg-emerald-50/20 rounded-2xl p-8 text-center hover:bg-emerald-50/40 transition-colors cursor-pointer relative flex flex-col items-center justify-center min-h-[220px]">
-                <input type="file" accept=".csv" className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10" onChange={(e: any) => setBulkUpdateFile(e.target.files?.[0] || null)} />
-                <div className="bg-emerald-100 p-3.5 rounded-2xl mb-3 text-emerald-600"><FileSpreadsheet className="h-9 w-9" /></div>
-                <p className="text-base font-bold text-emerald-700">Click to upload or drag & drop</p>
-                <p className="text-xs text-slate-400 mt-1">CSV only · Max 10MB</p>
-                {bulkUpdateFile && (<div className="mt-4 bg-emerald-100 border border-emerald-300 text-emerald-900 px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 z-20 shadow-sm"><FileText className="h-4 w-4" /><span>{bulkUpdateFile.name}</span></div>)}
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Upload</p>
+                <h3 className="mt-1 text-lg font-black text-slate-950">Edited CSV</h3>
               </div>
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-xs text-slate-700 flex items-start gap-2.5">
-                <Info className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
-                <p className="leading-relaxed"><span className="font-bold text-slate-800">Tip:</span> Only rows with valid <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono text-emerald-900">admission_number</code> will be updated.</p>
+
+              <div className="relative flex min-h-[190px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white p-7 text-center transition hover:border-cyan-400 hover:bg-cyan-50/20">
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => chooseCsvFile(e.target.files?.[0] || null, "bulk")}
+                />
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-cyan-300">
+                  <FileSpreadsheet className="h-5 w-5" />
+                </div>
+                <p className="font-black text-slate-900">Choose edited CSV</p>
+                <p className="mt-1 text-xs text-slate-500">CSV only · Max 10 MB · Up to 2,000 rows</p>
+                {bulkUpdateFile && (
+                  <div className="relative z-20 mt-4 max-w-full rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-900">
+                    <span className="block max-w-[320px] truncate">{bulkUpdateFile.name}</span>
+                  </div>
+                )}
               </div>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 text-xs leading-5 text-amber-900">
+                <span className="font-black">Important:</span> do not edit <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">admission_number</code>. Use the exact <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">batch_name</code> shown in the downloaded file.
+              </div>
+
+              {bulkUpdateSummary && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    <div><p className="text-lg font-black text-slate-950">{bulkUpdateSummary.total}</p><p className="text-[10px] font-bold uppercase text-slate-400">Rows</p></div>
+                    <div><p className="text-lg font-black text-emerald-600">{bulkUpdateSummary.success}</p><p className="text-[10px] font-bold uppercase text-slate-400">Updated</p></div>
+                    <div><p className="text-lg font-black text-slate-500">{bulkUpdateSummary.skipped}</p><p className="text-[10px] font-bold uppercase text-slate-400">Skipped</p></div>
+                    <div><p className="text-lg font-black text-red-600">{bulkUpdateSummary.failed}</p><p className="text-[10px] font-bold uppercase text-slate-400">Failed</p></div>
+                  </div>
+                  {bulkUpdateSummary.errors.length > 0 && (
+                    <Button variant="outline" className="mt-3 h-9 w-full rounded-xl text-xs font-bold" onClick={() => downloadTransferErrors("bulk", bulkUpdateSummary)}>
+                      <Download className="mr-1.5 h-3.5 w-3.5" /> Download Error Report
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="border-t border-slate-200 bg-white px-6 py-3.5 flex items-center justify-between sticky bottom-0 z-20">
-            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium"><ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" /><span>Only existing students are modified.</span></div>
+          <div className="sticky bottom-0 z-20 flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3.5">
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+              <ShieldCheck className="h-4 w-4 text-cyan-700" /> Existing students only
+            </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => setBulkUpdateDialogOpen(false)} className="h-10 px-5 rounded-xl">Cancel</Button>
-              <Button onClick={handleBulkUpdateApply} disabled={!bulkUpdateFile || isBulkUpdating} className="h-10 px-5 rounded-xl bg-[#0299cb] hover:bg-[#0284b5] text-white font-medium shadow-sm">
-                <Edit className="mr-1.5 h-4 w-4" />
-                {isBulkUpdating ? "Applying..." : "Apply Updates"}
+              <Button variant="outline" onClick={() => setBulkUpdateDialogOpen(false)} className="h-10 rounded-xl px-5">Close</Button>
+              <Button onClick={handleBulkUpdateApply} disabled={!bulkUpdateFile || isBulkUpdating} className="h-10 rounded-xl bg-slate-950 px-5 font-bold text-white hover:bg-slate-900">
+                <Edit className="mr-1.5 h-4 w-4" /> {isBulkUpdating ? "Applying..." : "Apply Updates"}
               </Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-
       {/* BULK IMPORT DIALOG */}
-      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-        <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto p-0 rounded-2xl gap-0 border-0 shadow-2xl">
-          <div className="bg-[#4d7c0f] text-white px-6 py-4 flex items-center justify-between sticky top-0 z-20 shadow-md">
-            <div>
-              <div className="flex items-center gap-2 text-xl font-bold"><UploadCloud className="h-5 w-5" /><span>Bulk Import Students</span></div>
-              <p className="text-xs text-white/80 mt-0.5 font-normal">Upload a CSV to enroll multiple students at once</p>
+      <Dialog
+        open={importDialogOpen}
+        onOpenChange={(open) => {
+          setImportDialogOpen(open);
+          if (!open) {
+            setImportFile(null);
+            setImportSummary(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto rounded-[24px] border-0 p-0 shadow-2xl">
+          <div className="sticky top-0 z-20 bg-[linear-gradient(105deg,#020817_0%,#07112a_58%,#21184d_100%)] px-6 py-4 text-white shadow-md">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-xl font-black">
+                  <UploadCloud className="h-5 w-5 text-cyan-300" />
+                  <span>Bulk Import Students</span>
+                </div>
+                <p className="mt-1 text-xs text-slate-300">Validate batch, course, login and student data before creating records.</p>
+              </div>
+              <button onClick={() => setImportDialogOpen(false)} className="rounded-lg p-1 text-white/75 transition hover:bg-white/10 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
             </div>
-            <button onClick={() => setImportDialogOpen(false)} className="text-white/80 hover:text-white rounded-lg p-1 transition-colors"><X className="h-5 w-5" /></button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-slate-50/50">
-            <div className="space-y-6">
-              <h3 className="text-xs font-bold text-slate-400 tracking-wider uppercase">HOW TO IMPORT</h3>
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-800">1</span>
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-800">Download Template</h4>
-                    <p className="text-xs text-slate-500 mt-0.5">Start with our pre-formatted CSV template.</p>
-                    <Button onClick={handleDownloadImportTemplate} variant="outline" className="mt-2.5 h-9 border-emerald-300 bg-emerald-50/50 text-emerald-800 hover:bg-emerald-100 font-semibold text-xs rounded-lg shadow-sm">Download Template</Button>
-                  </div>
+          <div className="grid gap-6 bg-[#f3f6fb] p-6 md:grid-cols-2">
+            <div className="space-y-5">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Step 1</p>
+                <h3 className="mt-1 text-lg font-black text-slate-950">Prepare the import file</h3>
+              </div>
+
+              <Button onClick={handleDownloadImportTemplate} variant="outline" className="h-10 w-full rounded-xl border-slate-300 bg-white font-bold text-slate-800 hover:bg-slate-50">
+                <Download className="mr-2 h-4 w-4" /> Download Import Template
+              </Button>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Required columns</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {["name", "phone", "batch_name"].map((column) => (
+                    <code key={column} className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{column}</code>
+                  ))}
                 </div>
-                <div className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700">2</span>
-                  <div><h4 className="text-sm font-semibold text-slate-800">Fill Student Data</h4><p className="text-xs text-slate-500 mt-0.5">Open in Excel/Sheets. Do NOT rename column headers.</p></div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700">3</span>
-                  <div><h4 className="text-sm font-semibold text-slate-800">Upload & Validate</h4><p className="text-xs text-slate-500 mt-0.5">Upload the file — we validate before importing.</p></div>
+                <p className="mt-3 text-xs leading-5 text-slate-500">Use exact batch names. The linked course is picked automatically from the batch.</p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Available batches</p>
+                <div className="mt-3 flex max-h-32 flex-wrap gap-2 overflow-y-auto">
+                  {(batches ?? []).length > 0 ? (
+                    (batches ?? []).map((batch: any) => (
+                      <span key={batch.id || batch.name} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                        {batch.name}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-amber-700">No batches available. Create a course/batch before importing students.</span>
+                  )}
                 </div>
               </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Import options</p>
+                <label className="flex cursor-pointer items-center gap-2.5 text-xs font-semibold text-slate-700">
+                  <input type="checkbox" checked={skipDuplicates} onChange={(e) => setSkipDuplicates(e.target.checked)} className="h-4 w-4 rounded border-slate-300 accent-slate-950" />
+                  <span>Skip rows whose email already exists</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2.5 text-xs font-semibold text-slate-700">
+                  <input type="checkbox" checked={autoGenPassword} onChange={(e) => setAutoGenPassword(e.target.checked)} className="h-4 w-4 rounded border-slate-300 accent-slate-950" />
+                  <span>Generate a temporary portal password when password is blank</span>
+                </label>
+                <p className="text-[11px] leading-4 text-slate-400">Welcome-email sending is not shown here because the current student API does not provide a bulk credential-email action.</p>
+              </div>
             </div>
+
             <div className="space-y-4">
-              <h3 className="text-xs font-bold text-slate-400 tracking-wider uppercase">UPLOAD CSV FILE</h3>
-              <div className="border-2 border-dashed border-emerald-300 bg-emerald-50/20 rounded-2xl p-8 text-center hover:bg-emerald-50/40 transition-colors cursor-pointer relative flex flex-col items-center justify-center min-h-[200px]">
-                <input type="file" accept=".csv" className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10" onChange={(e: any) => setImportFile(e.target.files?.[0] || null)} />
-                <div className="bg-blue-50 p-3.5 rounded-2xl mb-3 text-blue-500"><UploadCloud className="h-10 w-10 text-blue-400" /></div>
-                <p className="text-base font-bold text-[#4d7c0f]">Click to upload or drag & drop</p>
-                <p className="text-xs text-slate-400 mt-1">CSV only · Max 5MB · Up to 1,000 rows</p>
-                {importFile && (<div className="mt-4 bg-emerald-100 border border-emerald-300 text-emerald-900 px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 z-20 shadow-sm"><FileText className="h-4 w-4" /><span>{importFile.name}</span></div>)}
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Step 2</p>
+                <h3 className="mt-1 text-lg font-black text-slate-950">Upload & validate</h3>
               </div>
-              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
-                <h4 className="text-xs font-bold text-slate-500 tracking-wider uppercase">IMPORT OPTIONS</h4>
-                <label className="flex items-center gap-2.5 text-xs text-slate-700 font-medium cursor-pointer">
-                  <input type="checkbox" checked={sendWelcomeEmail} onChange={(e) => setSendWelcomeEmail(e.target.checked)} className="h-4 w-4 accent-[#4d7c0f] rounded border-slate-300" />
-                  <span>Send welcome email with login credentials</span>
-                </label>
-                <label className="flex items-center gap-2.5 text-xs text-slate-700 font-medium cursor-pointer">
-                  <input type="checkbox" checked={skipDuplicates} onChange={(e) => setSkipDuplicates(e.target.checked)} className="h-4 w-4 accent-[#4d7c0f] rounded border-slate-300" />
-                  <span>Skip duplicate emails</span>
-                </label>
-                <label className="flex items-center gap-2.5 text-xs text-slate-700 font-medium cursor-pointer">
-                  <input type="checkbox" checked={autoGenPassword} onChange={(e) => setAutoGenPassword(e.target.checked)} className="h-4 w-4 accent-[#4d7c0f] rounded border-slate-300" />
-                  <span>Auto-generate password if column is empty</span>
-                </label>
+
+              <div className="relative flex min-h-[190px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white p-7 text-center transition hover:border-cyan-400 hover:bg-cyan-50/20">
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => chooseCsvFile(e.target.files?.[0] || null, "import")}
+                />
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-cyan-300">
+                  <UploadCloud className="h-5 w-5" />
+                </div>
+                <p className="font-black text-slate-900">Choose student CSV</p>
+                <p className="mt-1 text-xs text-slate-500">CSV only · Max 5 MB · Up to 1,000 rows</p>
+                {importFile && (
+                  <div className="relative z-20 mt-4 max-w-full rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-900">
+                    <span className="block max-w-[320px] truncate">{importFile.name}</span>
+                  </div>
+                )}
               </div>
-              <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 text-xs text-amber-900 flex items-start gap-2.5">
-                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                <p className="leading-relaxed"><span className="font-bold text-amber-950">Before importing:</span> Make sure batch codes match exactly.</p>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 text-xs leading-5 text-amber-900">
+                <AlertTriangle className="mr-2 inline h-4 w-4 align-text-bottom text-amber-600" />
+                Date can be <b>YYYY-MM-DD</b> or <b>DD/MM/YYYY</b>. Password must be at least 6 characters when supplied.
               </div>
+
+              {importSummary && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    <div><p className="text-lg font-black text-slate-950">{importSummary.total}</p><p className="text-[10px] font-bold uppercase text-slate-400">Rows</p></div>
+                    <div><p className="text-lg font-black text-emerald-600">{importSummary.success}</p><p className="text-[10px] font-bold uppercase text-slate-400">Imported</p></div>
+                    <div><p className="text-lg font-black text-slate-500">{importSummary.skipped}</p><p className="text-[10px] font-bold uppercase text-slate-400">Skipped</p></div>
+                    <div><p className="text-lg font-black text-red-600">{importSummary.failed}</p><p className="text-[10px] font-bold uppercase text-slate-400">Failed</p></div>
+                  </div>
+                  {importSummary.errors.length > 0 && (
+                    <Button variant="outline" className="mt-3 h-9 w-full rounded-xl text-xs font-bold" onClick={() => downloadTransferErrors("import", importSummary)}>
+                      <Download className="mr-1.5 h-3.5 w-3.5" /> Download Skipped / Error Report
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="border-t border-slate-200 bg-white px-6 py-3.5 flex items-center justify-between sticky bottom-0 z-20">
-            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium"><ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" /><span>All data is encrypted and stored securely.</span></div>
+          <div className="sticky bottom-0 z-20 flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3.5">
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+              <ShieldCheck className="h-4 w-4 text-cyan-700" /> Batch & course are validated before save
+            </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => setImportDialogOpen(false)} className="h-10 px-5 rounded-xl">Cancel</Button>
-              <Button onClick={handleImportSubmit} disabled={!importFile || isImporting} className="h-10 px-5 rounded-xl bg-[#4d7c0f] hover:bg-[#3f660c] text-white font-medium shadow-sm">
-                <UploadCloud className="mr-1.5 h-4 w-4" />
-                {isImporting ? "Importing..." : "Import Students"}
+              <Button variant="outline" onClick={() => setImportDialogOpen(false)} className="h-10 rounded-xl px-5">Close</Button>
+              <Button onClick={handleImportSubmit} disabled={!importFile || isImporting || (batches ?? []).length === 0} className="h-10 rounded-xl bg-slate-950 px-5 font-bold text-white hover:bg-slate-900">
+                <UploadCloud className="mr-1.5 h-4 w-4" /> {isImporting ? "Importing..." : "Import Students"}
               </Button>
             </div>
           </div>

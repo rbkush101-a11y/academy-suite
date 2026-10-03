@@ -22,6 +22,7 @@ import Billing from "@/pages/billing";
 import Dashboard from "@/pages/dashboard";
 import Students from "@/pages/students";
 import OnlineAdmissionForm from "./pages/online-admission-form";
+import OnlineAdmissions from "@/pages/online-admissions";
 import Courses from "@/pages/courses";
 import Batches from "@/pages/batches";
 import Staff from "@/pages/staff";
@@ -51,7 +52,6 @@ import HR from "@/pages/hr";
 import Analytics from "@/pages/analytics";
 import Notifications from "@/pages/notifications";
 import Admissions from "@/pages/admissions";
-import OnlineAdmissions from "@/pages/online-admissions";
 import PTM from "@/pages/ptm";
 import AcademicYears from "@/pages/academic-years";
 import Foundation from "@/pages/foundation";
@@ -310,11 +310,16 @@ function Router() {
         />
       </Route>
 
-      {/* Public online admission form — no admin portal/layout/auth wrapper */}
+      {/* Public Online Admission Form */}
+      <Route path="/online-admission-form/:instituteId">
+        <OnlineAdmissionForm />
+      </Route>
+
       <Route path="/online-admission-form">
         <OnlineAdmissionForm />
       </Route>
 
+      {/* Admin Online Admissions */}
       <Route path="/online-admissions">
         <ProtectedRoute
           component={OnlineAdmissions}

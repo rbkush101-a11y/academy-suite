@@ -310,6 +310,10 @@ const AppStyles = () => (
 export default function StudentDashboard() {
   const [, setLocation] = useLocation();
 
+  const supportMode = Boolean(localStorage.getItem("academy_support_original_token"));
+  const supportStudentName = localStorage.getItem("academy_support_student_name") || "Student";
+  const supportExpiresAt = localStorage.getItem("academy_support_expires_at") || "";
+
   const [student, setStudent] = useState<StudentMe | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [homework, setHomework] = useState<Homework[]>([]);
@@ -358,6 +362,60 @@ export default function StudentDashboard() {
     const interval = setInterval(() => forceTick((n) => n + 1), 30000);
     return () => clearInterval(interval);
   }, []);
+
+  const exitSupportMode = async () => {
+    const originalToken = localStorage.getItem("academy_support_original_token") || "";
+    const originalRole = localStorage.getItem("academy_support_original_role") || "";
+    const supportSessionId = localStorage.getItem("academy_support_session_id") || "";
+    const returnPath = localStorage.getItem("academy_support_return_path") || "/students";
+
+    if (!originalToken) {
+      localStorage.removeItem("coach_sutra_token");
+      localStorage.removeItem("coach_sutra_user_role");
+      window.dispatchEvent(new Event("storage"));
+      setLocation("/login");
+      return;
+    }
+
+    // Restore the real admin session first. The temporary support token is never used
+    // to mutate data or to end its own session.
+    localStorage.setItem("coach_sutra_token", originalToken);
+    localStorage.setItem("coach_sutra_user_role", originalRole);
+
+    const endpoint =
+      originalRole === "super_admin"
+        ? "/api/v1/platform/student-support/end"
+        : "/api/student-support/end";
+
+    if (supportSessionId) {
+      try {
+        await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${originalToken}`,
+          },
+          body: JSON.stringify({ sessionId: supportSessionId }),
+        });
+      } catch {
+        // The support access token is short-lived and server-side read-only even if
+        // the explicit end call cannot be delivered.
+      }
+    }
+
+    [
+      "academy_support_original_token",
+      "academy_support_original_role",
+      "academy_support_session_id",
+      "academy_support_student_id",
+      "academy_support_student_name",
+      "academy_support_return_path",
+      "academy_support_expires_at",
+    ].forEach((key) => localStorage.removeItem(key));
+
+    window.dispatchEvent(new Event("storage"));
+    window.location.assign(returnPath || (originalRole === "super_admin" ? "/super-admin" : "/students"));
+  };
 
   const logout = () => {
     const currentToken = localStorage.getItem("coach_sutra_token");
@@ -938,8 +996,33 @@ export default function StudentDashboard() {
   return (
     <>
       <AppStyles />
-      <div className="min-h-screen bg-slate-50 pb-24 md:pb-8 select-none antialiased">
-        <header className="sticky top-0 z-40 bg-white border-b border-slate-100/80 px-4 py-3.5 backdrop-blur-md bg-white/90">
+      <div className={`min-h-screen bg-slate-50 pb-24 md:pb-8 select-none antialiased ${supportMode ? "pt-12" : ""}`}>
+        {supportMode && (
+          <div className="fixed inset-x-0 top-0 z-[100] border-b border-cyan-300/20 bg-slate-950 px-3 py-2 text-white shadow-lg">
+            <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Eye className="h-4 w-4 shrink-0 text-cyan-300" />
+                  <p className="truncate text-xs font-black">Read-only Support Mode · {supportStudentName}</p>
+                </div>
+                <p className="mt-0.5 hidden text-[10px] text-slate-400 sm:block">
+                  Student password is not exposed. Changes and payments are blocked.
+                  {supportExpiresAt ? ` Session expires ${new Date(supportExpiresAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}.` : ""}
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 shrink-0 bg-white px-3 text-[11px] font-black text-slate-950 hover:bg-cyan-50"
+                onClick={() => void exitSupportMode()}
+              >
+                Exit Support Mode
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <header className={`sticky z-40 bg-white border-b border-slate-100/80 px-4 py-3.5 backdrop-blur-md bg-white/90 ${supportMode ? "top-12" : "top-0"}`}>
           <div className="mx-auto flex max-w-lg items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div
@@ -1050,8 +1133,9 @@ export default function StudentDashboard() {
                 <User className="h-4 w-4" />
               </button>
               <button
-                onClick={logout}
-                className="rounded-xl bg-red-50 p-2 text-red-500 active:scale-90"
+                onClick={() => supportMode ? void exitSupportMode() : logout()}
+                title={supportMode ? "Exit Support Mode" : "Log out"}
+                className={`rounded-xl p-2 active:scale-90 ${supportMode ? "bg-cyan-50 text-cyan-700" : "bg-red-50 text-red-500"}`}
               >
                 <LogOut className="h-4 w-4" />
               </button>
@@ -2140,18 +2224,24 @@ export default function StudentDashboard() {
                     Roll No: {student?.enrollmentNo || "-"}
                   </p>
                 </div>
+                {supportMode ? (
+                  <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-3 text-xs font-semibold leading-5 text-cyan-950">
+                    <div className="flex items-center gap-2 font-black"><Eye className="h-4 w-4" /> Read-only Support Mode</div>
+                    <p className="mt-1 text-[11px] font-medium text-cyan-800">Profile edit, password change aur other mutation actions disabled hain.</p>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={openEditModal}
+                    className="w-full rounded-2xl bg-[#4d7c0f] hover:bg-[#3f660c] text-white py-3.5 text-xs font-black shadow-sm"
+                  >
+                    <Pencil className="h-4 w-4 mr-2" /> View & Edit Full Admission Form
+                  </Button>
+                )}
                 <Button
-                  onClick={openEditModal}
-                  className="w-full rounded-2xl bg-[#4d7c0f] hover:bg-[#3f660c] text-white py-3.5 text-xs font-black shadow-sm"
+                  onClick={() => supportMode ? void exitSupportMode() : logout()}
+                  className={`w-full rounded-2xl py-3 text-xs font-black ${supportMode ? "bg-slate-950 text-white hover:bg-slate-900" : "bg-red-50 text-red-600 hover:bg-red-100"}`}
                 >
-                  <Pencil className="h-4 w-4 mr-2" /> View & Edit Full Admission
-                  Form
-                </Button>
-                <Button
-                  onClick={logout}
-                  className="w-full rounded-2xl bg-red-50 text-red-600 py-3 text-xs font-black hover:bg-red-100"
-                >
-                  <LogOut className="h-4 w-4 mr-2" /> Log Out
+                  <LogOut className="h-4 w-4 mr-2" /> {supportMode ? "Exit Support Mode" : "Log Out"}
                 </Button>
               </div>
             </div>

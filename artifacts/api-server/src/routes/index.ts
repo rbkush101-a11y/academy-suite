@@ -18,6 +18,8 @@ import hrRouter from "./hr";
 import analyticsRouter from "./analytics";
 import notificationsRouter from "./notifications";
 import admissionsRouter from "./admissions";
+import onlineAdmissionsRouter from "./online-admissions";
+import studentSupportRouter from "./student-support";
 import ptmRouter from "./ptm";
 import foundationRouter from "./foundation";
 import platformRouter from "./platform";
@@ -46,6 +48,8 @@ router.use(hrRouter);
 router.use(analyticsRouter);
 router.use(notificationsRouter);
 router.use(admissionsRouter);
+router.use(onlineAdmissionsRouter);
+router.use(studentSupportRouter);
 router.use(ptmRouter);
 router.use(foundationRouter);
 
