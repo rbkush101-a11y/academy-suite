@@ -732,6 +732,30 @@ export default function StudentDashboard() {
     localStorage.getItem("institute_name") ||
     "Second School Classes";
 
+  const instituteLogo = (() => {
+    const studentLogo =
+      (student as any)?.instituteLogoDataUrl ||
+      (student as any)?.logoDataUrl ||
+      "";
+
+    if (studentLogo) return String(studentLogo);
+
+    const savedLogo = localStorage.getItem("coach_sutra_logo") || "";
+    if (savedLogo) return savedLogo;
+
+    try {
+      const raw = localStorage.getItem("coach_sutra_general_info");
+      if (raw) {
+        const info = JSON.parse(raw);
+        return String(info?.logoUrl || info?.logoDataUrl || "");
+      }
+    } catch {
+      // Ignore malformed cached branding and use the fallback icon below.
+    }
+
+    return "";
+  })();
+
   const teacherNames = useMemo(
     () =>
       Array.from(
@@ -1119,11 +1143,7 @@ export default function StudentDashboard() {
   return (
     <>
       <AppStyles />
-      <div
-        className={`min-h-screen pb-24 md:pb-8 select-none antialiased ${
-          activeTab === "home" ? "bg-[#031a3a]" : "bg-[#f4f7fb]"
-        } ${supportMode ? "pt-12" : ""}`}
-      >
+      <div className={`min-h-screen bg-[linear-gradient(180deg,#061b3b_0%,#03142f_52%,#02102a_100%)] pb-24 md:pb-8 select-none antialiased ${supportMode ? "pt-12" : ""}`}>
         {supportMode && (
           <div className="fixed inset-x-0 top-0 z-[100] border-b border-cyan-300/20 bg-slate-950 px-3 py-2 text-white shadow-lg">
             <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
@@ -1150,7 +1170,7 @@ export default function StudentDashboard() {
         )}
 
         <header
-          className={`sticky z-40 border-b border-white/5 bg-[#031a3a]/95 px-4 py-3 text-white shadow-[0_8px_24px_rgba(2,8,23,0.2)] backdrop-blur-xl ${
+          className={`sticky z-40 border-b border-white/10 bg-[linear-gradient(105deg,#020817_0%,#07112a_60%,#21184d_100%)] px-4 py-3 text-white shadow-[0_10px_30px_rgba(2,8,23,0.16)] ${
             supportMode ? "top-12" : "top-0"
           }`}
         >
@@ -1174,128 +1194,26 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="relative">
-                <button
-                  aria-label="Notifications"
-                  onClick={() => setIsNotificationsOpen((open) => !open)}
-                  className="relative flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition active:scale-95"
-                >
-                  <Bell className="h-[18px] w-[18px]" />
-                  {unreadNotificationCount > 0 && (
-                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-black text-white ring-2 ring-[#07112a]">
-                      {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
-                    </span>
-                  )}
-                </button>
-
-                {isNotificationsOpen && (
-                  <>
-                    <button
-                      type="button"
-                      aria-label="Close notifications"
-                      className="fixed inset-0 z-40 cursor-default"
-                      onClick={() => setIsNotificationsOpen(false)}
-                    />
-                    <div className="absolute right-0 top-12 z-50 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
-                      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                        <div>
-                          <h3 className="text-sm font-black text-slate-900">
-                            Notifications
-                          </h3>
-                          <p className="text-[10px] font-semibold text-slate-400">
-                            {unreadNotificationCount} unread
-                          </p>
-                        </div>
-                        {notifications.length > 0 &&
-                          unreadNotificationCount > 0 && (
-                            <button
-                              className="text-[10px] font-bold text-cyan-700"
-                              onClick={() =>
-                                setReadNotifications(
-                                  notifications.map((item) => item.id)
-                                )
-                              }
-                            >
-                              Mark all read
-                            </button>
-                          )}
-                      </div>
-                      <div className="max-h-80 overflow-y-auto">
-                        {notifications.length === 0 ? (
-                          <div className="px-4 py-8 text-center text-xs font-semibold text-slate-400">
-                            No new notifications
-                          </div>
-                        ) : (
-                          notifications.map((notification) => {
-                            const isRead = readNotifications.includes(
-                              notification.id
-                            );
-                            const toneClass =
-                              notification.tone === "red"
-                                ? "bg-red-50 text-red-600"
-                                : notification.tone === "amber"
-                                  ? "bg-amber-50 text-amber-600"
-                                  : notification.tone === "green"
-                                    ? "bg-emerald-50 text-emerald-600"
-                                    : "bg-cyan-50 text-cyan-700";
-                            return (
-                              <button
-                                key={notification.id}
-                                className={`flex w-full gap-3 border-b border-slate-50 px-4 py-3 text-left last:border-0 ${
-                                  isRead ? "opacity-60" : "bg-slate-50/60"
-                                }`}
-                                onClick={() =>
-                                  setReadNotifications((current) =>
-                                    current.includes(notification.id)
-                                      ? current
-                                      : [...current, notification.id]
-                                  )
-                                }
-                              >
-                                <span
-                                  className={`mt-0.5 rounded-lg p-2 ${toneClass}`}
-                                >
-                                  <Bell className="h-3.5 w-3.5" />
-                                </span>
-                                <span className="min-w-0 flex-1">
-                                  <span className="block text-xs font-extrabold text-slate-800">
-                                    {notification.title}
-                                  </span>
-                                  <span className="mt-0.5 block text-[10px] font-semibold leading-4 text-slate-500">
-                                    {notification.description}
-                                  </span>
-                                </span>
-                                {!isRead && (
-                                  <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-cyan-500" />
-                                )}
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <button
-                type="button"
-                aria-label="Open profile and settings"
-                onClick={() => setIsProfileOpen(true)}
-                className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-cyan-300/50 bg-slate-800 shadow-sm transition active:scale-95"
-              >
-                {student?.photoDataUrl ? (
-                  <img
-                    src={student.photoDataUrl}
-                    alt={student?.name || "Student"}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <UserRound className="h-5 w-5 text-cyan-200" />
-                )}
-              </button>
-            </div>
+            <button
+              type="button"
+              aria-label="Open profile and settings"
+              onClick={() => {
+                setIsNotificationsOpen(false);
+                setIsProfileOpen(true);
+              }}
+              className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white/80 bg-slate-800 shadow-[0_8px_24px_rgba(0,0,0,0.25)] transition active:scale-95"
+            >
+              {student?.photoDataUrl ? (
+                <img
+                  src={student.photoDataUrl}
+                  alt={student?.name || "Student"}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <UserRound className="h-5 w-5 text-cyan-200" />
+              )}
+              <span className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500" />
+            </button>
           </div>
         </header>
 
@@ -1339,47 +1257,34 @@ export default function StudentDashboard() {
                   onClick={() => openStudentSection("home")}
                 />
                 <DrawerItem
+                  active={isProfileOpen}
+                  icon={<User className="h-[18px] w-[18px]" />}
+                  label="My Profile"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    setIsNotificationsOpen(false);
+                    setIsProfileOpen(true);
+                  }}
+                />
+                <DrawerItem
                   active={activeTab === "lessons"}
-                  icon={<School className="h-[18px] w-[18px]" />}
+                  icon={<FileText className="h-[18px] w-[18px]" />}
                   label="Coaching Information"
                   onClick={() => openStudentSection("lessons")}
                 />
-                <DrawerItem
-                  active={activeTab === "timetable"}
-                  icon={<CalendarDays className="h-[18px] w-[18px]" />}
-                  label="Timetable"
-                  onClick={() => openStudentSection("timetable")}
-                />
-                <DrawerItem
-                  active={activeTab === "fees"}
-                  icon={<IndianRupee className="h-[18px] w-[18px]" />}
-                  label="Fees"
-                  onClick={() => openStudentSection("fees")}
-                />
-                <DrawerItem
-                  active={activeTab === "results"}
-                  icon={<FileText className="h-[18px] w-[18px]" />}
-                  label="Results"
-                  onClick={() => openStudentSection("results")}
-                />
-                <DrawerItem
-                  active={activeTab === "exams"}
-                  icon={<PenTool className="h-[18px] w-[18px]" />}
-                  label="Tests"
-                  onClick={() => openStudentSection("exams")}
-                />
-              </div>
-
-              <div className="mt-auto border-t border-white/10 pt-4">
                 <DrawerItem
                   active={isProfileOpen}
                   icon={<Settings className="h-[18px] w-[18px]" />}
                   label="Settings"
                   onClick={() => {
                     setIsMenuOpen(false);
+                    setIsNotificationsOpen(false);
                     setIsProfileOpen(true);
                   }}
                 />
+              </div>
+
+              <div className="mt-auto border-t border-white/15 pt-4">
                 <DrawerItem
                   icon={<LogOut className="h-[18px] w-[18px]" />}
                   label={supportMode ? "Exit Support Mode" : "Sign Out"}
@@ -1401,96 +1306,94 @@ export default function StudentDashboard() {
             </div>
           )}
 
-          {/* HOME */}
+          {/* HOME — reference-style student dashboard */}
           {activeTab === "home" && (
-            <div className="space-y-4 animate-fadeIn">
-              {/* Reference-style blue welcome card */}
-              <section className="relative overflow-hidden rounded-[26px] border border-cyan-300/25 bg-[linear-gradient(135deg,#0ea5e9_0%,#1477ea_48%,#1748c7_100%)] p-5 text-white shadow-[0_22px_48px_-28px_rgba(14,165,233,0.75)]">
-                <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-cyan-100/20 blur-3xl" />
-                <div className="absolute -bottom-20 right-10 h-40 w-40 rounded-full bg-indigo-950/20 blur-2xl" />
+            <div className="relative min-h-[calc(100vh-150px)] space-y-4 pb-12 animate-fadeIn">
+              <section className="relative overflow-hidden rounded-[22px] border border-cyan-300/40 bg-[linear-gradient(135deg,#08a8e8_0%,#0878dd_45%,#1547c8_100%)] px-5 py-5 text-white shadow-[0_20px_50px_-24px_rgba(0,141,255,0.65)]">
+                <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-cyan-200/20 blur-3xl" />
+                <div className="absolute right-5 top-8 h-2 w-2 rounded-full bg-cyan-100/70" />
+                <div className="absolute right-14 top-14 h-1.5 w-1.5 rounded-full bg-white/70" />
+                <div className="absolute right-24 top-7 h-1 w-1 rounded-full bg-cyan-100/80" />
 
-                {/* decorative book / school illustration */}
-                <div className="pointer-events-none absolute bottom-3 right-4 opacity-95">
-                  <div className="relative h-24 w-28">
-                    <div className="absolute bottom-0 right-0 h-4 w-20 rounded-md bg-orange-400 shadow-md" />
-                    <div className="absolute bottom-4 right-3 h-4 w-20 rounded-md bg-amber-200 shadow-md" />
-                    <div className="absolute bottom-8 right-0 h-4 w-20 rounded-md bg-cyan-100 shadow-md" />
-                    <div className="absolute bottom-12 right-4 h-4 w-20 rounded-md bg-white shadow-md" />
-                    <div className="absolute bottom-16 right-10 flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-400/90 text-emerald-950 shadow-lg">
-                      <BookOpen className="h-5 w-5" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="relative max-w-[72%]">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-4 border-white/50 bg-white text-blue-600 shadow-lg">
-                      <GraduationCap className="h-7 w-7" />
-                    </div>
-                    <div className="min-w-0">
-                      <h2 className="truncate text-[15px] font-black">
-                        {instituteLabel}
-                      </h2>
-                      <p className="mt-0.5 text-[10px] font-semibold text-blue-100">
-                        Learn Today, Build Tomorrow
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-5">
-                    <p className="text-sm font-extrabold text-blue-50">Welcome</p>
-                    <h3 className="mt-0.5 truncate text-[29px] font-black leading-none tracking-tight">
-                      {student?.name || "Student"}
-                    </h3>
-                  </div>
-                </div>
-              </section>
-
-              {/* Student identity row in the same visual language as the reference */}
-              <section>
-                <div className="mb-2.5">
-                  <h3 className="text-[21px] font-black tracking-tight text-white">
-                    Your Profile
-                  </h3>
-                  <p className="mt-0.5 text-[11px] font-semibold text-slate-300">
-                    Tap to open your profile & settings
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsProfileOpen(true)}
-                  className="flex w-full items-center gap-3 rounded-[20px] bg-white p-3 text-left shadow-[0_12px_28px_-20px_rgba(2,8,23,0.8)] transition active:scale-[0.99]"
-                >
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-sky-100 ring-4 ring-sky-50">
-                    {student?.photoDataUrl ? (
+                <div className="relative flex items-start gap-3">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/60 bg-white shadow-lg">
+                    {instituteLogo ? (
                       <img
-                        src={student.photoDataUrl}
-                        alt={student.name}
-                        className="h-full w-full object-cover"
+                        src={instituteLogo}
+                        alt={`${instituteLabel} logo`}
+                        className="h-full w-full object-contain p-1.5"
                       />
                     ) : (
-                      <UserRound className="h-7 w-7 text-blue-600" />
+                      <GraduationCap
+                        className="h-9 w-9 text-blue-600"
+                        strokeWidth={2.2}
+                      />
                     )}
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-black text-[#071b3e]">
-                      {student?.name || "Student"}
+                  <div className="min-w-0 pt-2">
+                    <p className="truncate text-sm font-black">
+                      {instituteLabel}
                     </p>
-                    <p className="mt-1 truncate text-[11px] font-semibold text-slate-500">
-                      Roll No. {student?.enrollmentNo || "—"}
-                      <span className="mx-2 text-slate-300">•</span>
-                      {formatClassAndSection(student?.className, student?.section)}
+                    <p className="mt-1 text-[10px] font-semibold text-blue-100">
+                      Learn Today, Build Tomorrow
                     </p>
                   </div>
+                </div>
 
-                  <ChevronRight className="h-5 w-5 shrink-0 text-blue-500" />
-                </button>
+                <div className="relative mt-4 pr-[118px]">
+                  <p className="text-sm font-extrabold text-white/95">Welcome</p>
+                  <h2 className="mt-0.5 truncate text-[28px] font-black leading-none tracking-tight">
+                    {student?.name || "Student"}
+                  </h2>
+                </div>
+
+                {/* Decorative books/learning illustration */}
+                <div className="pointer-events-none absolute bottom-3 right-4 h-24 w-28">
+                  <div className="absolute bottom-1 right-0 h-4 w-24 rounded-md border border-white/20 bg-orange-400 shadow-lg" />
+                  <div className="absolute bottom-5 right-2 h-4 w-20 rounded-md border border-white/20 bg-white shadow-lg" />
+                  <div className="absolute bottom-9 right-0 h-4 w-24 rounded-md border border-white/20 bg-sky-200 shadow-lg" />
+                  <div className="absolute bottom-[52px] right-4 h-4 w-20 rounded-md border border-white/20 bg-blue-900 shadow-lg" />
+                  <div className="absolute bottom-[65px] right-2 h-4 w-20 rounded-md border border-white/20 bg-white shadow-lg" />
+                  <div className="absolute bottom-[72px] right-0 h-7 w-7 rounded-full bg-emerald-400/90" />
+                  <div className="absolute bottom-[84px] right-5 h-8 w-3 rotate-[32deg] rounded-full bg-emerald-300/90" />
+                  <div className="absolute bottom-[85px] right-0 h-8 w-3 -rotate-[28deg] rounded-full bg-emerald-500/90" />
+                </div>
               </section>
 
-              {/* App shortcuts - directly on the navy canvas like the reference */}
+              {examSummary.live > 0 && (
+                <button
+                  type="button"
+                  onClick={() => openStudentSection("exams")}
+                  className="flex w-full items-center justify-between rounded-2xl border border-red-300/30 bg-red-500/10 p-3 text-left text-white backdrop-blur-sm transition active:scale-[0.99]"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-500 text-white">
+                      <Play className="h-4 w-4 fill-white" />
+                    </span>
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-[0.16em] text-red-300">
+                        Live test
+                      </p>
+                      <p className="mt-0.5 text-xs font-black">
+                        {examSummary.live} test{examSummary.live > 1 ? "s" : ""} ongoing
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-red-200" />
+                </button>
+              )}
+
               <section>
+                <div className="mb-3">
+                  <h3 className="text-xl font-black tracking-tight text-white">
+                    Quick Access
+                  </h3>
+                  <p className="mt-0.5 text-xs font-medium text-slate-300">
+                    Tap a section to open
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-3 gap-2.5">
                   <HomeShortcut
                     label="My Profile"
@@ -1510,7 +1413,6 @@ export default function StudentDashboard() {
                     tone="emerald"
                     onClick={() => openStudentSection("teachers")}
                   />
-
                   <HomeShortcut
                     label="Time Table"
                     icon={<CalendarDays className="h-5 w-5" />}
@@ -1529,7 +1431,6 @@ export default function StudentDashboard() {
                     tone="orange"
                     onClick={() => openStudentSection("fees")}
                   />
-
                   <HomeShortcut
                     label="Homework"
                     icon={<BookOpen className="h-5 w-5" />}
@@ -1549,10 +1450,9 @@ export default function StudentDashboard() {
                     tone="emerald"
                     onClick={() => openStudentSection("attendance")}
                   />
-
                   <HomeShortcut
                     label="Test"
-                    icon={<PenTool className="h-5 w-5" />}
+                    icon={<FileText className="h-5 w-5" />}
                     tone="indigo"
                     badge={examSummary.live > 0 ? "LIVE" : undefined}
                     onClick={() => openStudentSection("exams")}
@@ -1560,13 +1460,17 @@ export default function StudentDashboard() {
                 </div>
               </section>
 
-              {/* visual footer inspired by the mockup */}
-              <div className="relative h-28 overflow-hidden rounded-[26px]">
-                <div className="absolute inset-x-0 bottom-0 h-20 rounded-t-[55%] bg-[#082a59]" />
-                <div className="absolute inset-x-0 bottom-0 h-12 rounded-t-[50%] bg-[#0a356b]" />
-                <School className="absolute bottom-2 left-1/2 h-16 w-16 -translate-x-1/2 text-blue-400/45" />
-                <div className="absolute bottom-2 left-[18%] h-6 w-3 rounded-t-full bg-blue-400/20" />
-                <div className="absolute bottom-2 right-[18%] h-7 w-3 rounded-t-full bg-blue-400/20" />
+              {/* Subtle school illustration like the reference */}
+              <div className="pointer-events-none relative mt-8 h-28 overflow-hidden opacity-75">
+                <div className="absolute bottom-0 left-[-18%] h-20 w-[75%] rounded-[50%] bg-blue-800/35" />
+                <div className="absolute bottom-[-8px] right-[-20%] h-24 w-[85%] rounded-[50%] bg-blue-700/30" />
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-blue-500/55">
+                  <School className="h-24 w-24" strokeWidth={1.35} />
+                </div>
+                <div className="absolute bottom-3 left-[24%] h-9 w-3 rounded-t-full bg-blue-700/35" />
+                <div className="absolute bottom-3 right-[24%] h-11 w-3 rounded-t-full bg-blue-700/35" />
+                <div className="absolute bottom-10 left-[21%] h-8 w-8 rounded-full bg-blue-600/30" />
+                <div className="absolute bottom-12 right-[20%] h-9 w-9 rounded-full bg-blue-600/30" />
               </div>
             </div>
           )}
@@ -2667,14 +2571,105 @@ export default function StudentDashboard() {
           </div>
         )}
 
+        {/* NOTIFICATIONS */}
+        {isNotificationsOpen && (
+          <div className="fixed inset-0 z-[70] overflow-y-auto bg-[linear-gradient(180deg,#061b3b_0%,#03142f_58%,#02102a_100%)] text-white animate-fadeIn">
+            <header className="sticky top-0 z-20 border-b border-white/10 bg-[#061b3b]/95 px-4 py-3 backdrop-blur-md">
+              <div className="mx-auto flex max-w-lg items-center gap-3">
+                <button
+                  type="button"
+                  aria-label="Back"
+                  onClick={() => setIsNotificationsOpen(false)}
+                  className="flex h-10 w-10 items-center justify-center rounded-2xl text-white transition active:scale-95"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+                <div className="min-w-0">
+                  <h2 className="text-[15px] font-black">Notifications</h2>
+                  <p className="text-[10px] font-semibold text-slate-400">
+                    {unreadNotificationCount} unread
+                  </p>
+                </div>
+                {notifications.length > 0 && unreadNotificationCount > 0 && (
+                  <button
+                    type="button"
+                    className="ml-auto text-[10px] font-black text-cyan-300"
+                    onClick={() =>
+                      setReadNotifications(notifications.map((item) => item.id))
+                    }
+                  >
+                    Mark all read
+                  </button>
+                )}
+              </div>
+            </header>
+
+            <main className="mx-auto max-w-lg space-y-2.5 px-4 pb-28 pt-4">
+              {notifications.length === 0 ? (
+                <div className="rounded-[24px] border border-white/10 bg-white/5 px-5 py-12 text-center">
+                  <Bell className="mx-auto h-8 w-8 text-slate-500" />
+                  <p className="mt-3 text-sm font-black">No notifications</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    New updates will appear here.
+                  </p>
+                </div>
+              ) : (
+                notifications.map((notification) => {
+                  const isRead = readNotifications.includes(notification.id);
+                  return (
+                    <button
+                      type="button"
+                      key={notification.id}
+                      onClick={() =>
+                        setReadNotifications((current) =>
+                          current.includes(notification.id)
+                            ? current
+                            : [...current, notification.id]
+                        )
+                      }
+                      className={`flex w-full items-start gap-3 rounded-[22px] border p-4 text-left shadow-sm transition active:scale-[0.99] ${
+                        isRead
+                          ? "border-white/10 bg-white/5 text-slate-300"
+                          : "border-cyan-300/20 bg-white text-slate-900"
+                      }`}
+                    >
+                      <span
+                        className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
+                          isRead
+                            ? "bg-white/10 text-slate-300"
+                            : "bg-cyan-50 text-cyan-700"
+                        }`}
+                      >
+                        <Bell className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-black">
+                          {notification.title}
+                        </span>
+                        <span
+                          className={`mt-1 block text-[10px] font-semibold leading-4 ${
+                            isRead ? "text-slate-400" : "text-slate-500"
+                          }`}
+                        >
+                          {notification.description}
+                        </span>
+                      </span>
+                      {!isRead && (
+                        <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-red-500" />
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </main>
+          </div>
+        )}
+
         {/* PROFILE & SETTINGS */}
         {isProfileOpen && (
-          <div className="fixed inset-0 z-[70] overflow-y-auto bg-[#031a3a] animate-fadeIn">
-            <div className="relative min-h-screen overflow-hidden">
-              <div className="pointer-events-none absolute -left-24 top-28 h-52 w-52 rounded-full bg-blue-500/10" />
-              <div className="pointer-events-none absolute -right-24 top-32 h-56 w-56 rounded-full bg-indigo-500/10" />
-
-              <header className="sticky top-0 z-20 bg-[#031a3a]/95 px-4 py-3 text-white backdrop-blur-xl">
+          <div className="fixed inset-0 z-[70] overflow-y-auto bg-[linear-gradient(180deg,#061b3b_0%,#03142f_58%,#02102a_100%)] text-white animate-fadeIn">
+            <div className="min-h-screen">
+              <header className="sticky top-0 z-20 border-b border-white/10 bg-[#061b3b]/95 px-4 py-3 backdrop-blur-md">
                 <div className="mx-auto flex max-w-lg items-center gap-3">
                   <button
                     type="button"
@@ -2682,19 +2677,21 @@ export default function StudentDashboard() {
                     onClick={() => setIsProfileOpen(false)}
                     className="flex h-10 w-10 items-center justify-center rounded-2xl text-white transition active:scale-95"
                   >
-                    <ArrowLeft className="h-6 w-6" />
+                    <ArrowLeft className="h-5 w-5" />
                   </button>
-                  <h2 className="text-[17px] font-black tracking-tight">
+                  <h2 className="text-[16px] font-black tracking-tight">
                     Profile & Settings
                   </h2>
                 </div>
               </header>
 
-              <main className="relative mx-auto max-w-lg px-4 pb-28 pt-3">
-                {/* profile photo / name exactly in the reference spirit */}
-                <section className="flex flex-col items-center text-center text-white">
-                  <div className="relative">
-                    <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-4 border-white/75 bg-[#0b2d5d] shadow-[0_12px_30px_rgba(2,8,23,0.45)]">
+              <main className="mx-auto max-w-lg px-4 pb-28 pt-6">
+                <div className="relative flex flex-col items-center text-center">
+                  <div className="absolute -right-20 top-0 h-44 w-44 rounded-full bg-blue-600/15" />
+                  <div className="absolute -left-20 top-16 h-36 w-36 rounded-full bg-blue-500/10" />
+
+                  <div className="relative z-10">
+                    <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-4 border-white/80 bg-white/10 shadow-[0_16px_40px_rgba(0,0,0,0.3)]">
                       {student?.photoDataUrl ? (
                         <img
                           src={student.photoDataUrl}
@@ -2710,208 +2707,143 @@ export default function StudentDashboard() {
                       <button
                         type="button"
                         onClick={openEditModal}
-                        className="absolute bottom-0 right-0 flex h-9 w-9 items-center justify-center rounded-full border-[3px] border-[#031a3a] bg-[#1287ff] text-white shadow-lg transition active:scale-90"
-                        aria-label="Edit profile"
+                        aria-label="Edit profile photo"
+                        className="absolute bottom-0 right-0 flex h-9 w-9 items-center justify-center rounded-full border-[3px] border-[#061b3b] bg-blue-500 text-white shadow-lg transition active:scale-90"
                       >
                         <Camera className="h-4 w-4" />
                       </button>
                     )}
                   </div>
 
-                  <h3 className="mt-3 text-[25px] font-black tracking-tight">
+                  <h3 className="relative z-10 mt-4 text-[24px] font-black tracking-tight">
                     {student?.name || "Student"}
                   </h3>
-                  <p className="mt-1 text-[11px] font-semibold text-blue-200">
-                    {student?.enrollmentNo || "Student ID"} ·{" "}
-                    {formatClassAndSection(student?.className, student?.section)}
-                  </p>
+                </div>
+
+                {supportMode && (
+                  <div className="mt-5 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-3 text-xs font-semibold leading-5 text-cyan-100">
+                    <div className="flex items-center gap-2 font-black">
+                      <Eye className="h-4 w-4" />
+                      Read-only Support Mode
+                    </div>
+                    <p className="mt-1 text-[11px] text-cyan-200/80">
+                      Profile edit aur password change disabled hain.
+                    </p>
+                  </div>
+                )}
+
+                <section className="mt-5 rounded-[22px] bg-white p-3 text-slate-950 shadow-[0_16px_35px_-24px_rgba(0,0,0,0.55)]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!supportMode) openEditModal();
+                    }}
+                    disabled={supportMode}
+                    className={`flex w-full items-center gap-3 rounded-[18px] border border-blue-100 bg-white p-3 text-left transition ${
+                      supportMode
+                        ? "cursor-not-allowed opacity-60"
+                        : "hover:bg-slate-50 active:scale-[0.99]"
+                    }`}
+                  >
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-blue-600">
+                      <User className="h-6 w-6" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-black text-[#071a3f]">
+                        My Profile
+                      </span>
+                      <span className="mt-0.5 block text-[10px] font-medium text-slate-500">
+                        View and edit your profile information
+                      </span>
+                    </span>
+                    <ChevronRight className="h-5 w-5 text-blue-400" />
+                  </button>
                 </section>
 
-                <div className="mt-5 space-y-3.5">
-                  {supportMode && (
-                    <div className="rounded-[20px] border border-cyan-300/25 bg-cyan-300/10 p-3 text-xs font-semibold leading-5 text-cyan-100">
-                      <div className="flex items-center gap-2 font-black">
-                        <Eye className="h-4 w-4" />
-                        Read-only Support Mode
-                      </div>
-                      <p className="mt-1 text-[11px] text-cyan-200">
-                        Profile edit aur password change disabled hain.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* My Profile card */}
-                  <section className="rounded-[20px] bg-white p-3 shadow-[0_16px_34px_-24px_rgba(2,8,23,0.9)]">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!supportMode) openEditModal();
-                      }}
-                      disabled={supportMode}
-                      className={`flex w-full items-center gap-3 rounded-[16px] border border-blue-100 bg-[#f7fbff] p-3 text-left transition ${
-                        supportMode
-                          ? "cursor-not-allowed opacity-60"
-                          : "active:scale-[0.99]"
-                      }`}
-                    >
-                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[15px] bg-sky-100 text-[#1287ff]">
-                        <User className="h-7 w-7" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[15px] font-black text-[#071b3e]">
-                          My Profile
-                        </span>
-                        <span className="mt-1 block text-[10px] font-semibold text-slate-500">
-                          View and edit your profile information
-                        </span>
-                      </span>
-                      <ChevronRight className="h-5 w-5 text-blue-500" />
-                    </button>
-                  </section>
-
-                  {/* Change password card */}
-                  <section className="rounded-[20px] bg-white p-4 shadow-[0_16px_34px_-24px_rgba(2,8,23,0.9)]">
-                    <div className="flex items-center gap-2.5">
-                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-[#1287ff]">
-                        <LockKeyhole className="h-5 w-5" />
-                      </span>
-                      <h3 className="text-[17px] font-black text-[#071b3e]">
-                        Change Password
-                      </h3>
-                    </div>
-
-                    <div className="mt-4 space-y-3.5">
-                      <PasswordField
-                        label="Current Password"
-                        value={passwordForm.currentPassword}
-                        onChange={(value) =>
-                          setPasswordForm((current) => ({
-                            ...current,
-                            currentPassword: value,
-                          }))
-                        }
-                        show={showCurrentPassword}
-                        onToggle={() =>
-                          setShowCurrentPassword((current) => !current)
-                        }
-                        placeholder="Enter current password"
-                        disabled={supportMode || isPasswordSaving}
-                      />
-
-                      <PasswordField
-                        label="New Password"
-                        value={passwordForm.newPassword}
-                        onChange={(value) =>
-                          setPasswordForm((current) => ({
-                            ...current,
-                            newPassword: value,
-                          }))
-                        }
-                        show={showNewPassword}
-                        onToggle={() =>
-                          setShowNewPassword((current) => !current)
-                        }
-                        placeholder="Enter new password"
-                        disabled={supportMode || isPasswordSaving}
-                      />
-
-                      <PasswordField
-                        label="Confirm New Password"
-                        value={passwordForm.confirmPassword}
-                        onChange={(value) =>
-                          setPasswordForm((current) => ({
-                            ...current,
-                            confirmPassword: value,
-                          }))
-                        }
-                        show={showConfirmPassword}
-                        onToggle={() =>
-                          setShowConfirmPassword((current) => !current)
-                        }
-                        placeholder="Confirm new password"
-                        disabled={supportMode || isPasswordSaving}
-                      />
-
-                      {passwordMessage && (
-                        <div
-                          className={`rounded-xl border px-3 py-2 text-[11px] font-bold ${
-                            passwordMessage.type === "success"
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                              : "border-red-200 bg-red-50 text-red-700"
-                          }`}
-                        >
-                          {passwordMessage.text}
-                        </div>
-                      )}
-
-                      <Button
-                        type="button"
-                        disabled={supportMode || isPasswordSaving}
-                        onClick={() => void updateOwnPassword()}
-                        className="h-12 w-full rounded-[14px] bg-[linear-gradient(90deg,#08b6e8_0%,#1287ff_50%,#1769ff_100%)] text-sm font-black text-white shadow-[0_12px_24px_-14px_rgba(18,135,255,0.9)] hover:opacity-95 disabled:opacity-50"
-                      >
-                        <ShieldCheck className="mr-2 h-4 w-4" />
-                        {isPasswordSaving ? "Updating..." : "Update Password"}
-                      </Button>
-                    </div>
-                  </section>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      supportMode ? void exitSupportMode() : logout()
-                    }
-                    className="mx-auto mt-2 flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-black text-blue-100 transition hover:bg-white/5"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    {supportMode ? "Exit Support Mode" : "Sign Out"}
-                  </button>
-                </div>
-              </main>
-
-              {/* profile-screen bottom navigation from the reference */}
-              <div className="fixed bottom-0 left-0 right-0 z-[80] border-t border-white/10 bg-[#031a3a]/96 pb-safe backdrop-blur-xl">
-                <div className="mx-auto flex h-[72px] max-w-lg items-center justify-around px-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsProfileOpen(false);
-                      openStudentSection("home");
-                    }}
-                    className="flex h-12 flex-1 flex-col items-center justify-center rounded-2xl text-blue-200"
-                  >
-                    <Home className="h-5 w-5" />
-                    <span className="mt-1 text-[9px] font-semibold">Home</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="mx-2 flex h-12 flex-1 flex-col items-center justify-center rounded-2xl bg-blue-500/15 text-cyan-200 shadow-[inset_0_-2px_0_rgba(34,211,238,0.8)]"
-                  >
-                    <User className="h-5 w-5" />
-                    <span className="mt-1 text-[9px] font-black">Profile</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsProfileOpen(false);
-                      setIsNotificationsOpen(true);
-                    }}
-                    className="relative flex h-12 flex-1 flex-col items-center justify-center rounded-2xl text-blue-200"
-                  >
-                    <div className="relative">
-                      <Bell className="h-5 w-5" />
-                      {unreadNotificationCount > 0 && (
-                        <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-[#031a3a]" />
-                      )}
-                    </div>
-                    <span className="mt-1 text-[9px] font-semibold">
-                      Notifications
+                <section className="mt-4 rounded-[22px] bg-white p-4 text-slate-950 shadow-[0_16px_35px_-24px_rgba(0,0,0,0.55)]">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                      <LockKeyhole className="h-4 w-4" />
                     </span>
-                  </button>
-                </div>
-              </div>
+                    <h3 className="text-[17px] font-black text-[#071a3f]">
+                      Change Password
+                    </h3>
+                  </div>
+
+                  <div className="mt-4 space-y-3.5">
+                    <PasswordField
+                      label="Current Password"
+                      value={passwordForm.currentPassword}
+                      onChange={(value) =>
+                        setPasswordForm((current) => ({
+                          ...current,
+                          currentPassword: value,
+                        }))
+                      }
+                      show={showCurrentPassword}
+                      onToggle={() =>
+                        setShowCurrentPassword((current) => !current)
+                      }
+                      placeholder="Enter current password"
+                      disabled={supportMode || isPasswordSaving}
+                    />
+
+                    <PasswordField
+                      label="New Password"
+                      value={passwordForm.newPassword}
+                      onChange={(value) =>
+                        setPasswordForm((current) => ({
+                          ...current,
+                          newPassword: value,
+                        }))
+                      }
+                      show={showNewPassword}
+                      onToggle={() => setShowNewPassword((current) => !current)}
+                      placeholder="Enter new password"
+                      disabled={supportMode || isPasswordSaving}
+                    />
+
+                    <PasswordField
+                      label="Confirm New Password"
+                      value={passwordForm.confirmPassword}
+                      onChange={(value) =>
+                        setPasswordForm((current) => ({
+                          ...current,
+                          confirmPassword: value,
+                        }))
+                      }
+                      show={showConfirmPassword}
+                      onToggle={() =>
+                        setShowConfirmPassword((current) => !current)
+                      }
+                      placeholder="Confirm new password"
+                      disabled={supportMode || isPasswordSaving}
+                    />
+
+                    {passwordMessage && (
+                      <div
+                        className={`rounded-xl border px-3 py-2 text-[11px] font-bold ${
+                          passwordMessage.type === "success"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-red-200 bg-red-50 text-red-700"
+                        }`}
+                      >
+                        {passwordMessage.text}
+                      </div>
+                    )}
+
+                    <Button
+                      type="button"
+                      onClick={() => void updateOwnPassword()}
+                      disabled={supportMode || isPasswordSaving}
+                      className="h-12 w-full rounded-xl bg-[linear-gradient(90deg,#08b7e8_0%,#087ff5_55%,#1466ef_100%)] text-sm font-black text-white shadow-[0_10px_24px_-12px_rgba(8,127,245,0.75)] hover:opacity-95 disabled:opacity-50"
+                    >
+                      <ShieldCheck className="mr-2 h-4 w-4" />
+                      {isPasswordSaving ? "Updating..." : "Update Password"}
+                    </Button>
+                  </div>
+                </section>
+              </main>
             </div>
           </div>
         )}
@@ -3547,12 +3479,9 @@ export default function StudentDashboard() {
         )}
 
         {/* BOTTOM NAV */}
-        <div className={`fixed bottom-0 left-0 right-0 z-40 pb-safe backdrop-blur-xl ${
-          activeTab === "home"
-            ? "border-t border-white/10 bg-[#031a3a]/96"
-            : "border-t border-slate-200/80 bg-white/95 shadow-[0_-10px_30px_rgba(15,23,42,0.06)]"
-        }`}>
-          <div className="mx-auto flex h-[68px] max-w-lg items-center justify-around px-3">
+        {!isMenuOpen && (
+        <div className="fixed bottom-0 left-0 right-0 z-[90] border-t border-white/10 bg-[#03142f]/95 pb-safe shadow-[0_-10px_30px_rgba(0,0,0,0.18)] backdrop-blur-md">
+          <div className="mx-auto flex h-[72px] max-w-lg items-center justify-around px-3">
             <NavBtn
               active={activeTab === "home" && !isProfileOpen && !isNotificationsOpen}
               onClick={() => openStudentSection("home")}
@@ -3586,6 +3515,7 @@ export default function StudentDashboard() {
             />
           </div>
         </div>
+        )}
       </div>
     </>
   );
@@ -3613,7 +3543,7 @@ function DrawerItem({
         danger
           ? "text-red-300 hover:bg-red-500/10"
           : active
-            ? "border border-cyan-300/25 bg-[linear-gradient(90deg,#0ea5e9_0%,#1d4ed8_100%)] text-white shadow-[0_10px_24px_-18px_rgba(14,165,233,0.9)]"
+            ? "border border-cyan-300/20 bg-cyan-400/10 text-cyan-100"
             : "text-slate-300 hover:bg-white/5 hover:text-white"
       }`}
     >
@@ -3681,7 +3611,7 @@ function HomeShortcut({
     <button
       type="button"
       onClick={onClick}
-      className="relative flex min-h-[88px] flex-col items-center justify-center rounded-[14px] border border-slate-200/80 bg-white px-2 py-3 text-center shadow-[0_10px_22px_-16px_rgba(2,8,23,0.75)] transition hover:-translate-y-0.5 active:scale-95"
+      className="relative flex min-h-[96px] flex-col items-center justify-center rounded-[16px] border border-white/80 bg-white px-2 py-3 text-center shadow-[0_10px_25px_-18px_rgba(0,0,0,0.7)] transition hover:-translate-y-0.5 hover:shadow-lg active:scale-95"
     >
       {badge && (
         <span
@@ -3695,13 +3625,13 @@ function HomeShortcut({
         </span>
       )}
       <span
-        className={`flex h-9 w-9 items-center justify-center rounded-xl ${
+        className={`flex h-10 w-10 items-center justify-center rounded-xl ${
           tones[tone] || tones.blue
         }`}
       >
         {icon}
       </span>
-      <span className="mt-1.5 text-[10px] font-black leading-4 text-[#071b3e]">
+      <span className="mt-2 text-[10.5px] font-black leading-4 text-[#071a3f]">
         {label}
       </span>
     </button>
@@ -3830,7 +3760,7 @@ function PasswordField({
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-[11px] font-extrabold text-[#071b3e]">
+      <label className="text-[11px] font-bold text-[#071a3f]">
         {label}
       </label>
       <div className="relative">
@@ -3846,7 +3776,7 @@ function PasswordField({
               : "new-password"
           }
           placeholder={placeholder}
-          className="h-12 w-full rounded-[13px] border border-blue-100 bg-white pl-10 pr-11 text-xs font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/10 disabled:bg-slate-50 disabled:text-slate-400"
+          className="h-12 w-full rounded-xl border border-blue-100 bg-white pl-10 pr-11 text-xs font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/10 disabled:bg-slate-50 disabled:text-slate-400"
         />
         <button
           type="button"
@@ -3899,10 +3829,10 @@ function NavBtn({
   return (
     <button
       onClick={onClick}
-      className={`mx-1 flex h-12 flex-1 flex-col items-center justify-center rounded-2xl transition active:scale-90 ${
+      className={`mx-1 flex h-14 flex-1 flex-col items-center justify-center rounded-2xl transition active:scale-90 ${
         active
-          ? "bg-blue-500/15 text-cyan-200 shadow-[inset_0_-2px_0_rgba(34,211,238,0.8)] font-extrabold"
-          : "text-slate-400 font-semibold"
+          ? "bg-blue-900/60 text-cyan-200 shadow-inner font-extrabold"
+          : "text-slate-300 font-semibold"
       }`}
     >
       {icon}

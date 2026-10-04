@@ -14,7 +14,7 @@ import {
 import TopHeader from "./TopHeader";
 import { getStoredRole, routeByRole } from "@/hooks/use-auth";
 
-type NavItem = { label: string; icon: any; href: string; disabled?: boolean };
+type NavItem = { label: string; icon: any; href: string; disabled?: boolean; shortcutOnly?: boolean; exactQuery?: boolean };
 type NavGroup = { title: string; items: NavItem[] };
 
 const adminNavGroups: NavGroup[] = [
@@ -23,57 +23,67 @@ const adminNavGroups: NavGroup[] = [
     items: [
       { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
       { label: "Reports & Analytics", icon: BarChart3, href: "/analytics" },
-      { label: "Academic Years", icon: CalendarDays, href: "/academic-years" },
     ],
   },
   {
-    title: "ADMISSIONS & PEOPLE",
+    title: "ADMISSIONS",
     items: [
       { label: "Lead CRM", icon: Filter, href: "/admissions" },
       { label: "Online Admissions", icon: UserPlus, href: "/online-admissions" },
-      { label: "Students", icon: GraduationCap, href: "/students" },
-      { label: "Staff", icon: Users, href: "/staff" },
+    ],
+  },
+  {
+    title: "STUDENTS",
+    items: [
+      { label: "Student Directory", icon: GraduationCap, href: "/students" },
+      { label: "Attendance", icon: CheckSquare, href: "/attendance" },
+      { label: "Homework", icon: Pencil, href: "/homework" },
+      { label: "Timetable", icon: Clock, href: "/timetable" },
+      { label: "Online Exams", icon: Monitor, href: "/exams?type=online" },
+      { label: "Offline Exams", icon: FileEdit, href: "/exams?type=offline" },
+      { label: "Report Cards", icon: FileSpreadsheet, href: "/report-card" },
+      { label: "Fee Collection", icon: IndianRupee, href: "/finance" },
+      { label: "Parents", icon: Users, href: "/foundation?tab=users" },
+      { label: "PTM Meetings", icon: UserCheck, href: "/ptm" },
+    ],
+  },
+  {
+    title: "STAFF",
+    items: [
+      { label: "Staff Directory", icon: Users, href: "/staff" },
+      { label: "Staff Timetable", icon: Clock3, href: "/timetable", shortcutOnly: true },
+      { label: "Payroll", icon: Banknote, href: "/hr" },
     ],
   },
   {
     title: "ACADEMICS",
     items: [
+      { label: "Academic Years", icon: CalendarDays, href: "/academic-years" },
       { label: "Courses", icon: GraduationCap, href: "/courses" },
       { label: "Subjects", icon: BookOpen, href: "/subjects" },
       { label: "Topics", icon: Tag, href: "/topics" },
       { label: "Batches", icon: Layers, href: "/batches" },
-      { label: "Timetable", icon: Clock, href: "/timetable" },
-      { label: "Attendance", icon: CheckSquare, href: "/attendance" },
-      { label: "Homework", icon: Pencil, href: "/homework" },
     ],
   },
   {
-    title: "EXAMS & RESULTS",
+    title: "FINANCE",
     items: [
-      { label: "Online Exams", icon: Monitor, href: "/exams?type=online" },
-      { label: "Offline Exams", icon: FileEdit, href: "/exams?type=offline" },
-      { label: "Report Cards", icon: FileSpreadsheet, href: "/report-card" },
-    ],
-  },
-  {
-    title: "FINANCE & HR",
-    items: [
-      { label: "Fee Collection", icon: IndianRupee, href: "/finance" },
+      { label: "Fee Collection", icon: IndianRupee, href: "/finance", shortcutOnly: true },
       { label: "Expenses", icon: Receipt, href: "/finance/daily-expense" },
-      { label: "Payroll", icon: Banknote, href: "/hr" },
+      { label: "Payroll", icon: Banknote, href: "/hr", shortcutOnly: true },
     ],
   },
   {
     title: "COMMUNICATION",
     items: [
       { label: "Notifications", icon: Bell, href: "/notifications" },
-      { label: "PTM Meetings", icon: Users, href: "/ptm" },
+      { label: "PTM Meetings", icon: Users, href: "/ptm", shortcutOnly: true },
     ],
   },
   {
     title: "SETTINGS",
     items: [
-      { label: "Institute Foundation", icon: ShieldCheck, href: "/foundation" },
+      { label: "Institute Foundation", icon: ShieldCheck, href: "/foundation", exactQuery: true },
       { label: "General Settings", icon: Settings, href: "/settings" },
       { label: "Branches", icon: Building2, href: "/foundation?tab=branches" },
       { label: "Roles & Permissions", icon: Shield, href: "/foundation?tab=roles" },
@@ -115,6 +125,24 @@ function getNavigationForRole(role: string | null): NavGroup[] {
   }
 
   return readyGroups;
+}
+
+
+function navItemIsActive(item: NavItem, location: string) {
+  if (item.shortcutOnly) return false;
+
+  const [cleanHref, query] = item.href.split("?");
+  const currentQuery =
+    typeof window !== "undefined" ? window.location.search.slice(1) : "";
+
+  if (query && currentQuery !== query) return false;
+  if (item.exactQuery && !query && currentQuery) return false;
+
+  return (
+    location === cleanHref ||
+    location.startsWith(cleanHref + "/") ||
+    (cleanHref === "/dashboard" && location === "/")
+  );
 }
 
 
@@ -184,7 +212,18 @@ export function Layout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const role = getStoredRole();
   const navGroups = useMemo(() => getNavigationForRole(role), [role]);
-  const collapsedItems = useMemo(() => navGroups.flatMap((group) => group.items).slice(0, 14), [navGroups]);
+  const collapsedItems = useMemo(() => {
+    const seen = new Set<string>();
+    return navGroups
+      .flatMap((group) => group.items)
+      .filter((item) => {
+        const key = item.href;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 14);
+  }, [navGroups]);
   const homeHref = routeByRole(role);
 
   const [expanded, setExpanded] = useState(true);
@@ -194,7 +233,11 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const obj: Record<string, boolean> = {};
-    navGroups.forEach((g) => (obj[g.title] = true));
+    navGroups.forEach((group) => {
+      obj[group.title] =
+        group.title === "OVERVIEW" ||
+        group.items.some((item) => navItemIsActive(item, location));
+    });
     return obj;
   });
 
@@ -226,6 +269,20 @@ export function Layout({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    const activeGroup = navGroups.find((group) =>
+      group.items.some((item) => navItemIsActive(item, location))
+    );
+
+    if (activeGroup) {
+      setOpenGroups((prev) =>
+        prev[activeGroup.title]
+          ? prev
+          : { ...prev, [activeGroup.title]: true }
+      );
+    }
+  }, [location, navGroups]);
+
   const toggleGroup = (title: string) => {
     setOpenGroups((prev) => ({ ...prev, [title]: !prev[title] }));
   };
@@ -241,15 +298,7 @@ export function Layout({ children }: { children: ReactNode }) {
       .filter((g) => g.items.length > 0);
   }, [search, navGroups]);
 
-  const isActive = (href: string) => {
-    const [cleanHref, query] = href.split("?");
-    if (query && window.location.search.slice(1) !== query) return false;
-    return (
-      location === cleanHref ||
-      location.startsWith(cleanHref + "/") ||
-      (cleanHref === "/dashboard" && location === "/")
-    );
-  };
+  const isActive = (item: NavItem) => navItemIsActive(item, location);
 
   const { storedName, avatar } = getUserInfo();
   const roleLabel = getRoleLabel(role);
@@ -354,8 +403,13 @@ export function Layout({ children }: { children: ReactNode }) {
                     onClick={() => toggleGroup(group.title)}
                     className="w-full flex items-center justify-between px-2 py-1 mb-0.5"
                   >
-                    <span className="text-[10px] font-bold tracking-[1.1px] text-slate-500">
-                      {group.title}
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-[10px] font-bold tracking-[1.1px] text-slate-500">
+                        {group.title}
+                      </span>
+                      <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[8px] font-bold text-slate-600">
+                        {group.items.length}
+                      </span>
                     </span>
                     {openGroups[group.title] ? (
                       <ChevronUp className="w-3 h-3 text-slate-400" />
@@ -363,10 +417,10 @@ export function Layout({ children }: { children: ReactNode }) {
                       <ChevronDown className="w-3 h-3 text-slate-400" />
                     )}
                   </button>
-                  {openGroups[group.title] && (
+                  {(search.trim() || openGroups[group.title]) && (
                     <div className="space-y-0.5">
                       {group.items.map((item) => {
-                        const active = isActive(item.href);
+                        const active = isActive(item);
                         const isDashboard = item.href.includes("dashboard");
                         return (
                           item.disabled ? (
@@ -416,7 +470,7 @@ export function Layout({ children }: { children: ReactNode }) {
           {!expanded && (
             <div className="flex flex-col items-center gap-1 px-1.5">
               {collapsedItems.map((item) => {
-                const active = isActive(item.href);
+                const active = isActive(item);
                 return (
                   item.disabled ? (
                     <div
