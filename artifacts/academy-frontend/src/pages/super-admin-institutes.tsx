@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useRoute } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -257,6 +257,21 @@ function BusinessCategoryFields({ defaultType = "school", industryLabel = "", ac
   </>;
 }
 
+function OnboardingReview({ body, planName }: { body: Record<string, unknown>; planName: string }) {
+  const value = (key: string) => String(body[key] ?? "").trim() || "—";
+  const trialDays = Number(body.trialDays ?? 0);
+  const groups = [
+    { title: "Business", rows: [["Name", value("instituteName")], ["Category", businessTypeLabel(value("instituteType"), String(body.industryLabel ?? ""))], ["Legal name", value("legalName")], ["Website", value("website")], ["Portal domain", value("domain")], ...(isEducationBusinessType(String(body.instituteType)) ? [["Academic year", value("academicYear")]] : [])] },
+    { title: "People & access", rows: [["Owner", value("ownerName")], ["Owner email", value("ownerEmail")], ["Phone", value("ownerPhone")], ["Administrator", value("initialAdminName")], ["Admin login email", value("initialAdminEmail")]] },
+    { title: "First location", rows: [["Location", value("defaultBranchName")], ["Code", value("defaultBranchCode")], ["Address", value("address")], ["City / region", [body.city, body.state, body.country, body.pincode].filter(Boolean).join(", ")]] },
+    { title: "Subscription", rows: [["Plan", planName], ["Billing", body.billingCycle === "yearly" ? "Yearly" : "Monthly"], ["Trial", trialDays > 0 ? `${trialDays} days` : "No trial"], ["Workspace status", trialDays > 0 ? "TRIAL" : value("status").toUpperCase()]] },
+  ];
+  return <div className="space-y-4">
+    <div className="flex items-center gap-3 rounded-xl bg-primary/5 p-4"><span className="rounded-lg bg-primary/10 p-2 text-primary"><ShieldCheck className="h-5 w-5" /></span><p className="text-sm leading-6">Confirm the administrator email and subscription before creating this workspace.</p></div>
+    <div className="grid gap-4 sm:grid-cols-2">{groups.map((group) => <section key={group.title} className="min-w-0 rounded-xl border p-4"><h3 className="mb-3 text-sm font-semibold">{group.title}</h3><dl className="space-y-3">{group.rows.map(([label, text]) => <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-0.5 break-words text-sm font-medium">{text}</dd></div>)}</dl></section>)}</div>
+  </div>;
+}
+
 export function SuperAdminInstituteCreate() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -265,9 +280,13 @@ export function SuperAdminInstituteCreate() {
   const [logoError, setLogoError] = useState("");
   const [createdCredentials, setCreatedCredentials] = useState<{ instituteId: string; instituteName: string; adminName: string; email: string; temporaryPassword: string; setupEmailQueued: boolean } | null>(null);
   const [credentialsCopied, setCredentialsCopied] = useState(false);
+  const [review, setReview] = useState<Record<string, unknown> | null>(null);
+  const [reviewError, setReviewError] = useState("");
+  const submitting = useRef(false);
   const create = useMutation({
     mutationFn: (body: Record<string, unknown>) => api<{ institute: InstituteProfile; adminPasswordSetupEmailQueued: boolean; initialAdmin: { id: string; name: string; email: string; role: string; temporaryPassword: string } }>("/institutes", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: async (result) => {
+      setReview(null);
       await queryClient.invalidateQueries({ queryKey: ["platform", "institute-management"] });
       await queryClient.invalidateQueries({ queryKey: ["platform", "dashboard"] });
       setCredentialsCopied(false);
@@ -280,6 +299,7 @@ export function SuperAdminInstituteCreate() {
         setupEmailQueued: result.adminPasswordSetupEmailQueued,
       });
     },
+    onSettled: () => { submitting.current = false; },
   });
   async function copyCreatedCredentials() {
     if (!createdCredentials) return;
@@ -300,9 +320,12 @@ export function SuperAdminInstituteCreate() {
   }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting.current || create.isPending || createdCredentials) return;
+    create.reset();
+    setReviewError("");
     const form = new FormData(event.currentTarget);
     const value = (key: string) => String(form.get(key) ?? "").trim();
-    create.mutate({
+    setReview({
       instituteName: value("instituteName"), legalName: value("legalName"), instituteType: value("instituteType"), industryLabel: value("industryLabel"),
       ownerName: value("ownerName"), ownerEmail: value("ownerEmail"), ownerPhone: value("ownerPhone"),
       initialAdminName: value("initialAdminName"), initialAdminEmail: value("initialAdminEmail"),
@@ -312,12 +335,25 @@ export function SuperAdminInstituteCreate() {
       trialDays: Number(value("trialDays")), billingCycle: value("billingCycle"), status: value("status"),
     });
   }
-  const options = plans.data ?? [];
+  const options = (plans.data ?? []).filter((item) => item.status === "active" && Boolean(item._id ?? item.id));
+  const selectedPlan = review ? options.find((item) => (item._id ?? item.id) === review.planId) : undefined;
+  function confirmCreate() {
+    if (!review || submitting.current || create.isPending) return;
+    if (!selectedPlan || plans.isError) {
+      setReviewError("The selected plan is unavailable. Go back and choose an active plan.");
+      return;
+    }
+    submitting.current = true;
+    setReviewError("");
+    create.mutate(review);
+  }
   const canCreate = ["super_admin", "platform_admin"].includes(role());
   if (!canCreate) return <PageShell title="Create business"><Card><CardContent className="p-6 text-sm text-destructive">Your platform role cannot create client businesses.</CardContent></Card></PageShell>;
   return <PageShell title="Onboard a business"><form onSubmit={submit} className="space-y-5">
+    <div className="rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-background p-5 sm:p-6"><p className="text-xs font-semibold uppercase tracking-widest text-primary">New client workspace</p><h2 className="mt-2 text-xl font-semibold tracking-tight">Give your next client a strong start.</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Add their business, first location and admin account. You can review everything before the workspace is created.</p></div>
     {create.error && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{create.error.message}</div>}
     {plans.error && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">Unable to load subscription plans: {plans.error.message}</div>}
+    {!plans.isPending && !plans.isError && !options.length && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">Create an active subscription plan to finish onboarding. <Link href="/super-admin/plans" className="font-semibold underline underline-offset-4">Manage plans</Link></div>}
     <Card><CardHeader><CardTitle className="text-base">Business identity</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Field label="Business name" name="instituteName" required />
       <Field label="Legal name" name="legalName" />
@@ -343,8 +379,16 @@ export function SuperAdminInstituteCreate() {
       <label className="grid gap-1.5 text-sm"><span>Initial status</span><select name="status" className="h-9 rounded-md border border-input bg-background px-3"><option value="pending">PENDING — activate after setup</option><option value="active">ACTIVE</option></select></label>
       <p className="self-end text-xs text-muted-foreground sm:col-span-1 lg:col-span-2">A positive trial duration starts a trial subscription and sets the workspace status to TRIAL.</p>
     </CardContent></Card>
-    <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => setLocation("/super-admin/institutes")}>Cancel</Button><Button type="submit" disabled={create.isPending || plans.isPending || !options.length || Boolean(logoError)}>{create.isPending ? <><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Creating…</> : <><FilePlus2 className="mr-2 h-4 w-4" />Create workspace</>}</Button></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background p-4"><p className="text-xs text-muted-foreground">Next: review your client’s setup.</p><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setLocation("/super-admin/institutes")}>Cancel</Button><Button type="submit" disabled={create.isPending || plans.isPending || plans.isError || !options.length || Boolean(logoError) || Boolean(createdCredentials)}>Review workspace<ArrowRight className="ml-2 h-4 w-4" /></Button></div></div>
   </form>
+  <Dialog open={Boolean(review)} onOpenChange={(open) => { if (!open && !submitting.current) { setReview(null); setReviewError(""); create.reset(); } }}>
+    <DialogContent showCloseButton={!create.isPending} className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+      <DialogHeader><DialogTitle>Review your workspace</DialogTitle><DialogDescription>Check these details before creating the business, location, administrator and subscription.</DialogDescription></DialogHeader>
+      {review && <OnboardingReview body={review} planName={selectedPlan?.name ?? "Plan unavailable"} />}
+      {(reviewError || create.error) && <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive">{reviewError || create.error?.message}</p>}
+      <DialogFooter><Button type="button" variant="outline" disabled={create.isPending} onClick={() => { setReview(null); create.reset(); setReviewError(""); }}>Back to edit</Button><Button type="button" disabled={create.isPending || !selectedPlan || plans.isError} onClick={confirmCreate}>{create.isPending ? <><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Creating workspace…</> : <><FilePlus2 className="mr-2 h-4 w-4" />Confirm & create</>}</Button></DialogFooter>
+    </DialogContent>
+  </Dialog>
   <Dialog open={Boolean(createdCredentials)} onOpenChange={(open) => { if (!open) setCreatedCredentials(null); }}>
     <DialogContent className="sm:max-w-lg">
       <DialogHeader>

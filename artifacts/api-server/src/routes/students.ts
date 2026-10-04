@@ -279,7 +279,6 @@ const STUDENT_EDITABLE_FIELDS: Record<string, { label: string; autoApprove: bool
   name: { label: "Student Full Name", autoApprove: false },
   email: { label: "Email ID", autoApprove: true },
   phone: { label: "Phone Number", autoApprove: true },
-  loginPassword: { label: "Login Password", autoApprove: true },
   loginId: { label: "Login ID", autoApprove: false },
   fatherName: { label: "Father's Name", autoApprove: false },
   motherName: { label: "Mother's Name", autoApprove: false },
@@ -358,22 +357,8 @@ const handleStudentSelfUpdate = async (req: any, res: any): Promise<void> => {
       let oldStr = oldValue != null ? String(oldValue) : "";
       let newStr = newValue != null ? String(newValue) : "";
 
-      // Skip empty password
-      if (fieldName === "loginPassword" && !newStr.trim()) continue;
-
       // Skip if no change
       if (oldStr === newStr) continue;
-
-      // Password hashing
-      if (fieldName === "loginPassword") {
-        if (newStr.trim().length < 6) {
-          res.status(400).json({ error: "Password must be at least 6 characters long." });
-          return;
-        }
-        newValue = await bcrypt.hash(newStr.trim(), 10);
-        oldStr = "[ENCRYPTED_PASSWORD_HIDDEN]";
-        newStr = "[NEW_PASSWORD_UPDATED_SECURELY]";
-      }
 
       // Base64 photo log truncation
       if (fieldName === "photoDataUrl") {
@@ -425,8 +410,8 @@ const handleStudentSelfUpdate = async (req: any, res: any): Promise<void> => {
       applied: Object.keys(appliedChanges),
       pending: Object.keys(pendingChanges),
       message: Object.keys(pendingChanges).length > 0
-        ? "Form details & password updated! Sensitive fields pending admin approval."
-        : "Form details successfully updated!",
+        ? "Profile updated. Sensitive fields are pending admin approval."
+        : "Profile updated successfully!",
     });
   } catch (error: any) {
     console.error("Error during profile update:", error);
@@ -439,6 +424,89 @@ const handleStudentSelfUpdate = async (req: any, res: any): Promise<void> => {
 
 router.put("/students/self-update", authenticate, handleStudentSelfUpdate);
 router.put("/self-update", authenticate, handleStudentSelfUpdate);
+
+// Dedicated password flow: the current password must be verified before changing it.
+// Support Mode is automatically blocked by the auth middleware because this is a PUT request.
+router.put("/students/self-password", authenticate, async (req: any, res): Promise<void> => {
+  try {
+    const userId = req.user?.userId || req.user?.id || req.user?._id;
+    if (req.user?.role !== "student") {
+      res.status(403).json({ error: "Only students can change their own password." });
+      return;
+    }
+
+    const currentPassword = String(req.body?.currentPassword || "");
+    const newPassword = String(req.body?.newPassword || "");
+
+    if (!currentPassword) {
+      res.status(400).json({ error: "Current password is required." });
+      return;
+    }
+
+    if (newPassword.trim().length < 6) {
+      res.status(400).json({ error: "New password must be at least 6 characters long." });
+      return;
+    }
+
+    const student = await Student.findById(userId).select("+loginPassword");
+    if (!student) {
+      res.status(404).json({ error: "Student not found." });
+      return;
+    }
+
+    const currentHash = String((student as any).loginPassword || "");
+    if (!currentHash) {
+      res.status(400).json({
+        error: "Password login is not configured for this student account. Contact institute admin.",
+      });
+      return;
+    }
+
+    const currentMatches = await bcrypt.compare(currentPassword, currentHash);
+    if (!currentMatches) {
+      res.status(400).json({ error: "Current password is incorrect." });
+      return;
+    }
+
+    const reusingCurrent = await bcrypt.compare(newPassword.trim(), currentHash);
+    if (reusingCurrent) {
+      res.status(400).json({
+        error: "New password must be different from the current password.",
+      });
+      return;
+    }
+
+    // Student model's pre-save hook hashes plaintext passwords exactly once.
+    (student as any).loginPassword = newPassword.trim();
+    await student.save();
+
+    try {
+      await StudentEditLog.create({
+        studentId: student._id,
+        studentName: student.name || "Unknown Student",
+        instituteId: student.instituteId,
+        fieldName: "loginPassword",
+        fieldLabel: "Login Password",
+        oldValue: "[ENCRYPTED_PASSWORD_HIDDEN]",
+        newValue: "[NEW_PASSWORD_UPDATED_SECURELY]",
+        editedBy: "student",
+        status: "auto-approved",
+      });
+    } catch (logErr) {
+      console.error("Non-blocking password audit log error:", logErr);
+    }
+
+    res.json({
+      success: true,
+      message: "Password updated successfully.",
+    });
+  } catch (error: any) {
+    console.error("Student password update error:", error);
+    res.status(500).json({
+      error: error?.message || "Password update failed.",
+    });
+  }
+});
 
 
 // =====================================================================
