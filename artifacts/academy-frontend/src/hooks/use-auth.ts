@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 export const routeByRole = (role?: string | null) => {
   if (["super_admin", "platform_admin", "support_admin", "finance_admin", "read_only_admin"].includes(role ?? "")) return "/super-admin";
   if (role === "student") return "/student-dashboard";
+  if (role === "parent") return "/parent-dashboard";
   if (role === "teacher") return "/teacher-dashboard";
   if (role === "accountant") return "/accountant-dashboard";
   return "/dashboard";
@@ -29,7 +30,11 @@ export function useAuth() {
   const logout = () => {
     const currentToken = localStorage.getItem("coach_sutra_token");
     if (currentToken) {
-      void fetch("/api/auth/logout", { method: "POST", credentials: "same-origin", headers: { Authorization: `Bearer ${currentToken}` } }).catch(() => {});
+      void fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { Authorization: `Bearer ${currentToken}` },
+      }).catch(() => {});
     }
     localStorage.removeItem("coach_sutra_token");
     localStorage.removeItem("coach_sutra_user_role");

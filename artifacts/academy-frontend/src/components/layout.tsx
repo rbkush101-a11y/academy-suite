@@ -43,7 +43,7 @@ const adminNavGroups: NavGroup[] = [
       { label: "Offline Exams", icon: FileEdit, href: "/exams?type=offline" },
       { label: "Report Cards", icon: FileSpreadsheet, href: "/report-card" },
       { label: "Fee Collection", icon: IndianRupee, href: "/finance" },
-      { label: "Parents", icon: Users, href: "/foundation?tab=users" },
+      { label: "Parents", icon: Users, href: "/parents" },
       { label: "PTM Meetings", icon: UserCheck, href: "/ptm" },
     ],
   },

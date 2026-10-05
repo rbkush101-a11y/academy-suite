@@ -319,6 +319,7 @@ export default function StudentDashboard() {
   const supportMode = Boolean(localStorage.getItem("academy_support_original_token"));
   const supportStudentName = localStorage.getItem("academy_support_student_name") || "Student";
   const supportExpiresAt = localStorage.getItem("academy_support_expires_at") || "";
+  const parentView = localStorage.getItem("academy_support_viewer") === "parent";
 
   const [student, setStudent] = useState<StudentMe | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -413,7 +414,9 @@ export default function StudentDashboard() {
     const endpoint =
       originalRole === "super_admin"
         ? "/api/v1/platform/student-support/end"
-        : "/api/student-support/end";
+        : originalRole === "parent"
+          ? "/api/parent/student-view/end"
+          : "/api/student-support/end";
 
     if (supportSessionId) {
       try {
@@ -439,10 +442,11 @@ export default function StudentDashboard() {
       "academy_support_student_name",
       "academy_support_return_path",
       "academy_support_expires_at",
+      "academy_support_viewer",
     ].forEach((key) => localStorage.removeItem(key));
 
     window.dispatchEvent(new Event("storage"));
-    window.location.assign(returnPath || (originalRole === "super_admin" ? "/super-admin" : "/students"));
+    window.location.assign(returnPath || (originalRole === "parent" ? "/parent-dashboard" : originalRole === "super_admin" ? "/super-admin" : "/students"));
   };
 
   const logout = () => {
@@ -804,7 +808,7 @@ export default function StudentDashboard() {
     if (supportMode) {
       setPasswordMessage({
         type: "error",
-        text: "Support Mode read-only hai. Password change disabled hai.",
+        text: parentView ? "Parent View read-only hai. Password change disabled hai." : "Support Mode read-only hai. Password change disabled hai.",
       });
       return;
     }
@@ -1150,10 +1154,10 @@ export default function StudentDashboard() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <Eye className="h-4 w-4 shrink-0 text-cyan-300" />
-                  <p className="truncate text-xs font-black">Read-only Support Mode · {supportStudentName}</p>
+                  <p className="truncate text-xs font-black">{parentView ? "Parent View" : "Read-only Support Mode"} · {supportStudentName}</p>
                 </div>
                 <p className="mt-0.5 hidden text-[10px] text-slate-400 sm:block">
-                  Student password is not exposed. Changes and payments are blocked.
+                  {parentView ? "You are viewing your linked child’s Student App. Changes and payments are blocked." : "Student password is not exposed. Changes and payments are blocked."}
                   {supportExpiresAt ? ` Session expires ${new Date(supportExpiresAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}.` : ""}
                 </p>
               </div>
@@ -1163,7 +1167,7 @@ export default function StudentDashboard() {
                 className="h-8 shrink-0 bg-white px-3 text-[11px] font-black text-slate-950 hover:bg-cyan-50"
                 onClick={() => void exitSupportMode()}
               >
-                Exit Support Mode
+                {parentView ? "Back to Parent App" : "Exit Support Mode"}
               </Button>
             </div>
           </div>
@@ -1287,7 +1291,7 @@ export default function StudentDashboard() {
               <div className="mt-auto border-t border-white/15 pt-4">
                 <DrawerItem
                   icon={<LogOut className="h-[18px] w-[18px]" />}
-                  label={supportMode ? "Exit Support Mode" : "Sign Out"}
+                  label={supportMode ? (parentView ? "Back to Parent App" : "Exit Support Mode") : "Sign Out"}
                   danger
                   onClick={() =>
                     supportMode ? void exitSupportMode() : logout()
@@ -2724,7 +2728,7 @@ export default function StudentDashboard() {
                   <div className="mt-5 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-3 text-xs font-semibold leading-5 text-cyan-100">
                     <div className="flex items-center gap-2 font-black">
                       <Eye className="h-4 w-4" />
-                      Read-only Support Mode
+                      {parentView ? "Parent View · Read only" : "Read-only Support Mode"}
                     </div>
                     <p className="mt-1 text-[11px] text-cyan-200/80">
                       Profile edit aur password change disabled hain.

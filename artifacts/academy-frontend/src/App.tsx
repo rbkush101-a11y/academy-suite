@@ -34,6 +34,7 @@ import Finance from "@/pages/finance";
 
 import StudentLogin from "@/pages/student-login";
 import StudentDashboard from "@/pages/student-dashboard";
+import ParentDashboard from "@/pages/parent-dashboard";
 import TeacherDashboard from "@/pages/teacher-dashboard";
 import AccountantDashboard from "@/pages/accountant-dashboard";
 import SuperAdminDashboard from "@/pages/super-admin-dashboard";
@@ -55,6 +56,7 @@ import Admissions from "@/pages/admissions";
 import PTM from "@/pages/ptm";
 import AcademicYears from "@/pages/academic-years";
 import Foundation from "@/pages/foundation";
+import Parents from "@/pages/parents";
 
 const queryClient = new QueryClient();
 
@@ -249,6 +251,14 @@ function Router() {
         />
       </Route>
 
+      <Route path="/parent-dashboard">
+        <ProtectedRoute
+          component={ParentDashboard}
+          roles={["parent"]}
+          withLayout={false}
+        />
+      </Route>
+
       <Route path="/academic-years">
         <ProtectedRoute
           component={AcademicYears}
@@ -324,6 +334,13 @@ function Router() {
         <ProtectedRoute
           component={OnlineAdmissions}
           roles={["super_admin", "institute_admin", "staff"]}
+        />
+      </Route>
+
+      <Route path="/parents">
+        <ProtectedRoute
+          component={Parents}
+          roles={["super_admin", "institute_admin"]}
         />
       </Route>
 

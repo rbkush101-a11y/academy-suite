@@ -36,6 +36,9 @@ export interface IUser extends Document {
   emailVerifiedAt?: Date;
   twoFactorEnabled: boolean;
   twoFactorSecretEncrypted?: string;
+  linkedStudentIds?: Types.ObjectId[];
+  parentFamilyId?: Types.ObjectId;
+  parentRelation?: "father" | "mother" | "guardian";
 }
 
 const userSchema = new Schema(
@@ -104,6 +107,10 @@ const userSchema = new Schema(
     emailVerifiedAt: { type: Date },
     twoFactorEnabled: { type: Boolean, default: false },
     twoFactorSecretEncrypted: { type: String, select: false },
+
+    linkedStudentIds: [{ type: Schema.Types.ObjectId, ref: "Student" }],
+    parentFamilyId: { type: Schema.Types.ObjectId, ref: "ParentFamily", index: true },
+    parentRelation: { type: String, enum: ["father", "mother", "guardian"] },
   },
   { timestamps: true }
 );

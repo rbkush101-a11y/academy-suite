@@ -7,6 +7,7 @@ import { Branch } from "../models/Branch";
 import { InstituteSettings } from "../models/InstituteSettings";
 import { Role } from "../models/Role";
 import { User } from "../models/User";
+import { Student } from "../models/Student";
 import { UserSession } from "../models/UserSession";
 import { AuditLog } from "../models/AuditLog";
 import { BUILT_IN_ROLES, defaultPermissions, PERMISSION_CATALOG, recordAudit } from "../lib/foundation";
@@ -76,6 +77,8 @@ function safeUser(user: any) {
     loginId: user.loginId ?? "", phone: user.phone ?? "", role: user.role,
     customRoleId: user.customRoleId ? idOf(user.customRoleId) : "",
     branchIds: (user.branchIds ?? []).map(idOf),
+    linkedStudentIds: (user.linkedStudentIds ?? []).map(idOf),
+    parentRelation: user.parentRelation ?? "",
     activeBranchId: user.activeBranchId ? idOf(user.activeBranchId) : "",
     isApproved: Boolean(user.isApproved), createdAt: user.createdAt?.toISOString?.() ?? null,
   };
@@ -428,6 +431,32 @@ router.get("/foundation/users", async (req, res): Promise<void> => {
   res.json({ users: users.map(safeUser) });
 });
 
+async function validateLinkedStudentIds(
+  instituteId: Types.ObjectId,
+  rawIds: unknown,
+): Promise<{ ids?: Types.ObjectId[]; error?: string }> {
+  if (rawIds === undefined) return { ids: undefined };
+  if (!Array.isArray(rawIds)) return { error: "linkedStudentIds must be a list" };
+
+  const unique = [...new Set(rawIds.map((value) => String(value ?? "").trim()).filter(Boolean))];
+  if (unique.some((id) => !Types.ObjectId.isValid(id))) {
+    return { error: "One or more linked students are invalid" };
+  }
+
+  if (!unique.length) return { ids: [] };
+
+  const students = await Student.find({
+    _id: { $in: unique },
+    instituteId,
+  }).select("_id");
+
+  if (students.length !== unique.length) {
+    return { error: "One or more linked students do not belong to this institute" };
+  }
+
+  return { ids: students.map((student) => student._id) };
+}
+
 router.post("/foundation/users", async (req, res): Promise<void> => {
   const instituteId = getInstituteId(req, res, req.body.instituteId);
   if (!instituteId) return;
@@ -451,6 +480,20 @@ router.post("/foundation/users", async (req, res): Promise<void> => {
   }
   if (role === "institute_admin" && req.user!.role !== "super_admin") {
     res.status(403).json({ error: "Only a platform admin can create institute administrators" });
+    return;
+  }
+  const linkedStudentResult = role === "parent"
+    ? await validateLinkedStudentIds(instituteId, req.body.linkedStudentIds ?? [])
+    : { ids: [] as Types.ObjectId[] };
+  if (linkedStudentResult.error) {
+    res.status(400).json({ error: linkedStudentResult.error });
+    return;
+  }
+  const parentRelation = role === "parent"
+    ? String(req.body.parentRelation ?? "").trim().toLowerCase()
+    : "";
+  if (role === "parent" && parentRelation && !["father", "mother", "guardian"].includes(parentRelation)) {
+    res.status(400).json({ error: "Select a valid parent relation" });
     return;
   }
   const requestedRole = req.body.customRoleId ? String(req.body.customRoleId) : "";
@@ -483,6 +526,10 @@ router.post("/foundation/users", async (req, res): Promise<void> => {
       password: await bcrypt.hash(password, 12), role, instituteId,
       customRoleId: roleDoc?._id,
       branchIds: branches.map((branch) => branch._id),
+      linkedStudentIds: role === "parent" ? (linkedStudentResult.ids ?? []) : [],
+      parentRelation: role === "parent" && parentRelation
+        ? (parentRelation as "father" | "mother" | "guardian")
+        : undefined,
       isApproved: req.body.isApproved !== false,
     });
     await recordAudit(req, "user.create", "user", idOf(user._id), { email: user.email, role: user.role });
@@ -509,6 +556,54 @@ router.patch("/foundation/users/:id", async (req, res): Promise<void> => {
     return;
   }
   let securityChanged = false;
+  let emailChanged = false;
+  let passwordChanged = false;
+
+  // Parent/staff login credentials can be managed from Foundation/Parents UI.
+  // The original route ignored email/password fields, so the UI looked saved
+  // while the stored bcrypt hash never changed.
+  if (req.body.email !== undefined) {
+    const nextEmail = String(req.body.email ?? "").trim().toLowerCase();
+    if (!nextEmail || !/^\S+@\S+\.\S+$/.test(nextEmail)) {
+      res.status(400).json({ error: "Enter a valid login ID / email" });
+      return;
+    }
+
+    if (nextEmail !== user.email) {
+      const duplicate = await User.exists({
+        _id: { $ne: user._id },
+        $or: [{ email: nextEmail }, { loginId: nextEmail }],
+      });
+      if (duplicate) {
+        res.status(409).json({ error: "That login ID is already registered" });
+        return;
+      }
+
+      user.email = nextEmail;
+      emailChanged = true;
+      securityChanged = true;
+    }
+  }
+
+  if (req.body.password !== undefined) {
+    const nextPassword = String(req.body.password ?? "");
+    if (
+      nextPassword.length < 8 ||
+      !/[a-z]/.test(nextPassword) ||
+      !/[A-Z]/.test(nextPassword) ||
+      !/\d/.test(nextPassword)
+    ) {
+      res.status(400).json({
+        error: "Use at least 8 characters with a lowercase letter, uppercase letter, and number",
+      });
+      return;
+    }
+
+    user.password = await bcrypt.hash(nextPassword, 12);
+    passwordChanged = true;
+    securityChanged = true;
+  }
+
   if (req.body.role !== undefined) {
     const validRoles = ["institute_admin", "teacher", "staff", "accountant", "parent"];
     if (!validRoles.includes(String(req.body.role)) || (req.body.role === "institute_admin" && req.user!.role !== "super_admin")) {
@@ -522,6 +617,35 @@ router.patch("/foundation/users/:id", async (req, res): Promise<void> => {
     securityChanged ||= user.isApproved !== Boolean(req.body.isApproved);
     user.isApproved = Boolean(req.body.isApproved);
   }
+  if (req.body.linkedStudentIds !== undefined) {
+    if (user.role !== "parent") {
+      res.status(400).json({ error: "Only parent accounts can have linked students" });
+      return;
+    }
+
+    const linkedStudentResult = await validateLinkedStudentIds(instituteId, req.body.linkedStudentIds);
+    if (linkedStudentResult.error) {
+      res.status(400).json({ error: linkedStudentResult.error });
+      return;
+    }
+
+    user.linkedStudentIds = linkedStudentResult.ids ?? [];
+  }
+  if (req.body.parentRelation !== undefined) {
+    if (user.role !== "parent") {
+      res.status(400).json({ error: "Only parent accounts can have a parent relation" });
+      return;
+    }
+    const nextRelation = String(req.body.parentRelation ?? "").trim().toLowerCase();
+    if (nextRelation && !["father", "mother", "guardian"].includes(nextRelation)) {
+      res.status(400).json({ error: "Select a valid parent relation" });
+      return;
+    }
+    user.parentRelation = nextRelation
+      ? (nextRelation as "father" | "mother" | "guardian")
+      : undefined;
+  }
+
   if (req.body.customRoleId !== undefined) {
     const roleId = req.body.customRoleId ? String(req.body.customRoleId) : "";
     if (roleId && (!Types.ObjectId.isValid(roleId) || !await Role.exists({ _id: roleId, instituteId }))) {
@@ -570,7 +694,12 @@ router.patch("/foundation/users/:id", async (req, res): Promise<void> => {
       { $set: { revokedAt: new Date() } },
     );
   }
-  await recordAudit(req, "user.update", "user", idOf(user._id), { role: user.role, isApproved: user.isApproved });
+  await recordAudit(req, "user.update", "user", idOf(user._id), {
+    role: user.role,
+    isApproved: user.isApproved,
+    emailChanged,
+    passwordChanged,
+  });
   res.json(safeUser(user));
 });
 

@@ -21,6 +21,7 @@ import admissionsRouter from "./admissions";
 import onlineAdmissionsRouter from "./online-admissions";
 import studentSupportRouter from "./student-support";
 import ptmRouter from "./ptm";
+import parentsRouter from "./parents";
 import foundationRouter from "./foundation";
 import platformRouter from "./platform";
 import platformInstitutesRouter from "./platform-institutes";
@@ -51,6 +52,7 @@ router.use(admissionsRouter);
 router.use(onlineAdmissionsRouter);
 router.use(studentSupportRouter);
 router.use(ptmRouter);
+router.use(parentsRouter);
 router.use(foundationRouter);
 
 export default router;
