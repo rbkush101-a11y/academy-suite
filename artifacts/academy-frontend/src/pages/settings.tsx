@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import {
   Settings as SettingsIcon,
@@ -113,11 +113,115 @@ const FILE_RULES = {
 
 type FileKey = keyof typeof FILE_RULES;
 
+
+type FoundationBootstrap = {
+  institute: {
+    id: string;
+    instituteName: string;
+    instituteType: string;
+    ownerName: string;
+    email: string;
+    phone: string;
+    address: string;
+    status: string;
+    plan: string;
+  } | null;
+  settings: Record<string, unknown>;
+  settingsUpdatedAt?: string | null;
+};
+
+function tokenPayload() {
+  try {
+    const token = localStorage.getItem("coach_sutra_token") || "";
+    const encoded = token.split(".")[1];
+    if (!encoded) return {} as Record<string, unknown>;
+    return JSON.parse(atob(encoded.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>;
+  } catch {
+    return {} as Record<string, unknown>;
+  }
+}
+
+function apiRoot() {
+  const configured = String(import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+  return configured.endsWith("/api") ? configured : `${configured}/api`;
+}
+
+async function settingsRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const root = apiRoot();
+  const payload = tokenPayload();
+  const selectedInstitute = localStorage.getItem("foundation_institute_id") || "";
+  const scopedPath =
+    payload.role === "super_admin" &&
+    selectedInstitute &&
+    path.startsWith("/foundation/") &&
+    !path.includes("instituteId=")
+      ? `${path}${path.includes("?") ? "&" : "?"}instituteId=${encodeURIComponent(selectedInstitute)}`
+      : path;
+
+  const headers = new Headers(options.headers);
+  headers.set("Accept", "application/json");
+  const token = localStorage.getItem("coach_sutra_token") || "";
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  let body = options.body;
+  if (typeof body === "string" && scopedPath.startsWith("/foundation/")) {
+    try {
+      const parsed = JSON.parse(body);
+      if (payload.role === "super_admin" && selectedInstitute) parsed.instituteId = selectedInstitute;
+      body = JSON.stringify(parsed);
+    } catch {
+      // Keep non-JSON bodies unchanged.
+    }
+  }
+  if (body !== undefined && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+
+  const response = await fetch(`${root}${scopedPath}`, { ...options, headers, body });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+  return data as T;
+}
+
+const GENERAL_KEYS = [
+  "name",
+  "email",
+  "phone",
+  "website",
+  "address",
+  "city",
+  "state",
+  "pincode",
+  "gstin",
+  "pan",
+  "gstPercent",
+] as const;
+
+function cacheGeneralInfo(form: typeof DEFAULT_FORM) {
+  localStorage.setItem("coach_sutra_general_info", JSON.stringify(form));
+  localStorage.setItem("coaching_name", form.name);
+
+  const rawUser = localStorage.getItem("coach_sutra_user") || localStorage.getItem("user");
+  if (rawUser) {
+    try {
+      const user = JSON.parse(rawUser);
+      user.instituteName = form.name;
+      user.coachingName = form.name;
+      localStorage.setItem("coach_sutra_user", JSON.stringify(user));
+    } catch {
+      // Ignore a malformed legacy cache.
+    }
+  }
+
+  window.dispatchEvent(new Event("instituteNameChanged"));
+  window.dispatchEvent(new Event("brandingChanged"));
+}
+
 export default function Settings() {
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveMsg, setSaveMsg] = useState("Saved successfully!");
+  const [generalLoading, setGeneralLoading] = useState(true);
+  const [generalError, setGeneralError] = useState("");
 
   const [stagedFiles, setStagedFiles] = useState<Record<string, File | undefined>>({});
   const [stagedPreviews, setStagedPreviews] = useState<Record<string, string | undefined>>({});
@@ -179,6 +283,52 @@ export default function Settings() {
 
   const update = (key: string, value: any) =>
     setForm((p: any) => ({ ...p, [key]: value }));
+
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadGeneralSettings = async () => {
+      setGeneralLoading(true);
+      setGeneralError("");
+      try {
+        const data = await settingsRequest<FoundationBootstrap>("/foundation/bootstrap");
+        if (cancelled) return;
+
+        const dbSettings = data.settings ?? {};
+        const institute = data.institute;
+        setForm((current) => {
+          const next = {
+            ...current,
+            name: String(institute?.instituteName ?? dbSettings.name ?? current.name),
+            email: String(institute?.email ?? dbSettings.email ?? current.email),
+            phone: String(institute?.phone ?? dbSettings.phone ?? current.phone),
+            address: String(institute?.address ?? dbSettings.address ?? current.address),
+            website: String(dbSettings.website ?? current.website),
+            city: String(dbSettings.city ?? current.city),
+            state: String(dbSettings.state ?? current.state),
+            pincode: String(dbSettings.pincode ?? current.pincode),
+            gstin: String(dbSettings.gstin ?? current.gstin),
+            pan: String(dbSettings.pan ?? current.pan),
+            gstPercent: String(dbSettings.gstPercent ?? current.gstPercent),
+          };
+          cacheGeneralInfo(next);
+          return next;
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setGeneralError(error instanceof Error ? error.message : "General settings could not be loaded from server.");
+        }
+      } finally {
+        if (!cancelled) setGeneralLoading(false);
+      }
+    };
+
+    void loadGeneralSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSelectFile = (e: React.ChangeEvent<HTMLInputElement>, key: FileKey) => {
     const file = e.target.files?.[0];
@@ -264,6 +414,44 @@ export default function Settings() {
     if (key === "stampUrl") localStorage.removeItem("coach_sutra_stamp");
 
     window.dispatchEvent(new Event("brandingChanged"));
+  };
+
+
+  const handleGeneralSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    setSaved(false);
+    setGeneralError("");
+
+    try {
+      const generalSettings = Object.fromEntries(
+        GENERAL_KEYS.map((key) => [key, String(form[key] ?? "").trim()]),
+      );
+
+      await settingsRequest("/foundation/institute", {
+        method: "PATCH",
+        body: JSON.stringify({
+          instituteName: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim(),
+          address: form.address.trim(),
+        }),
+      });
+
+      await settingsRequest("/foundation/settings", {
+        method: "PATCH",
+        body: JSON.stringify({ settings: generalSettings }),
+      });
+
+      cacheGeneralInfo(form);
+      setSaveMsg("General Info saved to database successfully!");
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 3000);
+    } catch (error) {
+      setGeneralError(error instanceof Error ? error.message : "General Info could not be saved.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSave = (e?: React.FormEvent, msg = "Saved successfully!") => {
@@ -364,7 +552,17 @@ export default function Settings() {
       {/* GENERAL TAB */}
       {activeTab === "general" && (
         <div className="bg-white rounded-2xl border border-slate-200 p-5 md:p-6">
-          <form onSubmit={(e) => handleSave(e, "General Info saved successfully!")}>
+          <form onSubmit={handleGeneralSave}>
+            {generalLoading && (
+              <div className="mb-5 flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3.5 py-3 text-xs font-bold text-blue-700">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading saved institute settings…
+              </div>
+            )}
+            {generalError && (
+              <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-xs font-semibold text-red-700">
+                {generalError}
+              </div>
+            )}
             <div className="flex items-start gap-3 mb-6">
               <div className="w-9 h-9 rounded-lg bg-[#eef0ff] flex items-center justify-center">
                 <Building2 className="w-4 h-4 text-[#6272f2]" />
@@ -409,9 +607,9 @@ export default function Settings() {
             </div>
 
             <div className="flex justify-end pt-6 mt-5 border-t border-slate-100">
-              <button type="submit" disabled={isSaving} className="inline-flex items-center gap-2 bg-[#6272f2] hover:bg-[#4f5ee3] text-white text-[13px] font-bold px-6 py-2.5 rounded-xl disabled:opacity-70 cursor-pointer">
+              <button type="submit" disabled={isSaving || generalLoading} className="inline-flex items-center gap-2 bg-[#6272f2] hover:bg-[#4f5ee3] text-white text-[13px] font-bold px-6 py-2.5 rounded-xl disabled:opacity-70 cursor-pointer">
                 {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {isSaving ? "Saving..." : "Save General Info"}
+                {isSaving ? "Saving..." : generalLoading ? "Loading..." : "Save General Info"}
               </button>
             </div>
           </form>

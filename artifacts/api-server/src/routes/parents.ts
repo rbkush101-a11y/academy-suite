@@ -6,6 +6,14 @@ import { signToken } from "../lib/jwt";
 import { getDeviceName, getDeviceType, getRequestIp, getUserAgent } from "../lib/auth-security";
 import { recordAudit } from "../lib/foundation";
 import { Batch } from "../models/Batch";
+import { Course } from "../models/Course";
+import { StudentAttendance } from "../models/Attendance";
+import { Payment } from "../models/Finance";
+import { Homework } from "../models/Homework";
+import { Subject } from "../models/Subject";
+import { Exam, ExamMark } from "../models/Exam";
+import { Timetable } from "../models/Timetable";
+import { Staff } from "../models/Staff";
 import { Institute } from "../models/Institute";
 import { ParentFamily } from "../models/ParentFamily";
 import { Student } from "../models/Student";
@@ -19,6 +27,17 @@ const text = (value: unknown) => String(value ?? "").trim();
 const normalizeName = (value: unknown) => text(value).toLowerCase().replace(/\s+/g, " ");
 const normalizePhone = (value: unknown) => text(value).replace(/\D/g, "").slice(-10);
 const idOf = (value: unknown) => (value ? String(value) : "");
+
+const currentIndiaMonth = () => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  return `${year}-${month}`;
+};
 
 function requireParent(req: Request, res: Response, next: NextFunction): void {
   if (!req.user) {
@@ -167,19 +186,98 @@ async function attachLegacyParentToFamily(parent: any): Promise<any> {
 
 async function getParentAccount(userId: string) {
   return User.findById(userId).select(
-    "name email loginId phone role instituteId isApproved linkedStudentIds parentFamilyId parentRelation",
+    "name email loginId phone logoDataUrl role instituteId isApproved linkedStudentIds parentFamilyId parentRelation",
   );
 }
 
 async function linkedStudentIdsForParent(parent: any): Promise<string[]> {
-  if (parent?.parentFamilyId) {
-    const family = await ParentFamily.findOne({
-      _id: parent.parentFamilyId,
-      instituteId: parent.instituteId,
-    }).select("studentIds");
-    if (family) return family.studentIds.map((id) => String(id));
+  const ids = new Set<string>(
+    (parent?.linkedStudentIds ?? [])
+      .map((id: unknown) => String(id ?? "").trim())
+      .filter(Boolean),
+  );
+
+  if (!parent?.instituteId) return [...ids];
+
+  const parentPhone = normalizePhone(parent.phone);
+  const parentName = normalizeName(parent.name);
+  const relation = text(parent.parentRelation).toLowerCase();
+
+  const matchesParent = (family: any): boolean => {
+    const fatherPhoneMatch = Boolean(parentPhone) && normalizePhone(family.fatherPhone) === parentPhone;
+    const motherPhoneMatch = Boolean(parentPhone) && normalizePhone(family.motherPhone) === parentPhone;
+    const fatherNameMatch = Boolean(parentName) && normalizeName(family.fatherName) === parentName;
+    const motherNameMatch = Boolean(parentName) && normalizeName(family.motherName) === parentName;
+
+    if (relation === "father") return fatherPhoneMatch || fatherNameMatch;
+    if (relation === "mother") return motherPhoneMatch || motherNameMatch;
+    return fatherPhoneMatch || motherPhoneMatch || fatherNameMatch || motherNameMatch;
+  };
+
+  // Existing projects can contain an older one-child ParentFamily plus a newer
+  // sibling family. Read every matching family for this parent and merge the
+  // exact Student IDs into one canonical family.
+  const allFamilies = await ParentFamily.find({ instituteId: parent.instituteId });
+  const currentFamilyId = idOf(parent.parentFamilyId);
+  const currentFamily = currentFamilyId
+    ? allFamilies.find((family) => String(family._id) === currentFamilyId) ?? null
+    : null;
+
+  const matchingFamilies = allFamilies.filter((family) => matchesParent(family));
+  const canonicalFamily = currentFamily && matchesParent(currentFamily)
+    ? currentFamily
+    : matchingFamilies[0] ?? currentFamily ?? null;
+
+  for (const family of matchingFamilies) {
+    for (const id of family.studentIds ?? []) ids.add(String(id));
   }
-  return (parent?.linkedStudentIds ?? []).map((id: unknown) => String(id));
+  if (currentFamily) {
+    for (const id of currentFamily.studentIds ?? []) ids.add(String(id));
+  }
+
+  if (canonicalFamily) {
+    // Discover siblings from Student records once, then persist exact IDs. This
+    // also repairs old family documents where only one sibling had been saved.
+    const students = await Student.find({
+      instituteId: parent.instituteId,
+      status: { $ne: "inactive" },
+    })
+      .select("_id fatherName fatherPhone parentName parentPhone motherName motherPhone")
+      .lean();
+
+    for (const student of students as any[]) {
+      if (identityMatches(canonicalFamily, student)) ids.add(String(student._id));
+    }
+
+    const mergedIds = [...ids].filter((id) => Types.ObjectId.isValid(id));
+    const currentIds = (canonicalFamily.studentIds ?? []).map((id: unknown) => String(id));
+    const familyChanged =
+      mergedIds.length !== currentIds.length ||
+      mergedIds.some((id) => !currentIds.includes(id));
+
+    if (familyChanged) {
+      canonicalFamily.studentIds = mergedIds.map((id) => new Types.ObjectId(id));
+      await canonicalFamily.save();
+    }
+
+    const accountChanged =
+      idOf(parent.parentFamilyId) !== String(canonicalFamily._id) ||
+      mergedIds.length !== (parent.linkedStudentIds ?? []).length ||
+      mergedIds.some((id) => !(parent.linkedStudentIds ?? []).some((saved: unknown) => String(saved) === id));
+
+    if (accountChanged) {
+      parent.parentFamilyId = canonicalFamily._id;
+      parent.linkedStudentIds = mergedIds.map((id) => new Types.ObjectId(id));
+      await parent.save();
+    }
+
+    await User.updateMany(
+      { instituteId: parent.instituteId, role: "parent", parentFamilyId: canonicalFamily._id },
+      { $set: { linkedStudentIds: canonicalFamily.studentIds } },
+    );
+  }
+
+  return [...ids];
 }
 
 router.get(
@@ -445,6 +543,527 @@ router.post(
       }
       console.error("Parent login upsert error:", error);
       res.status(500).json({ error: "Unable to save parent login." });
+    }
+  },
+);
+
+router.get(
+  "/parent/overview",
+  authenticate,
+  requireParent,
+  async (req, res): Promise<void> => {
+    try {
+      let parent = await getParentAccount(req.user!.userId);
+      if (!parent) {
+        res.status(404).json({ error: "Parent account not found." });
+        return;
+      }
+      if (!parent.isApproved) {
+        res.status(403).json({ error: "Parent account is inactive." });
+        return;
+      }
+      if (!parent.instituteId) {
+        res.status(400).json({ error: "Parent account is not linked to an institute." });
+        return;
+      }
+
+      const resolvedParent = await attachLegacyParentToFamily(parent);
+      if (!resolvedParent?.instituteId) {
+        res.status(400).json({ error: "Parent account is not linked to an institute." });
+        return;
+      }
+
+      const instituteId = String(resolvedParent.instituteId);
+      const childIds = await linkedStudentIdsForParent(resolvedParent);
+
+      const [institute, students] = await Promise.all([
+        Institute.findById(resolvedParent.instituteId)
+          .select("instituteName logoDataUrl academicYear phone email address city state")
+          .lean(),
+        childIds.length
+          ? Student.find({
+              _id: { $in: childIds },
+              instituteId: resolvedParent.instituteId,
+              status: { $ne: "inactive" },
+            })
+              .select(
+                "name email phone enrollmentNo instituteId batchId courseId status academicYear dateOfBirth gender bloodGroup schoolName className section board photoDataUrl",
+              )
+              .lean()
+          : Promise.resolve([]),
+      ]);
+
+      const instituteInfo = {
+        id: institute ? idOf(institute._id) : instituteId,
+        name: institute?.instituteName ?? "Institute",
+        logoDataUrl: institute?.logoDataUrl ?? "",
+        academicYear: institute?.academicYear ?? "",
+        phone: institute?.phone ?? "",
+        email: institute?.email ?? "",
+        address: [institute?.address, institute?.city, institute?.state]
+          .filter(Boolean)
+          .join(", "),
+      };
+
+      const order = new Map(childIds.map((id, index) => [id, index]));
+      (students as any[]).sort(
+        (a, b) =>
+          (order.get(String(a._id)) ?? 999) -
+          (order.get(String(b._id)) ?? 999),
+      );
+
+      if (!(students as any[]).length) {
+        res.json({
+          institute: instituteInfo,
+          parent: {
+            id: idOf(resolvedParent._id),
+            name: resolvedParent.name,
+            email: resolvedParent.email ?? "",
+            phone: resolvedParent.phone ?? "",
+            photoDataUrl: resolvedParent.logoDataUrl ?? "",
+          },
+          children: [],
+          selectedChild: null,
+          attendance: {
+            present: 0,
+            absent: 0,
+            late: 0,
+            total: 0,
+            percentage: 0,
+            recent: [],
+          },
+          fees: {
+            paid: 0,
+            pending: 0,
+            overdue: 0,
+            outstanding: 0,
+            collectionRate: 0,
+            recent: [],
+          },
+          homework: [],
+          exams: [],
+          timetable: [],
+          teachers: [],
+          message: "No active student is linked to this parent account yet.",
+        });
+        return;
+      }
+
+      const requestedStudentId = text(req.query.studentId);
+      const selected = requestedStudentId
+        ? (students as any[]).find(
+            (student) => idOf(student._id) === requestedStudentId,
+          )
+        : (students as any[])[0];
+
+      if (!selected) {
+        res.status(403).json({
+          error: "This student is not linked to your parent account or is inactive.",
+        });
+        return;
+      }
+
+      const studentId = idOf(selected._id);
+      const month = /^\d{4}-\d{2}$/.test(text(req.query.month))
+        ? text(req.query.month)
+        : currentIndiaMonth();
+
+      const allCourseIds = [
+        ...new Set(
+          (students as any[])
+            .map((student) => idOf(student.courseId))
+            .filter(Boolean),
+        ),
+      ];
+      const allBatchIds = [
+        ...new Set(
+          (students as any[])
+            .map((student) => idOf(student.batchId))
+            .filter(Boolean),
+        ),
+      ];
+
+      const [
+        courses,
+        batches,
+        attendanceRows,
+        payments,
+        homeworkRows,
+        exams,
+        timetableRows,
+      ] = await Promise.all([
+        allCourseIds.length
+          ? Course.find({ _id: { $in: allCourseIds } }).select("name").lean()
+          : Promise.resolve([]),
+        allBatchIds.length
+          ? Batch.find({ _id: { $in: allBatchIds } })
+              .select("name schedule academicYear")
+              .lean()
+          : Promise.resolve([]),
+        StudentAttendance.find({
+          studentId: selected._id,
+          date: new RegExp(`^${month}`),
+        })
+          .sort({ date: -1 })
+          .lean(),
+        Payment.find({ studentId: selected._id, instituteId: resolvedParent.instituteId })
+          .sort({ dueDate: -1 })
+          .limit(24)
+          .lean(),
+        selected.batchId
+          ? Homework.find({ batchId: selected.batchId })
+              .sort({ dueDate: 1, createdAt: -1 })
+              .limit(30)
+              .lean()
+          : Promise.resolve([]),
+        selected.batchId
+          ? Exam.find({ batchId: selected.batchId })
+              .sort({ date: -1 })
+              .limit(30)
+              .lean()
+          : Promise.resolve([]),
+        selected.batchId
+          ? Timetable.find({ batchId: selected.batchId })
+              .sort({ day: 1, startTime: 1 })
+              .lean()
+          : Promise.resolve([]),
+      ]);
+
+      const courseById = new Map(
+        (courses as any[]).map((course) => [idOf(course._id), course.name]),
+      );
+      const batchById = new Map(
+        (batches as any[]).map((batch) => [idOf(batch._id), batch]),
+      );
+
+      const subjectIds = [
+        ...new Set(
+          [
+            ...(homeworkRows as any[]).map((row) => idOf(row.subjectId)),
+            ...(exams as any[]).map((row) => idOf(row.subjectId)),
+            ...(timetableRows as any[]).map((row) => idOf(row.subjectId)),
+          ].filter(Boolean),
+        ),
+      ];
+
+      const teacherIds = [
+        ...new Set(
+          (timetableRows as any[])
+            .map((row) => idOf(row.teacherId))
+            .filter(Boolean),
+        ),
+      ];
+
+      const [subjects, teachers] = await Promise.all([
+        subjectIds.length
+          ? Subject.find({ _id: { $in: subjectIds } }).select("name").lean()
+          : Promise.resolve([]),
+        teacherIds.length
+          ? Staff.find({
+              _id: { $in: teacherIds },
+              instituteId: resolvedParent.instituteId,
+            })
+              .select("name photoDataUrl positionTitle subject")
+              .lean()
+          : Promise.resolve([]),
+      ]);
+
+      const subjectById = new Map(
+        (subjects as any[]).map((subject) => [idOf(subject._id), subject.name]),
+      );
+      const teacherById = new Map(
+        (teachers as any[]).map((teacher) => [idOf(teacher._id), teacher]),
+      );
+
+      const examIds = (exams as any[]).map((exam) => exam._id);
+      const marks = examIds.length
+        ? await ExamMark.find({
+            studentId: selected._id,
+            examId: { $in: examIds },
+          }).lean()
+        : [];
+      const markByExam = new Map(
+        (marks as any[]).map((mark) => [idOf(mark.examId), mark]),
+      );
+
+      const present = (attendanceRows as any[]).filter(
+        (row) => row.status === "present",
+      ).length;
+      const absent = (attendanceRows as any[]).filter(
+        (row) => row.status === "absent",
+      ).length;
+      const late = (attendanceRows as any[]).filter(
+        (row) => row.status === "late",
+      ).length;
+      const attendanceTotal = (attendanceRows as any[]).length;
+      const attendancePercentage = attendanceTotal
+        ? Math.round(((present + late) / attendanceTotal) * 100)
+        : 0;
+
+      const feePaid = (payments as any[]).reduce(
+        (sum, payment) => sum + Number(payment.paidAmount || 0),
+        0,
+      );
+      const outstandingFor = (payment: any) =>
+        Math.max(
+          0,
+          Number(payment.totalAmount || 0) - Number(payment.paidAmount || 0),
+        );
+      const pending = (payments as any[])
+        .filter(
+          (payment) =>
+            payment.status === "pending" || payment.status === "partial",
+        )
+        .reduce((sum, payment) => sum + outstandingFor(payment), 0);
+      const overdue = (payments as any[])
+        .filter((payment) => payment.status === "overdue")
+        .reduce((sum, payment) => sum + outstandingFor(payment), 0);
+      const feeDemand = (payments as any[]).reduce(
+        (sum, payment) => sum + Number(payment.totalAmount || 0),
+        0,
+      );
+      const collectionRate = feeDemand
+        ? Math.min(100, Math.round((feePaid / feeDemand) * 100))
+        : 0;
+
+      const children = (students as any[]).map((student) => {
+        const batch = batchById.get(idOf(student.batchId)) as any;
+        return {
+          id: idOf(student._id),
+          name: student.name ?? "",
+          enrollmentNo: student.enrollmentNo ?? "",
+          photoDataUrl: student.photoDataUrl ?? "",
+          className: student.className ?? "",
+          section: student.section ?? "",
+          courseName: courseById.get(idOf(student.courseId)) ?? "",
+          batchName: batch?.name ?? "",
+        };
+      });
+
+      const selectedBatch = batchById.get(idOf(selected.batchId)) as any;
+
+      res.json({
+        institute: instituteInfo,
+        parent: {
+          id: idOf(resolvedParent._id),
+          name: resolvedParent.name,
+          email: resolvedParent.email ?? "",
+          phone: resolvedParent.phone ?? "",
+          photoDataUrl: resolvedParent.logoDataUrl ?? "",
+        },
+        children,
+        selectedChild: {
+          id: studentId,
+          name: selected.name ?? "",
+          enrollmentNo: selected.enrollmentNo ?? "",
+          photoDataUrl: selected.photoDataUrl ?? "",
+          className: selected.className ?? "",
+          section: selected.section ?? "",
+          board: selected.board ?? "",
+          schoolName: selected.schoolName ?? "",
+          academicYear:
+            selected.academicYear ?? selectedBatch?.academicYear ?? "",
+          courseName: courseById.get(idOf(selected.courseId)) ?? "",
+          batchName: selectedBatch?.name ?? "",
+          batchSchedule: selectedBatch?.schedule ?? "",
+        },
+        attendance: {
+          present,
+          absent,
+          late,
+          total: attendanceTotal,
+          percentage: attendancePercentage,
+          recent: (attendanceRows as any[]).slice(0, 12).map((row) => ({
+            id: idOf(row._id),
+            date: row.date,
+            status: row.status,
+            remarks: row.remarks ?? "",
+          })),
+        },
+        fees: {
+          paid: feePaid,
+          pending,
+          overdue,
+          outstanding: pending + overdue,
+          collectionRate,
+          recent: (payments as any[]).slice(0, 24).map((payment) => ({
+            id: idOf(payment._id),
+            month: payment.month,
+            monthLabel: payment.monthLabel,
+            dueDate: payment.dueDate,
+            paidDate: payment.paidDate ?? "",
+            totalAmount: payment.totalAmount,
+            paidAmount: payment.paidAmount ?? 0,
+            lateFee: payment.lateFee ?? 0,
+            status: payment.status,
+            receiptNo: payment.receiptNo ?? "",
+            paymentMethod: payment.paymentMethod ?? "",
+          })),
+        },
+        homework: (homeworkRows as any[]).map((row) => ({
+          id: idOf(row._id),
+          title: row.title,
+          description: row.description,
+          subjectName: subjectById.get(idOf(row.subjectId)) ?? "Subject",
+          dueDate: row.dueDate,
+          status: row.status,
+          fileUrl: row.fileUrl ?? "",
+        })),
+        exams: (exams as any[]).map((exam) => {
+          const mark: any = markByExam.get(idOf(exam._id));
+          return {
+            id: idOf(exam._id),
+            name: exam.name,
+            subjectName: subjectById.get(idOf(exam.subjectId)) ?? "Subject",
+            date: exam.date,
+            totalMarks: exam.totalMarks,
+            passingMarks: exam.passingMarks,
+            status: exam.status,
+            marksObtained: mark?.marksObtained ?? null,
+            grade: mark?.grade ?? "",
+            remarks: mark?.remarks ?? "",
+          };
+        }),
+        timetable: (timetableRows as any[]).map((row) => {
+          const teacher: any = teacherById.get(idOf(row.teacherId));
+          return {
+            id: idOf(row._id),
+            day: row.day,
+            startTime: row.startTime,
+            endTime: row.endTime,
+            room: row.room ?? "",
+            subjectName: subjectById.get(idOf(row.subjectId)) ?? "Subject",
+            teacherId: idOf(row.teacherId),
+            teacherName: teacher?.name ?? "",
+            teacherPhotoDataUrl: teacher?.photoDataUrl ?? "",
+            teacherPositionTitle: teacher?.positionTitle ?? teacher?.subject ?? "",
+          };
+        }),
+        teachers: (teachers as any[]).map((teacher) => ({
+          id: idOf(teacher._id),
+          name: teacher.name,
+          photoDataUrl: teacher.photoDataUrl ?? "",
+          positionTitle: teacher.positionTitle ?? "",
+          subject: teacher.subject ?? "",
+        })),
+      });
+    } catch (error: any) {
+      console.error("Parent overview error:", error);
+      res.status(500).json({
+        error: error?.message ?? "Unable to load parent portal.",
+      });
+    }
+  },
+);
+
+router.put(
+  "/parent/self-update",
+  authenticate,
+  requireParent,
+  async (req, res): Promise<void> => {
+    try {
+      const name = text(req.body?.name);
+      const phone = text(req.body?.phone);
+      const photoDataUrl =
+        typeof req.body?.photoDataUrl === "string" ? req.body.photoDataUrl : "";
+
+      if (!name || name.length > 120) {
+        res.status(400).json({ error: "A valid name is required." });
+        return;
+      }
+      if (phone && normalizePhone(phone).length !== 10) {
+        res.status(400).json({ error: "Enter a valid 10-digit phone number." });
+        return;
+      }
+      if (Buffer.byteLength(photoDataUrl, "utf8") > 3 * 1024 * 1024) {
+        res.status(400).json({ error: "Profile photo is too large." });
+        return;
+      }
+
+      const parent = await User.findById(req.user!.userId);
+      if (!parent || parent.role !== "parent" || !parent.isApproved) {
+        res.status(403).json({ error: "Active parent account required." });
+        return;
+      }
+
+      parent.name = name;
+      parent.phone = phone;
+      parent.logoDataUrl = photoDataUrl;
+      await parent.save();
+
+      res.json({
+        message: "Profile updated successfully.",
+        parent: {
+          id: idOf(parent._id),
+          name: parent.name,
+          email: parent.email,
+          phone: parent.phone ?? "",
+          photoDataUrl: parent.logoDataUrl ?? "",
+        },
+      });
+    } catch (error: any) {
+      console.error("Parent profile update error:", error);
+      res.status(500).json({
+        error: error?.message ?? "Unable to update parent profile.",
+      });
+    }
+  },
+);
+
+router.put(
+  "/parent/self-password",
+  authenticate,
+  requireParent,
+  async (req, res): Promise<void> => {
+    try {
+      const currentPassword = String(req.body?.currentPassword ?? "");
+      const newPassword = String(req.body?.newPassword ?? "");
+
+      if (!currentPassword || !newPassword) {
+        res.status(400).json({
+          error: "Current password and new password are required.",
+        });
+        return;
+      }
+      if (
+        newPassword.length < 8 ||
+        !/[a-z]/.test(newPassword) ||
+        !/[A-Z]/.test(newPassword) ||
+        !/\d/.test(newPassword)
+      ) {
+        res.status(400).json({
+          error: "Use 8+ characters with uppercase, lowercase and a number.",
+        });
+        return;
+      }
+
+      const parent = await User.findById(req.user!.userId).select(
+        "+password role isApproved",
+      );
+      if (!parent || parent.role !== "parent" || !parent.isApproved) {
+        res.status(403).json({ error: "Active parent account required." });
+        return;
+      }
+
+      if (!(await bcrypt.compare(currentPassword, parent.password))) {
+        res.status(400).json({ error: "Current password is incorrect." });
+        return;
+      }
+      if (await bcrypt.compare(newPassword, parent.password)) {
+        res.status(400).json({
+          error: "New password must be different from current password.",
+        });
+        return;
+      }
+
+      parent.password = await bcrypt.hash(newPassword, 12);
+      await parent.save();
+      res.json({ message: "Password updated successfully." });
+    } catch (error: any) {
+      console.error("Parent password update error:", error);
+      res.status(500).json({
+        error: error?.message ?? "Unable to update password.",
+      });
     }
   },
 );

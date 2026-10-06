@@ -295,17 +295,28 @@ router.patch("/foundation/settings", async (req, res): Promise<void> => {
     res.status(400).json({ error: "settings must be an object" });
     return;
   }
+
   const values = Object.fromEntries(Object.entries(req.body.settings).filter(([key, value]) =>
     /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key) && !["__proto__", "constructor", "prototype"].includes(key) &&
     (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null),
   ));
+
+  // Merge only the submitted keys instead of replacing the complete settings object.
+  // General Settings, Foundation Settings and future modules can therefore share
+  // the same InstituteSettings document without deleting each other's values.
+  const setPatch: Record<string, unknown> = { updatedBy: req.user!.userId };
+  for (const [key, value] of Object.entries(values)) {
+    setPatch[`values.${key}`] = value;
+  }
+
   const updated = await InstituteSettings.findOneAndUpdate(
     { instituteId },
-    { $set: { values, updatedBy: req.user!.userId } },
+    { $set: setPatch },
     { upsert: true, returnDocument: "after", runValidators: true, setDefaultsOnInsert: true },
   );
+
   await recordAudit(req, "settings.update", "institute_settings", String(instituteId), { keys: Object.keys(values) });
-  res.json({ settings: updated.values, updatedAt: updated.updatedAt });
+  res.json({ settings: updated.values ?? {}, updatedAt: updated.updatedAt });
 });
 
 router.patch("/foundation/institute", async (req, res): Promise<void> => {
