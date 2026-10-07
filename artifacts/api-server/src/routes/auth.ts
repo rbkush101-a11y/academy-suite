@@ -8,6 +8,7 @@ import { authenticate } from "../middlewares/auth";
 import { Course } from "../models/Course";
 import { Batch } from "../models/Batch";
 import { UserSession } from "../models/UserSession";
+import { ParentFamily } from "../models/ParentFamily";
 import { recordAudit } from "../lib/foundation";
 import { isPlatformRole } from "../lib/platform-rbac";
 import { AuthEmailOutbox, AuthToken } from "../models/AuthSecurity";
@@ -38,6 +39,23 @@ import mongoose from "mongoose";
 import { getInstituteAccessBlockReasonById } from "../lib/institute-access";
 
 const router: IRouter = Router();
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function phoneLookupRegex(rawDigits: string): RegExp | null {
+  const last10 = rawDigits.slice(-10);
+  if (last10.length !== 10) return null;
+
+  return new RegExp(
+    `${last10
+      .split("")
+      .map((digit) => escapeRegex(digit))
+      .join("\\D*")}\\D*$`,
+  );
+}
+
 
 type LoginSource = "institute" | "platform";
 
@@ -2158,47 +2176,116 @@ router.post(
         return;
       }
 
-      const userSearchConditions:
-        any[] = [
-          {
-            loginId:
-              cleanLower,
-          },
-          {
-            email:
-              cleanLower,
-          },
-          {
-            phone:
-              rawInput,
-          },
-          {
-            username:
-              cleanLower,
-          },
-        ];
-
-      if (
-        cleanDigits.length >=
-        10
-      ) {
-        userSearchConditions.push(
-          {
-            phone: {
-              $regex:
-                cleanDigits.slice(
-                  -10,
-                ) + "$",
-            },
-          },
+      const looksLikeEmail =
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+          cleanLower,
         );
-      }
 
-      let user =
-        await User.findOne({
-          $or:
-            userSearchConditions,
+      let user: any = null;
+
+      if (looksLikeEmail) {
+        // Real email is the primary identifier.
+        user = await User.findOne({
+          email: cleanLower,
         });
+
+        if (!user) {
+          user = await User.findOne({
+            email: {
+              $regex: new RegExp(
+                `^${escapeRegex(cleanLower)}$`,
+                "i",
+              ),
+            },
+          });
+        }
+
+        // Backwards compatibility for older records that stored
+        // the email text in loginId.
+        if (!user) {
+          user = await User.findOne({
+            loginId: cleanLower,
+          });
+        }
+      } else if (cleanDigits.length >= 10) {
+        user = await User.findOne({
+          phone: rawInput,
+        });
+
+        if (!user) {
+          const phoneRegex = phoneLookupRegex(cleanDigits);
+
+          if (phoneRegex) {
+            user = await User.findOne({
+              phone: {
+                $regex: phoneRegex,
+              },
+            });
+          }
+        }
+
+        if (!user) {
+          const familyPhoneRegex =
+            phoneLookupRegex(cleanDigits);
+
+          if (familyPhoneRegex) {
+            const matchingFamilies =
+              await ParentFamily.find({
+                $or: [
+                  {
+                    fatherPhone: {
+                      $regex:
+                        familyPhoneRegex,
+                    },
+                  },
+                  {
+                    motherPhone: {
+                      $regex:
+                        familyPhoneRegex,
+                    },
+                  },
+                ],
+              }).select("_id");
+
+            if (matchingFamilies.length) {
+              user =
+                await User.findOne({
+                  role: "parent",
+                  isApproved: true,
+                  parentFamilyId: {
+                    $in:
+                      matchingFamilies.map(
+                        (family) =>
+                          family._id,
+                      ),
+                  },
+                });
+            }
+          }
+        }
+
+        if (!user) {
+          user = await User.findOne({
+            loginId: cleanLower,
+          });
+        }
+      } else {
+        user = await User.findOne({
+          loginId: cleanLower,
+        });
+
+        if (!user) {
+          user = await User.findOne({
+            username: cleanLower,
+          });
+        }
+
+        if (!user) {
+          user = await User.findOne({
+            email: cleanLower,
+          });
+        }
+      }
 
       if (!user) {
         const staff =

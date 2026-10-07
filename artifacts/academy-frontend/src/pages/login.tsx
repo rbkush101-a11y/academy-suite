@@ -24,8 +24,8 @@ import {
 } from "@/components/ui/card";
 
 const loginSchema = z.object({
-  email: z.string().min(1, "Login ID required hai"),
-  password: z.string().min(1, "Password required hai"),
+  email: z.string().min(1, "Email or phone number is required"),
+  password: z.string().min(1, "Password is required"),
 });
 
 export default function Login() {
@@ -80,7 +80,7 @@ export default function Login() {
         <CardHeader className="space-y-1 text-center">
           <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
           <CardDescription>
-            Login ID aur password se sign in karein
+            Sign in with your email or phone number and password
           </CardDescription>
         </CardHeader>
 
@@ -92,9 +92,9 @@ export default function Login() {
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Login ID</FormLabel>
+                    <FormLabel>Email or Phone Number</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter your login ID" {...field} />
+                      <Input type="text" inputMode="text" autoComplete="username" placeholder="Enter email or phone number" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

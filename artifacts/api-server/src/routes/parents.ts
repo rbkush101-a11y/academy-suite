@@ -1,9 +1,7 @@
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
-import mongoose, { Types } from "mongoose";
+import { Types } from "mongoose";
 import { authenticate } from "../middlewares/auth";
-import { signToken } from "../lib/jwt";
-import { getDeviceName, getDeviceType, getRequestIp, getUserAgent } from "../lib/auth-security";
 import { recordAudit } from "../lib/foundation";
 import { Batch } from "../models/Batch";
 import { Course } from "../models/Course";
@@ -21,7 +19,6 @@ import { User } from "../models/User";
 import { UserSession } from "../models/UserSession";
 
 const router: IRouter = Router();
-const PARENT_VIEW_MINUTES = 30;
 
 const text = (value: unknown) => String(value ?? "").trim();
 const normalizeName = (value: unknown) => text(value).toLowerCase().replace(/\s+/g, " ");
@@ -321,8 +318,11 @@ router.get(
 
       const formattedFamilies = (families as any[]).map((family) => {
         const accounts = usersByFamily.get(String(family._id)) ?? [];
-        const fatherAccount = accounts.find((account) => account.parentRelation === "father");
-        const motherAccount = accounts.find((account) => account.parentRelation === "mother");
+        const familyAccount =
+          accounts.find((account) => account.parentRelation === "guardian") ??
+          accounts.find((account) => account.isApproved === true) ??
+          accounts[0] ??
+          null;
 
         const children = (family.studentIds ?? [])
           .map((studentId: unknown) => studentById.get(String(studentId)))
@@ -353,13 +353,12 @@ router.get(
           father: {
             name: family.fatherName ?? "",
             phone: family.fatherPhone ?? "",
-            account: accountShape(fatherAccount),
           },
           mother: {
             name: family.motherName ?? "",
             phone: family.motherPhone ?? "",
-            account: accountShape(motherAccount),
           },
+          account: accountShape(familyAccount),
           children,
         };
       });
@@ -450,99 +449,319 @@ router.post(
     try {
       const instituteId = adminInstituteId(req, res);
       if (!instituteId) return;
+
       const familyId = text(req.params.familyId);
-      const relationInput = text(req.body?.relation).toLowerCase();
-      if (!Types.ObjectId.isValid(familyId) || !["father", "mother"].includes(relationInput)) {
-        res.status(400).json({ error: "Select a valid family and parent." });
+      if (!Types.ObjectId.isValid(familyId)) {
+        res.status(400).json({ error: "Select a valid family." });
         return;
       }
-      const relation: "father" | "mother" = relationInput as "father" | "mother";
 
-      const family = await ParentFamily.findOne({ _id: familyId, instituteId });
+      const family = await ParentFamily.findOne({
+        _id: familyId,
+        instituteId,
+      });
+
       if (!family) {
         res.status(404).json({ error: "Family not found." });
         return;
       }
 
-      const name = relation === "father" ? text(family.fatherName) : text(family.motherName);
-      const phone = relation === "father" ? text(family.fatherPhone) : text(family.motherPhone);
-      if (!name) {
-        res.status(400).json({ error: `${relation === "father" ? "Father" : "Mother"} name is missing in student records.` });
+      const fatherName = text(family.fatherName);
+      const motherName = text(family.motherName);
+      const fatherPhone = text(family.fatherPhone);
+      const motherPhone = text(family.motherPhone);
+
+      const familyName =
+        fatherName && motherName
+          ? `${fatherName} & ${motherName}`
+          : fatherName || motherName || "Parent Family";
+
+      const primaryPhone =
+        fatherPhone || motherPhone;
+
+      if (!primaryPhone) {
+        res.status(400).json({
+          error:
+            "Add at least one parent phone number in the student record first.",
+        });
         return;
       }
 
-      const loginId = text(req.body?.loginId).toLowerCase();
-      const password = text(req.body?.password);
-      const isApproved = req.body?.isApproved !== false;
-      if (!loginId) {
-        res.status(400).json({ error: "Login ID is required." });
-        return;
-      }
-      if (password && (password.length < 8 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password))) {
-        res.status(400).json({ error: "Password must have 8+ characters, uppercase, lowercase and a number." });
+      const email =
+        text(
+          req.body?.email ||
+            req.body?.loginId,
+        ).toLowerCase();
+
+      const password =
+        text(req.body?.password);
+
+      const isApproved =
+        req.body?.isApproved !== false;
+
+      if (
+        !email ||
+        !/^\S+@\S+\.\S+$/.test(email)
+      ) {
+        res.status(400).json({
+          error:
+            "Enter a valid family login email address.",
+        });
         return;
       }
 
-      let user = await User.findOne({ instituteId, role: "parent", parentFamilyId: family._id, parentRelation: relation });
+      if (
+        password &&
+        (
+          password.length < 8 ||
+          !/[a-z]/.test(password) ||
+          !/[A-Z]/.test(password) ||
+          !/\d/.test(password)
+        )
+      ) {
+        res.status(400).json({
+          error:
+            "Password must have 8+ characters, uppercase, lowercase and a number.",
+        });
+        return;
+      }
+
+      const familyAccounts =
+        await User.find({
+          instituteId,
+          role: "parent",
+          parentFamilyId:
+            family._id,
+        }).sort({ createdAt: 1 });
+
+      let user =
+        familyAccounts.find(
+          (account) =>
+            String(account.email ?? "")
+              .trim()
+              .toLowerCase() === email ||
+            String(account.loginId ?? "")
+              .trim()
+              .toLowerCase() === email,
+        ) ??
+        familyAccounts.find(
+          (account) =>
+            account.parentRelation ===
+            "guardian",
+        ) ??
+        familyAccounts.find(
+          (account) =>
+            account.isApproved === true,
+        ) ??
+        familyAccounts[0] ??
+        null;
+
+      const familyAccountIds =
+        familyAccounts.map(
+          (account) => account._id,
+        );
+
+      const duplicateEmail =
+        await User.exists({
+          ...(familyAccountIds.length
+            ? {
+                _id: {
+                  $nin:
+                    familyAccountIds,
+                },
+              }
+            : {}),
+          $or: [
+            { email },
+            { loginId: email },
+          ],
+        });
+
+      if (duplicateEmail) {
+        res.status(409).json({
+          error:
+            "That email address is already being used by another account.",
+        });
+        return;
+      }
+
       if (!user) {
         if (!password) {
-          res.status(400).json({ error: "Password is required when creating a parent login." });
+          res.status(400).json({
+            error:
+              "Password is required when creating the family login.",
+          });
           return;
         }
+
         user = await User.create({
-          name,
-          email: loginId,
-          loginId,
-          phone,
-          password: await bcrypt.hash(password, 12),
+          name: familyName,
+          email,
+          loginId: email,
+          phone: primaryPhone,
+          password:
+            await bcrypt.hash(
+              password,
+              12,
+            ),
           role: "parent",
           instituteId,
           isApproved,
-          parentFamilyId: family._id,
-          parentRelation: relation,
-          linkedStudentIds: family.studentIds,
+          parentFamilyId:
+            family._id,
+          parentRelation:
+            "guardian",
+          linkedStudentIds:
+            family.studentIds,
         });
       } else {
-        user.name = name;
-        user.phone = phone;
-        user.email = loginId;
-        user.loginId = loginId;
-        user.isApproved = isApproved;
-        user.parentFamilyId = family._id;
-        user.parentRelation = relation;
-        user.linkedStudentIds = family.studentIds;
-        if (password) user.password = await bcrypt.hash(password, 12);
+        user.name = familyName;
+        user.email = email;
+        user.loginId = email;
+        user.phone = primaryPhone;
+        user.isApproved =
+          isApproved;
+        user.parentFamilyId =
+          family._id;
+        user.parentRelation =
+          "guardian";
+        user.linkedStudentIds =
+          family.studentIds;
+
+        if (password) {
+          user.password =
+            await bcrypt.hash(
+              password,
+              12,
+            );
+        }
+
         await user.save();
       }
 
+      const extraAccountIds =
+        familyAccounts
+          .filter(
+            (account) =>
+              String(account._id) !==
+              String(user!._id),
+          )
+          .map(
+            (account) =>
+              account._id,
+          );
+
+      if (
+        extraAccountIds.length
+      ) {
+        await User.updateMany(
+          {
+            _id: {
+              $in:
+                extraAccountIds,
+            },
+          },
+          {
+            $set: {
+              isApproved: false,
+            },
+          },
+        );
+      }
+
+      const sessionUserIds = [
+        String(user._id),
+        ...extraAccountIds.map(String),
+      ];
+
       await UserSession.updateMany(
-        { userId: String(user._id), principalType: "user", revokedAt: null },
-        { $set: { revokedAt: new Date(), revokeReason: "parent_account_updated" } },
+        {
+          userId: {
+            $in:
+              sessionUserIds,
+          },
+          principalType:
+            "user",
+          revokedAt: null,
+        },
+        {
+          $set: {
+            revokedAt:
+              new Date(),
+            revokeReason:
+              "family_parent_account_updated",
+          },
+        },
       );
 
-      await recordAudit(req, "parent.login.upsert", "user", String(user._id), {
-        familyId: String(family._id),
-        relation,
-        linkedStudentIds: family.studentIds.map(String),
-      });
+      await recordAudit(
+        req,
+        "parent.family.login.upsert",
+        "user",
+        String(user._id),
+        {
+          familyId:
+            String(family._id),
+          fatherPhone:
+            Boolean(fatherPhone),
+          motherPhone:
+            Boolean(motherPhone),
+          linkedStudentIds:
+            family.studentIds.map(
+              String,
+            ),
+          disabledLegacyAccounts:
+            extraAccountIds.map(
+              String,
+            ),
+        },
+      );
 
       res.json({
         account: {
-          id: String(user._id),
-          name: user.name,
-          loginId: user.loginId ?? user.email,
-          phone: user.phone ?? "",
-          isApproved: Boolean(user.isApproved),
-          relation,
+          id:
+            String(user._id),
+          name:
+            user.name,
+          loginId:
+            user.loginId ??
+            user.email,
+          email:
+            user.email ?? "",
+          phone:
+            user.phone ?? "",
+          isApproved:
+            Boolean(
+              user.isApproved,
+            ),
+        },
+        loginAliases: {
+          email:
+            user.email,
+          fatherPhone,
+          motherPhone,
         },
       });
     } catch (error: any) {
-      if (error?.code === 11000) {
-        res.status(409).json({ error: "That login ID is already being used." });
+      if (
+        error?.code === 11000
+      ) {
+        res.status(409).json({
+          error:
+            "That email address is already being used.",
+        });
         return;
       }
-      console.error("Parent login upsert error:", error);
-      res.status(500).json({ error: "Unable to save parent login." });
+
+      console.error(
+        "Family parent login upsert error:",
+        error,
+      );
+
+      res.status(500).json({
+        error:
+          "Unable to save family login.",
+      });
     }
   },
 );
@@ -587,7 +806,7 @@ router.get(
               status: { $ne: "inactive" },
             })
               .select(
-                "name email phone enrollmentNo instituteId batchId courseId status academicYear dateOfBirth gender bloodGroup schoolName className section board photoDataUrl",
+                "name email phone enrollmentNo instituteId batchId courseId status academicYear dateOfBirth gender genderOther bloodGroup schoolName className section board boardOther lastClassPercentage lastClassMarks photoDataUrl documents aadhaarCard previousMarksheet parentName parentPhone motherName motherOccupation motherPhone motherWhatsapp fatherName fatherOccupation fatherPhone fatherWhatsapp emergencyPhone correspondenceAddress correspondenceDistrict correspondenceState correspondencePin permanentAddress permanentDistrict permanentState permanentPin",
               )
               .lean()
           : Promise.resolve([]),
@@ -854,15 +1073,48 @@ router.get(
         children,
         selectedChild: {
           id: studentId,
+          courseId: idOf(selected.courseId),
+          batchId: idOf(selected.batchId),
           name: selected.name ?? "",
+          email: selected.email ?? "",
+          phone: selected.phone ?? "",
           enrollmentNo: selected.enrollmentNo ?? "",
           photoDataUrl: selected.photoDataUrl ?? "",
           className: selected.className ?? "",
           section: selected.section ?? "",
           board: selected.board ?? "",
+          boardOther: selected.boardOther ?? "",
           schoolName: selected.schoolName ?? "",
           academicYear:
             selected.academicYear ?? selectedBatch?.academicYear ?? "",
+          dateOfBirth: selected.dateOfBirth ?? "",
+          gender: selected.gender ?? "",
+          genderOther: selected.genderOther ?? "",
+          bloodGroup: selected.bloodGroup ?? "",
+          lastClassPercentage: selected.lastClassPercentage ?? "",
+          lastClassMarks: selected.lastClassMarks ?? "",
+          aadhaarCard: selected.aadhaarCard ?? "",
+          previousMarksheet: selected.previousMarksheet ?? "",
+          documents: Array.isArray(selected.documents) ? selected.documents : [],
+          parentName: selected.parentName ?? "",
+          parentPhone: selected.parentPhone ?? "",
+          fatherName: selected.fatherName ?? "",
+          fatherOccupation: selected.fatherOccupation ?? "",
+          fatherPhone: selected.fatherPhone ?? "",
+          fatherWhatsapp: selected.fatherWhatsapp ?? "",
+          motherName: selected.motherName ?? "",
+          motherOccupation: selected.motherOccupation ?? "",
+          motherPhone: selected.motherPhone ?? "",
+          motherWhatsapp: selected.motherWhatsapp ?? "",
+          emergencyPhone: selected.emergencyPhone ?? "",
+          correspondenceAddress: selected.correspondenceAddress ?? "",
+          correspondenceDistrict: selected.correspondenceDistrict ?? "",
+          correspondenceState: selected.correspondenceState ?? "",
+          correspondencePin: selected.correspondencePin ?? "",
+          permanentAddress: selected.permanentAddress ?? "",
+          permanentDistrict: selected.permanentDistrict ?? "",
+          permanentState: selected.permanentState ?? "",
+          permanentPin: selected.permanentPin ?? "",
           courseName: courseById.get(idOf(selected.courseId)) ?? "",
           batchName: selectedBatch?.name ?? "",
           batchSchedule: selectedBatch?.schedule ?? "",
@@ -892,6 +1144,7 @@ router.get(
             monthLabel: payment.monthLabel,
             dueDate: payment.dueDate,
             paidDate: payment.paidDate ?? "",
+            amount: payment.amount ?? Math.max(0, Number(payment.totalAmount ?? 0) - Number(payment.lateFee ?? 0)),
             totalAmount: payment.totalAmount,
             paidAmount: payment.paidAmount ?? 0,
             lateFee: payment.lateFee ?? 0,
@@ -911,16 +1164,44 @@ router.get(
         })),
         exams: (exams as any[]).map((exam) => {
           const mark: any = markByExam.get(idOf(exam._id));
+          const title = exam.title ?? exam.name ?? "Exam";
+          const examDate = exam.examDate ?? exam.date ?? exam.startTime ?? "";
+          const examType =
+            exam.examType === "online" || exam.type === "online" || exam.isOnline
+              ? "online"
+              : "offline";
           return {
             id: idOf(exam._id),
-            name: exam.name,
+            // Keep both the old Parent API keys and the exact Student App keys.
+            name: title,
+            title,
+            type: exam.type ?? examType,
+            examType,
             subjectName: subjectById.get(idOf(exam.subjectId)) ?? "Subject",
-            date: exam.date,
+            date: examDate,
+            examDate,
+            startTime: exam.startTime ?? "",
+            endTime: exam.endTime ?? "",
+            duration: exam.duration ?? exam.durationMinutes ?? 0,
+            durationMinutes: exam.durationMinutes ?? exam.duration ?? 0,
+            room: exam.room ?? exam.venue ?? "",
+            venue: exam.venue ?? exam.room ?? "",
+            instructions: exam.instructions ?? "",
+            syllabus: exam.syllabus ?? "",
+            // URL is returned for data parity, but Parent Child View never launches tests.
+            examUrl: exam.examUrl ?? exam.link ?? "",
             totalMarks: exam.totalMarks,
             passingMarks: exam.passingMarks,
             status: exam.status,
             marksObtained: mark?.marksObtained ?? null,
             grade: mark?.grade ?? "",
+            resultStatus:
+              mark?.resultStatus ??
+              (mark?.marksObtained != null && exam.passingMarks != null
+                ? Number(mark.marksObtained) >= Number(exam.passingMarks)
+                  ? "Pass"
+                  : "Fail"
+                : ""),
             remarks: mark?.remarks ?? "",
           };
         }),
@@ -1138,146 +1419,6 @@ router.get(
     } catch (error) {
       console.error("Parent dashboard error:", error);
       res.status(500).json({ error: "Unable to load parent dashboard." });
-    }
-  },
-);
-
-router.post(
-  "/parent/student-view/start",
-  authenticate,
-  requireParent,
-  async (req, res): Promise<void> => {
-    try {
-      let parent = await getParentAccount(req.user!.userId);
-      if (!parent || !parent.isApproved || !parent.instituteId) {
-        res.status(403).json({ error: "Active parent account required." });
-        return;
-      }
-
-      const resolvedParent = await attachLegacyParentToFamily(parent);
-      if (!resolvedParent?.instituteId) {
-        res.status(403).json({ error: "Active parent account required." });
-        return;
-      }
-
-      const studentId = text(req.body?.studentId);
-      if (!Types.ObjectId.isValid(studentId)) {
-        res.status(400).json({ error: "Select a valid child." });
-        return;
-      }
-
-      const linkedIds = await linkedStudentIdsForParent(resolvedParent);
-      if (!linkedIds.includes(studentId)) {
-        res.status(403).json({ error: "This child is not linked to your parent account." });
-        return;
-      }
-
-      const student = await Student.findOne({
-        _id: studentId,
-        instituteId: resolvedParent.instituteId,
-        status: "active",
-      }).select("name email enrollmentNo instituteId batchId courseId");
-
-      if (!student) {
-        res.status(404).json({ error: "Active student not found." });
-        return;
-      }
-
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + PARENT_VIEW_MINUTES * 60 * 1000);
-      const userAgent = getUserAgent(req);
-
-      await UserSession.updateMany(
-        {
-          supportMode: true,
-          supportActorId: req.user!.userId,
-          supportActorRole: "parent",
-          revokedAt: null,
-          expiresAt: { $gt: now },
-        },
-        { $set: { revokedAt: now, revokeReason: "parent_view_replaced" } },
-      );
-
-      const viewSession = await UserSession.create({
-        userId: String(student._id),
-        principalType: "student",
-        instituteId: student.instituteId,
-        role: "student",
-        ipAddress: getRequestIp(req),
-        userAgent,
-        deviceName: `Parent View · ${getDeviceName(userAgent)}`,
-        deviceType: getDeviceType(userAgent),
-        lastLoginAt: now,
-        lastSeenAt: now,
-        expiresAt,
-        supportMode: true,
-        supportActorId: req.user!.userId,
-        supportActorRole: "parent",
-        supportReason: "Parent viewing linked child's student dashboard",
-      });
-
-      const token = signToken({
-        userId: String(student._id),
-        email: student.email ?? "",
-        role: "student",
-        instituteId: String(student.instituteId),
-        activeBranchId: null,
-        customRoleId: null,
-        sessionId: String(viewSession._id),
-      });
-
-      res.json({
-        token,
-        sessionId: String(viewSession._id),
-        expiresAt: expiresAt.toISOString(),
-        readOnly: true,
-        student: {
-          id: String(student._id),
-          name: student.name,
-          enrollmentNo: student.enrollmentNo,
-        },
-      });
-    } catch (error) {
-      console.error("Parent student view start error:", error);
-      res.status(500).json({ error: "Unable to open student dashboard." });
-    }
-  },
-);
-
-router.post(
-  "/parent/student-view/end",
-  authenticate,
-  requireParent,
-  async (req, res): Promise<void> => {
-    try {
-      const sessionId = text(req.body?.sessionId);
-      if (!mongoose.isValidObjectId(sessionId)) {
-        res.status(400).json({ error: "A valid parent-view session is required." });
-        return;
-      }
-
-      const session = await UserSession.findOne({
-        _id: sessionId,
-        supportMode: true,
-        supportActorId: req.user!.userId,
-        supportActorRole: "parent",
-      });
-
-      if (!session) {
-        res.status(404).json({ error: "Parent-view session not found." });
-        return;
-      }
-
-      if (!session.revokedAt) {
-        session.revokedAt = new Date();
-        session.revokeReason = "parent_view_exit";
-        await session.save();
-      }
-
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Parent student view end error:", error);
-      res.status(500).json({ error: "Unable to close student dashboard view." });
     }
   },
 );

@@ -295,28 +295,17 @@ router.patch("/foundation/settings", async (req, res): Promise<void> => {
     res.status(400).json({ error: "settings must be an object" });
     return;
   }
-
   const values = Object.fromEntries(Object.entries(req.body.settings).filter(([key, value]) =>
     /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key) && !["__proto__", "constructor", "prototype"].includes(key) &&
     (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null),
   ));
-
-  // Merge only the submitted keys instead of replacing the complete settings object.
-  // General Settings, Foundation Settings and future modules can therefore share
-  // the same InstituteSettings document without deleting each other's values.
-  const setPatch: Record<string, unknown> = { updatedBy: req.user!.userId };
-  for (const [key, value] of Object.entries(values)) {
-    setPatch[`values.${key}`] = value;
-  }
-
   const updated = await InstituteSettings.findOneAndUpdate(
     { instituteId },
-    { $set: setPatch },
+    { $set: { values, updatedBy: req.user!.userId } },
     { upsert: true, returnDocument: "after", runValidators: true, setDefaultsOnInsert: true },
   );
-
   await recordAudit(req, "settings.update", "institute_settings", String(instituteId), { keys: Object.keys(values) });
-  res.json({ settings: updated.values ?? {}, updatedAt: updated.updatedAt });
+  res.json({ settings: updated.values, updatedAt: updated.updatedAt });
 });
 
 router.patch("/foundation/institute", async (req, res): Promise<void> => {
@@ -533,8 +522,13 @@ router.post("/foundation/users", async (req, res): Promise<void> => {
   }
   try {
     const user = await User.create({
-      name, email, phone: String(req.body.phone ?? "").trim(),
-      password: await bcrypt.hash(password, 12), role, instituteId,
+      name,
+      email,
+      loginId: role === "parent" ? email : undefined,
+      phone: String(req.body.phone ?? "").trim(),
+      password: await bcrypt.hash(password, 12),
+      role,
+      instituteId,
       customRoleId: roleDoc?._id,
       branchIds: branches.map((branch) => branch._id),
       linkedStudentIds: role === "parent" ? (linkedStudentResult.ids ?? []) : [],
@@ -576,22 +570,33 @@ router.patch("/foundation/users/:id", async (req, res): Promise<void> => {
   if (req.body.email !== undefined) {
     const nextEmail = String(req.body.email ?? "").trim().toLowerCase();
     if (!nextEmail || !/^\S+@\S+\.\S+$/.test(nextEmail)) {
-      res.status(400).json({ error: "Enter a valid login ID / email" });
+      res.status(400).json({ error: "Enter a valid parent email address" });
       return;
     }
 
-    if (nextEmail !== user.email) {
+    const emailChangedNow = nextEmail !== user.email;
+    const parentLoginIdNeedsSync =
+      user.role === "parent" &&
+      String(user.loginId ?? "").trim().toLowerCase() !== nextEmail;
+
+    if (emailChangedNow || parentLoginIdNeedsSync) {
       const duplicate = await User.exists({
         _id: { $ne: user._id },
         $or: [{ email: nextEmail }, { loginId: nextEmail }],
       });
+
       if (duplicate) {
-        res.status(409).json({ error: "That login ID is already registered" });
+        res.status(409).json({ error: "That email address is already registered" });
         return;
       }
 
       user.email = nextEmail;
-      emailChanged = true;
+
+      if (user.role === "parent") {
+        user.loginId = nextEmail;
+      }
+
+      emailChanged = emailChangedNow;
       securityChanged = true;
     }
   }
