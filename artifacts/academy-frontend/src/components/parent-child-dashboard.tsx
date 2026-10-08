@@ -14,6 +14,7 @@ import {
   AlertCircle,
   Home,
   ChevronRight,
+  ChevronLeft,
   Search,
   X,
   User,
@@ -126,8 +127,54 @@ type AttendanceSummary = {
   present: number;
   absent: number;
   late: number;
-  percentage: number;
+  percentage: number; // legacy: recorded days only
+  recordedRate: number | null;
+  monthlyPercentage: number | null;
+  monthlyStatus: "not_verified" | "verified";
+  officialCalendarAvailable: boolean;
+  workingDays: number | null;
+  batchRegisterDays: number;
+  unmarkedBatchRegisterDays: number;
+  batchRegisterDates: string[];
+  unmarkedBatchRegisterDates: string[];
 };
+
+type AttendanceDay = {
+  id: string;
+  date: string;
+  status: "present" | "absent" | "late";
+  remarks: string;
+};
+
+type MonthlyAttendance = {
+  month: string;
+  summary: AttendanceSummary;
+  records: AttendanceDay[];
+};
+
+const indiaMonth = () => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value || "";
+  const month = parts.find((part) => part.type === "month")?.value || "";
+  return `${year}-${month}`;
+};
+
+const readableMonth = (month: string) => {
+  const [year, monthNumber] = month.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" })
+    .format(new Date(year, monthNumber - 1, 1));
+};
+
+const moveMonth = (month: string, offset: number) => {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const target = new Date(year, monthNumber - 1 + offset, 1);
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}`;
+};
+
 
 type StudentLeaveRequest = {
   id: string;
@@ -406,7 +453,12 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
   const [payments, setPayments] = useState<Payment[]>([]);
   const [homework, setHomework] = useState<Homework[]>([]);
   const [report, setReport] = useState<any>(null);
-  const [attendance, setAttendance] = useState<AttendanceSummary | null>(null);
+  // Attendance is rendered from the selected month's authenticated API response.
+  // Do not maintain a second, unused overview summary with a divergent data shape.
+  const [attendanceMonth, setAttendanceMonth] = useState(() => indiaMonth());
+  const [monthlyAttendance, setMonthlyAttendance] = useState<MonthlyAttendance | null>(null);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState("");
   const [timetable, setTimetable] = useState<TimetableEntry[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<StudentLeaveRequest[]>([]);
@@ -610,16 +662,6 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
         })),
       );
 
-      const attendanceData = body?.attendance || {};
-      setAttendance({
-        studentId: String(child.id),
-        totalClasses: Number(attendanceData.total ?? attendanceData.totalClasses ?? 0),
-        present: Number(attendanceData.present ?? 0),
-        absent: Number(attendanceData.absent ?? 0),
-        late: Number(attendanceData.late ?? 0),
-        percentage: Number(attendanceData.percentage ?? 0),
-      });
-
       const timetableRows = Array.isArray(body?.timetable) ? body.timetable : [];
       setTimetable(
         timetableRows.map((t: any) => ({
@@ -764,7 +806,6 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
           setPayments([]);
           setHomework([]);
           setReport(null);
-          setAttendance(null);
           setTimetable([]);
           setExams([]);
         }
@@ -776,6 +817,122 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
 
     void load();
   }, [studentId, refreshKey]);
+
+  // Load real records for the selected child/month; do NOT reload the entire dashboard
+  // on every calendar navigation. An AbortController prevents stale months/children
+  // from overwriting the latest request.
+  useEffect(() => {
+    if (activeTab !== "attendance" || !studentId) return;
+
+    const controller = new AbortController();
+    const token = localStorage.getItem("coach_sutra_token") || "";
+    setAttendanceLoading(true);
+    setAttendanceError("");
+    setMonthlyAttendance(null);
+
+    if (!token) {
+      setAttendanceError("Parent session expired. Please sign in again.");
+      setAttendanceLoading(false);
+      return;
+    }
+
+    const loadAttendance = async () => {
+      try {
+        const response = await fetch(
+          `/api/parent/children/${encodeURIComponent(studentId)}/attendance?month=${encodeURIComponent(attendanceMonth)}`,
+          {
+            credentials: "include",
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          },
+        );
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(result?.error || "Unable to load attendance for this month.");
+        }
+        if (result?.month !== attendanceMonth || String(result?.child?.id) !== studentId) {
+          throw new Error("Attendance response does not match the selected child or month.");
+        }
+
+        const rawSummary = result?.summary || {};
+        const rows = Array.isArray(result?.records) ? result.records : [];
+        if (!controller.signal.aborted) {
+          setMonthlyAttendance({
+            month: attendanceMonth,
+            summary: {
+              studentId,
+              totalClasses: Number(rawSummary.total ?? 0),
+              present: Number(rawSummary.present ?? 0),
+              absent: Number(rawSummary.absent ?? 0),
+              late: Number(rawSummary.late ?? 0),
+              percentage: Number(rawSummary.percentage ?? 0),
+              recordedRate: rawSummary.recordedRate == null
+                ? rawSummary.total > 0 ? Number(rawSummary.percentage ?? 0) : null
+                : Number(rawSummary.recordedRate),
+              monthlyPercentage: rawSummary.monthlyPercentage == null
+                ? null
+                : Number(rawSummary.monthlyPercentage),
+              monthlyStatus: rawSummary.monthlyStatus === "verified" ? "verified" : "not_verified",
+              officialCalendarAvailable: rawSummary.officialCalendarAvailable === true,
+              workingDays: rawSummary.workingDays == null ? null : Number(rawSummary.workingDays),
+              batchRegisterDays: Number(rawSummary.batchRegisterDays ?? new Set(rows.map((row: any) => row?.date).filter(Boolean)).size),
+              unmarkedBatchRegisterDays: Number(rawSummary.unmarkedBatchRegisterDays ?? 0),
+              batchRegisterDates: Array.isArray(rawSummary.batchRegisterDates)
+                ? rawSummary.batchRegisterDates.filter((date: unknown): date is string =>
+                    typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date),
+                  )
+                : [],
+              unmarkedBatchRegisterDates: Array.isArray(rawSummary.unmarkedBatchRegisterDates)
+                ? rawSummary.unmarkedBatchRegisterDates.filter((date: unknown): date is string =>
+                    typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date),
+                  )
+                : [],
+            },
+            records: rows
+              .filter((row: any) =>
+                typeof row?.date === "string" &&
+                row.date.startsWith(`${attendanceMonth}-`) &&
+                ["present", "absent", "late"].includes(row.status),
+              )
+              .map((row: any) => ({
+                id: String(row.id || row._id || ""),
+                date: String(row.date),
+                status: row.status as AttendanceDay["status"],
+                remarks: String(row.remarks || ""),
+              })),
+          });
+        }
+      } catch (cause: any) {
+        if (!controller.signal.aborted) {
+          setAttendanceError(cause?.message || "Unable to load attendance.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setAttendanceLoading(false);
+      }
+    };
+
+    void loadAttendance();
+    return () => controller.abort();
+  }, [studentId, activeTab, attendanceMonth, refreshKey]);
+
+  const attendanceCalendar = useMemo(() => {
+    const [year, monthNumber] = attendanceMonth.split("-").map(Number);
+    const firstWeekday = new Date(year, monthNumber - 1, 1).getDay();
+    const daysInMonth = new Date(year, monthNumber, 0).getDate();
+    const rowsByDay = new Map<number, AttendanceDay[]>();
+    if (monthlyAttendance?.month === attendanceMonth) {
+      for (const row of monthlyAttendance.records) {
+        const day = Number(row.date.slice(8, 10));
+        if (!Number.isInteger(day) || day < 1 || day > daysInMonth) continue;
+        rowsByDay.set(day, [...(rowsByDay.get(day) || []), row]);
+      }
+    }
+    return { firstWeekday, daysInMonth, rowsByDay };
+  }, [attendanceMonth, monthlyAttendance]);
+
+  const visibleAttendance =
+    monthlyAttendance?.month === attendanceMonth ? monthlyAttendance.summary : null;
+  const attendanceHasRecords = (visibleAttendance?.totalClasses ?? 0) > 0;
 
   const feeSummary = useMemo(() => {
     const total = payments.reduce(
@@ -2051,81 +2208,191 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
             <div className="space-y-4 animate-fadeIn">
               <StudentSectionHeader
                 title="Attendance"
-                description="Current month attendance summary"
+                description="Monthly attendance overview"
                 icon={<ClipboardCheck className="h-5 w-5" />}
                 onBack={() => openStudentSection("home")}
               />
 
-              <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-                <div className="bg-[linear-gradient(105deg,#020817_0%,#07112a_58%,#21184d_100%)] p-5 text-white">
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200">
-                    Monthly attendance
-                  </p>
-                  <div className="mt-3 flex items-end justify-between gap-4">
-                    <div>
-                      <p className="text-4xl font-black tracking-tight">
-                        {attendance?.percentage ?? 0}%
-                      </p>
-                      <p className="mt-1 text-xs font-semibold text-slate-300">
-                        {attendance?.totalClasses || 0} classes marked
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                      <ClipboardCheck className="h-7 w-7 text-cyan-200" />
-                    </div>
-                  </div>
+              <section className="rounded-[22px] border border-slate-200 bg-white p-4 text-slate-900 shadow-sm">
+                <label htmlFor="attendance-month" className="mb-2 block text-xs font-black text-slate-600">
+                  Select month and year
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label="Previous month"
+                    onClick={() => setAttendanceMonth((month) => moveMonth(month, -1))}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  <input
+                    id="attendance-month"
+                    type="month"
+                    value={attendanceMonth}
+                    max={indiaMonth()}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      if (/^\d{4}-(0[1-9]|1[0-2])$/.test(next) && next <= indiaMonth()) {
+                        setAttendanceMonth(next);
+                      }
+                    }}
+                    className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-800 outline-none focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Next month"
+                    disabled={attendanceMonth >= indiaMonth()}
+                    onClick={() => setAttendanceMonth((month) => moveMonth(month, 1))}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </button>
                 </div>
-
-                <div className="grid grid-cols-4 divide-x divide-slate-100 border-b border-slate-100">
-                  <AttendanceStat
-                    label="Total"
-                    value={attendance?.totalClasses || 0}
-                    className="text-slate-900"
-                  />
-                  <AttendanceStat
-                    label="Present"
-                    value={attendance?.present || 0}
-                    className="text-emerald-600"
-                  />
-                  <AttendanceStat
-                    label="Absent"
-                    value={attendance?.absent || 0}
-                    className="text-red-500"
-                  />
-                  <AttendanceStat
-                    label="Late"
-                    value={attendance?.late || 0}
-                    className="text-amber-500"
-                  />
-                </div>
-
-                <div className="p-5">
-                  <div className="mb-2 flex items-center justify-between text-xs">
-                    <span className="font-bold text-slate-600">
-                      Attendance rate
-                    </span>
-                    <span className="font-black text-cyan-700">
-                      {attendance?.percentage ?? 0}%
-                    </span>
-                  </div>
-                  <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className="h-full rounded-full bg-[linear-gradient(90deg,#06b6d4,#2563eb)] transition-all"
-                      style={{
-                        width: `${Math.min(
-                          100,
-                          Math.max(0, Number(attendance?.percentage || 0))
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                  {!attendance && (
-                    <p className="mt-4 text-xs font-semibold leading-5 text-slate-400">
-                      Attendance summary is currently unavailable.
-                    </p>
-                  )}
-                </div>
+                <p className="mt-2 text-xs font-medium text-slate-500">
+                  Showing {readableMonth(attendanceMonth)} for {student?.name || "selected student"}
+                </p>
               </section>
+
+              {attendanceError ? (
+                <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
+                  {attendanceError}
+                  <button type="button" onClick={() => setRefreshKey((value) => value + 1)} className="ml-2 underline">
+                    Retry
+                  </button>
+                </div>
+              ) : null}
+
+              {attendanceLoading ? (
+                <section aria-busy="true" className="animate-pulse space-y-3 rounded-[24px] border border-slate-200 bg-white p-5">
+                  <div className="h-4 w-1/3 rounded bg-slate-200" />
+                  <div className="h-12 w-1/4 rounded bg-slate-200" />
+                  <div className="h-24 rounded-xl bg-slate-100" />
+                </section>
+              ) : null}
+
+              {!attendanceLoading && !attendanceError && visibleAttendance && (
+                <>
+                  <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+                    <div className="bg-[linear-gradient(105deg,#020817_0%,#07112a_58%,#21184d_100%)] p-5 text-white">
+                      <p className="text-xs font-black uppercase tracking-[0.12em] text-cyan-200">
+                        {readableMonth(attendanceMonth)} attendance
+                      </p>
+                      <div className="mt-3 flex items-end justify-between gap-4">
+                        <div>
+                          <p className="text-3xl font-black tracking-tight">
+                            {visibleAttendance.monthlyPercentage == null
+                              ? "Not verified"
+                              : `${visibleAttendance.monthlyPercentage}%`}
+                          </p>
+                          <p className="mt-1 text-xs font-semibold text-slate-300">
+                            Monthly attendance • {visibleAttendance.totalClasses} {visibleAttendance.totalClasses === 1 ? "day" : "days"} marked
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                          <ClipboardCheck className="h-7 w-7 text-cyan-200" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 divide-x divide-slate-100 border-b border-slate-100">
+                      <AttendanceStat label="Total" value={visibleAttendance.totalClasses} className="text-slate-900" />
+                      <AttendanceStat label="Present" value={visibleAttendance.present} className="text-emerald-600" />
+                      <AttendanceStat label="Absent" value={visibleAttendance.absent} className="text-red-500" />
+                      <AttendanceStat label="Late" value={visibleAttendance.late} className="text-amber-500" />
+                    </div>
+                    <div className="p-5">
+                      <div className="mb-2 flex items-center justify-between text-xs">
+                        <span className="font-bold text-slate-600">Recorded attendance rate</span>
+                        <span className="font-black text-cyan-700">
+                          {attendanceHasRecords && visibleAttendance.recordedRate !== null
+                            ? `${visibleAttendance.recordedRate}%`
+                            : "Not available"}
+                        </span>
+                      </div>
+                      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-[linear-gradient(90deg,#06b6d4,#2563eb)] transition-all"
+                          style={{ width: `${attendanceHasRecords && visibleAttendance.recordedRate !== null ? Math.max(0, Math.min(100, visibleAttendance.recordedRate)) : 0}%` }}
+                        />
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xl font-black text-slate-900">{visibleAttendance.batchRegisterDays}</p>
+                          <p className="mt-1 text-xs font-semibold text-slate-600">Dates with a batch attendance register</p>
+                        </div>
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                          <p className="text-xl font-black text-amber-900">{visibleAttendance.unmarkedBatchRegisterDays}</p>
+                          <p className="mt-1 text-xs font-semibold text-amber-800">Dates without this child’s entry</p>
+                        </div>
+                      </div>
+                      {!attendanceHasRecords && (
+                        <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-600">
+                          No attendance recorded for {readableMonth(attendanceMonth)}.
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[24px] border border-slate-200 bg-white p-4 text-slate-900 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-base font-black text-slate-950">Attendance Calendar</h3>
+                        <p className="mt-1 text-xs font-medium text-slate-500">{readableMonth(attendanceMonth)}</p>
+                      </div>
+                      <CalendarDays className="h-5 w-5 text-blue-500" />
+                    </div>
+                    <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[11px] font-black text-slate-500">
+                      {(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const).map((day) => (
+                        <div key={day} className="py-2">{day}</div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-1.5">
+                      {Array.from({ length: attendanceCalendar.firstWeekday }, (_, index) => (
+                        <div key={`blank-${index}`} aria-hidden="true" />
+                      ))}
+                      {Array.from({ length: attendanceCalendar.daysInMonth }, (_, index) => {
+                        const day = index + 1;
+                        const rows = attendanceCalendar.rowsByDay.get(day) || [];
+                        const dateKey = `${attendanceMonth}-${String(day).padStart(2, "0")}`;
+                        const missingInRegister = monthlyAttendance?.summary.unmarkedBatchRegisterDates.includes(dateKey) ?? false;
+                        const status = rows.length === 1 ? rows[0].status : rows.length > 1 ? "mixed" : missingInRegister ? "missing" : "unmarked";
+                        const colors = {
+                          present: "border-emerald-200 bg-emerald-50 text-emerald-800",
+                          absent: "border-red-200 bg-red-50 text-red-800",
+                          late: "border-amber-200 bg-amber-50 text-amber-800",
+                          mixed: "border-indigo-200 bg-indigo-50 text-indigo-800",
+                          missing: "border-amber-300 bg-amber-50 text-amber-800",
+                          unmarked: "border-slate-100 bg-slate-50 text-slate-400",
+                        } as const;
+                        const recordLabel = rows.length === 0
+                          ? missingInRegister ? "No child record; another batch attendance entry exists" : "No attendance recorded"
+                          : rows.map((row) => `${row.status}${row.remarks ? `: ${row.remarks}` : ""}`).join("; ");
+                        return (
+                          <div
+                            key={`${attendanceMonth}-${day}`}
+                            title={`${day} ${readableMonth(attendanceMonth)} — ${recordLabel}`}
+                            aria-label={`${day} ${readableMonth(attendanceMonth)}: ${recordLabel}`}
+                            className={`flex min-h-12 flex-col items-center justify-center rounded-xl border p-1 text-center ${colors[status]}`}
+                          >
+                            <span className="text-sm font-black">{day}</span>
+                            <span className="mt-0.5 text-[9px] font-black uppercase">
+                              {status === "present" ? "P" : status === "absent" ? "A" : status === "late" ? "L" : status === "mixed" ? "Mix" : status === "missing" ? "!" : "—"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold text-slate-600">
+                      <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />Present</span>
+                      <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-red-500" />Absent</span>
+                      <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />Late</span>
+                      <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-amber-400" />No child entry</span>
+                      <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-slate-300" />Not marked</span>
+                    </div>
+                  </section>
+
+                </>
+              )}
             </div>
           )}
 

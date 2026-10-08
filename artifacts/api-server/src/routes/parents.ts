@@ -766,6 +766,125 @@ router.post(
   },
 );
 
+// Monthly, date-wise attendance for one authorized child. This does not expose
+// institute-wide or another parent's student data.
+router.get(
+  "/parent/children/:studentId/attendance",
+  authenticate,
+  requireParent,
+  async (req, res): Promise<void> => {
+    try {
+      const parent = await getParentAccount(req.user!.userId);
+      if (!parent || !parent.isApproved || !parent.instituteId) {
+        res.status(403).json({ error: "Active parent account required." });
+        return;
+      }
+
+      const studentId = text(req.params.studentId);
+      if (!Types.ObjectId.isValid(studentId)) {
+        res.status(400).json({ error: "Invalid student ID." });
+        return;
+      }
+
+      const month = text(req.query.month) || currentIndiaMonth();
+      if (!/^(19|20)\d{2}-(0[1-9]|1[0-2])$/.test(month)) {
+        res.status(400).json({ error: "Month must be YYYY-MM." });
+        return;
+      }
+
+      const resolvedParent = await attachLegacyParentToFamily(parent);
+      const childIds = await linkedStudentIdsForParent(resolvedParent);
+      if (!childIds.includes(studentId)) {
+        res.status(403).json({ error: "This student is not linked to your parent account." });
+        return;
+      }
+
+      const student = await Student.findOne({
+        _id: studentId,
+        instituteId: resolvedParent.instituteId,
+        status: { $ne: "inactive" },
+      }).select("_id name batchId");
+
+      if (!student) {
+        res.status(403).json({ error: "This student is unavailable or inactive." });
+        return;
+      }
+
+      // Dates are stored as YYYY-MM-DD, so these comparisons are chronological.
+      // Future-dated attendance is excluded from the progress calculation.
+      const todayParts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).formatToParts(new Date());
+      const todayPart = (type: string) => todayParts.find((part) => part.type === type)?.value ?? "";
+      const today = `${todayPart("year")}-${todayPart("month")}-${todayPart("day")}`;
+
+      const records = await StudentAttendance.find({
+        studentId: student._id,
+        date: { $gte: `${month}-01`, $lte: today < `${month}-31` ? today : `${month}-31` },
+      }).select("date status remarks").sort({ date: 1 }).lean();
+
+      const present = records.filter((record) => record.status === "present").length;
+      const absent = records.filter((record) => record.status === "absent").length;
+      const late = records.filter((record) => record.status === "late").length;
+      const total = present + absent + late;
+      // This is ONLY the ratio within entered records, NOT a verified monthly rate.
+      const recordedRate = total > 0 ? Math.round(((present + late) / total) * 100) : null;
+
+      // A batch register date is evidenced by at least one attendance entry
+      // from the same batch. This is NOT the official working-day calendar:
+      // days without ANY entry, timetable changes and institute holidays are unknown.
+      // Do not pretend those dates were absent or compute a fake full-month percentage.
+      const observedBatchDates = student.batchId
+        ? await StudentAttendance.distinct("date", {
+            batchId: student.batchId,
+            date: { $gte: `${month}-01`, $lte: today < `${month}-31` ? today : `${month}-31` },
+          })
+        : [];
+      const childMarkedDates = new Set(records.map((record) => record.date));
+      const registerDates = [...new Set<string>([
+        ...observedBatchDates.filter((date): date is string => typeof date === "string"),
+        ...childMarkedDates,
+      ])]
+        .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date.startsWith(`${month}-`))
+        .sort();
+      const unmarkedRegisterDates = registerDates.filter((date) => !childMarkedDates.has(date));
+
+      res.setHeader("Cache-Control", "private, no-store");
+      res.json({
+        child: { id: String(student._id), name: student.name },
+        month,
+        summary: {
+          total, present, absent, late,
+          // Kept for compatibility with older clients; refers to RECORDED dates.
+          percentage: recordedRate ?? 0,
+          recordedRate,
+          batchRegisterDays: registerDates.length,
+          batchRegisterDates: registerDates,
+          unmarkedBatchRegisterDays: unmarkedRegisterDates.length,
+          unmarkedBatchRegisterDates: unmarkedRegisterDates,
+          // No authoritative month working-day / holiday calendar exists yet.
+          workingDays: null,
+          monthlyPercentage: null,
+          monthlyStatus: "not_verified",
+          officialCalendarAvailable: false,
+        },
+        records: records.map((record) => ({
+          id: String(record._id),
+          date: record.date,
+          status: record.status,
+          remarks: record.remarks ?? "",
+        })),
+      });
+    } catch (error) {
+      console.error("Parent monthly attendance error:", error);
+      res.status(500).json({ error: "Unable to load monthly attendance." });
+    }
+  },
+);
+
 router.get(
   "/parent/overview",
   authenticate,
