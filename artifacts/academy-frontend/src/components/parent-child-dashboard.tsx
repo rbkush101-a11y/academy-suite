@@ -67,6 +67,7 @@ type StudentMe = {
   boardOther?: string;
   schoolName?: string;
   photoDataUrl?: string;
+  instituteLogoDataUrl?: string;
   dateOfBirth?: string;
   gender?: string;
   genderOther?: string;
@@ -322,13 +323,80 @@ const AppStyles = () => (
   `}</style>
 );
 
+
+// Keep recent child dashboard data only for this signed-in parent session.
+const CHILD_OVERVIEW_CACHE_PREFIX = "academy_child_overview_cache:v2:";
+const CHILD_OVERVIEW_CACHE_TTL_MS = 10 * 60 * 1000;
+function childSessionCacheKey(studentId: string): string | null {
+  try {
+    const token = localStorage.getItem("coach_sutra_token") || "";
+    const encoded = token.split(".")[1];
+    if (!encoded) return null;
+    const claims = JSON.parse(atob(encoded.replace(/-/g, "+").replace(/_/g, "/")));
+    if (claims.role !== "parent" ||
+        (typeof claims.exp === "number" && Date.now() >= claims.exp * 1000)) return null;
+    const userId = String(claims.userId || claims.sub || "");
+    const sessionId = String(claims.sessionId || "");
+    return userId && sessionId && studentId
+      ? `${CHILD_OVERVIEW_CACHE_PREFIX}${userId}:${sessionId}:${studentId}` : null;
+  } catch {
+    return null;
+  }
+}
+function readCachedChildOverview(studentId: string): any | null {
+  const key = childSessionCacheKey(studentId);
+  if (!key) return null;
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const entry = JSON.parse(raw);
+    if (!entry?.body?.selectedChild?.id ||
+        String(entry.body.selectedChild.id) !== studentId ||
+        !Number.isFinite(entry.savedAt) ||
+        Date.now() - entry.savedAt > CHILD_OVERVIEW_CACHE_TTL_MS) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    return entry.body;
+  } catch {
+    return null;
+  }
+}
+function writeCachedChildOverview(studentId: string, body: any) {
+  const key = childSessionCacheKey(studentId);
+  if (!key || String(body?.selectedChild?.id || "") !== studentId) return;
+  try {
+    // Cache the last API result only in this tab. Cache is short-lived and
+    // never replaces background validation against the live API.
+    const serialized = JSON.stringify({ savedAt: Date.now(), body });
+    if (serialized.length < 2_000_000) sessionStorage.setItem(key, serialized);
+  } catch { /* Browser storage unavailable/full. */ }
+}
+function clearChildDashboardCaches() {
+  try {
+    for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = sessionStorage.key(index) || "";
+      if (key.startsWith(CHILD_OVERVIEW_CACHE_PREFIX) ||
+          key.startsWith("academy_parent_home_cache:v2:")) {
+        sessionStorage.removeItem(key);
+      }
+    }
+  } catch { /* Ignore disabled browser storage. */ }
+}
+
 type ParentChildDashboardProps = {
   studentId: string;
   onBackToParent: () => void;
+  initialStudent?: Partial<StudentMe> & Pick<StudentMe, "id" | "name">;
 };
 
-export default function ParentChildDashboard({ studentId, onBackToParent }: ParentChildDashboardProps) {
-  const [student, setStudent] = useState<StudentMe | null>(null);
+export default function ParentChildDashboard({ studentId, onBackToParent, initialStudent }: ParentChildDashboardProps) {
+  // Parent dashboard already knows the child's identity, so render it immediately.
+  const [student, setStudent] = useState<StudentMe | null>(() =>
+    initialStudent?.id === studentId && initialStudent.name
+      ? { role: "student", instituteId: "", ...initialStudent }
+      : null,
+  );
   // Unified Parent + Student App: Student Dashboard is a normal full-access area.
   // There is no separate Student App and no Parent View / Support Mode banner.
   const supportMode = false;
@@ -429,6 +497,8 @@ export default function ParentChildDashboard({ studentId, onBackToParent }: Pare
         headers: { Authorization: `Bearer ${currentToken}` },
       }).catch(() => {});
     }
+    clearChildDashboardCaches();
+    localStorage.removeItem("academy_last_child_id");
     localStorage.removeItem("coach_sutra_token");
     localStorage.removeItem("coach_sutra_user_role");
     localStorage.removeItem("foundation_branches");
@@ -447,8 +517,183 @@ export default function ParentChildDashboard({ studentId, onBackToParent }: Pare
       return;
     }
 
+    // Instantly restore the last verified overview for this exact child/session;
+    // refresh from the server in the background on every visit.
+    const cachedBody = readCachedChildOverview(studentId);
+    const applyOverview = (body: any) => {
+      const child = body?.selectedChild;
+      if (!child?.id || String(child.id) !== studentId) {
+        throw new Error("The selected child is not linked to this parent account.");
+      }
+
+      const me = {
+        id: String(child.id),
+        name: String(child.name || "Student"),
+        email: String(child.email || ""),
+        phone: String(child.phone || ""),
+        role: "student",
+        instituteId: String(body?.institute?.id || ""),
+        instituteName: String(body?.institute?.name || ""),
+        instituteLogoDataUrl: String(body?.institute?.logoDataUrl || ""),
+        enrollmentNo: String(child.enrollmentNo || ""),
+        courseId: String(child.courseId || ""),
+        courseName: String(child.courseName || ""),
+        batchId: String(child.batchId || ""),
+        batchName: String(child.batchName || ""),
+        academicYear: String(child.academicYear || body?.institute?.academicYear || ""),
+        className: String(child.className || ""),
+        section: String(child.section || ""),
+        board: String(child.board || ""),
+        boardOther: String(child.boardOther || ""),
+        schoolName: String(child.schoolName || ""),
+        photoDataUrl: String(child.photoDataUrl || ""),
+        dateOfBirth: String(child.dateOfBirth || ""),
+        gender: String(child.gender || ""),
+        genderOther: String(child.genderOther || ""),
+        bloodGroup: String(child.bloodGroup || ""),
+        aadhaarCard: String(child.aadhaarCard || ""),
+        previousMarksheet: String(child.previousMarksheet || ""),
+        lastClassPercentage: String(child.lastClassPercentage || ""),
+        lastClassMarks: String(child.lastClassMarks || ""),
+        parentName: String(child.parentName || ""),
+        parentPhone: String(child.parentPhone || ""),
+        fatherName: String(child.fatherName || ""),
+        fatherOccupation: String(child.fatherOccupation || ""),
+        fatherPhone: String(child.fatherPhone || ""),
+        fatherWhatsapp: String(child.fatherWhatsapp || ""),
+        motherName: String(child.motherName || ""),
+        motherOccupation: String(child.motherOccupation || ""),
+        motherPhone: String(child.motherPhone || ""),
+        motherWhatsapp: String(child.motherWhatsapp || ""),
+        emergencyPhone: String(child.emergencyPhone || ""),
+        correspondenceAddress: String(child.correspondenceAddress || ""),
+        correspondenceDistrict: String(child.correspondenceDistrict || ""),
+        correspondenceState: String(child.correspondenceState || ""),
+        correspondencePin: String(child.correspondencePin || ""),
+        permanentAddress: String(child.permanentAddress || ""),
+        permanentDistrict: String(child.permanentDistrict || ""),
+        permanentState: String(child.permanentState || ""),
+        permanentPin: String(child.permanentPin || ""),
+        loginId: String(body?.parent?.loginId || ""),
+      } as StudentMe & { instituteLogoDataUrl?: string };
+      setStudent(me);
+
+      const feeRows = Array.isArray(body?.fees?.recent) ? body.fees.recent : [];
+      setPayments(
+        feeRows.map((p: any) => ({
+          id: String(p.id || p._id || ""),
+          amount: Number(
+            p.amount ?? Math.max(0, Number(p.totalAmount || 0) - Number(p.lateFee || 0)),
+          ),
+          totalAmount: Number(p.totalAmount ?? p.amount ?? 0),
+          paidAmount: Number(p.paidAmount ?? 0),
+          lateFee: Number(p.lateFee ?? 0),
+          dueDate: String(p.dueDate || ""),
+          paidDate: p.paidDate ? String(p.paidDate) : null,
+          status: ["pending", "paid", "overdue", "partial"].includes(String(p.status))
+            ? p.status
+            : "pending",
+          month: String(p.month || ""),
+          monthLabel: String(p.monthLabel || p.month || "Fee"),
+        })),
+      );
+
+      const homeworkRows = Array.isArray(body?.homework) ? body.homework : [];
+      setHomework(
+        homeworkRows.map((h: any) => ({
+          id: String(h.id || h._id || ""),
+          title: String(h.title || "Homework"),
+          description: String(h.description || ""),
+          subjectName: String(h.subjectName || "Subject"),
+          dueDate: String(h.dueDate || ""),
+          status: String(h.status || "assigned"),
+        })),
+      );
+
+      const attendanceData = body?.attendance || {};
+      setAttendance({
+        studentId: String(child.id),
+        totalClasses: Number(attendanceData.total ?? attendanceData.totalClasses ?? 0),
+        present: Number(attendanceData.present ?? 0),
+        absent: Number(attendanceData.absent ?? 0),
+        late: Number(attendanceData.late ?? 0),
+        percentage: Number(attendanceData.percentage ?? 0),
+      });
+
+      const timetableRows = Array.isArray(body?.timetable) ? body.timetable : [];
+      setTimetable(
+        timetableRows.map((t: any) => ({
+          id: String(t.id || t._id || ""),
+          batchName: String(t.batchName || child.batchName || ""),
+          subjectName: String(t.subjectName || "Subject"),
+          teacherName: String(t.teacherName || ""),
+          day: String(t.day || ""),
+          startTime: String(t.startTime || ""),
+          endTime: String(t.endTime || ""),
+          room: String(t.room || ""),
+        })),
+      );
+
+      const examRows = Array.isArray(body?.exams) ? body.exams : [];
+      const mappedExams: Exam[] = examRows.map((e: any) => {
+        const base: Exam = {
+          id: String(e.id || e._id || ""),
+          title: String(e.title || e.name || "Exam"),
+          subjectName: String(e.subjectName || e.subject || "Subject"),
+          examType: (e.examType === "online" || e.type === "online" || e.isOnline
+            ? "online"
+            : "offline") as "online" | "offline",
+          examDate: String(e.examDate || e.date || e.startTime || new Date().toISOString()),
+          startTime: e.startTime ? String(e.startTime) : undefined,
+          endTime: e.endTime ? String(e.endTime) : undefined,
+          durationMinutes: Number(e.durationMinutes ?? e.duration ?? 60),
+          totalMarks: Number(e.totalMarks ?? 100),
+          passingMarks: Number(e.passingMarks ?? 33),
+          venue: String(e.venue || e.room || ""),
+          instructions: String(e.instructions || ""),
+          syllabus: String(e.syllabus || ""),
+          examUrl: e.examUrl ? String(e.examUrl) : undefined,
+          marksObtained:
+            e.marksObtained !== null && e.marksObtained !== undefined
+              ? Number(e.marksObtained)
+              : null,
+          grade: e.grade ? String(e.grade) : null,
+          resultStatus: e.resultStatus ? String(e.resultStatus) : null,
+          status: e.status,
+        };
+        return { ...base, status: deriveExamStatus(base) };
+      });
+      setExams(mappedExams);
+
+      setReport({
+        examResults: mappedExams
+          .filter((exam) => exam.marksObtained !== null && exam.marksObtained !== undefined)
+          .map((exam) => ({
+            subject: exam.subjectName,
+            marksObtained: exam.marksObtained,
+            totalMarks: exam.totalMarks,
+            grade: exam.grade || "",
+            resultStatus:
+              exam.resultStatus ||
+              (Number(exam.marksObtained || 0) >= Number(exam.passingMarks || 0)
+                ? "Pass"
+                : "Fail"),
+          })),
+      });
+
+    };
+
+    if (cachedBody) {
+      try {
+        applyOverview(cachedBody);
+        setLoading(false);
+      } catch {
+        // A malformed cache is ignored; live API will repopulate it.
+      }
+    }
+
     const load = async () => {
-      setLoading(true);
+      setLoading(!cachedBody);
       setMessage("");
       try {
         const response = await fetch(
@@ -463,168 +708,13 @@ export default function ParentChildDashboard({ studentId, onBackToParent }: Pare
         );
         const body = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(body?.error || "Unable to load the Student Dashboard.");
+          const failure = new Error(body?.error || "Unable to load the Student Dashboard.") as Error & { status?: number };
+          failure.status = response.status;
+          throw failure;
         }
 
-        const child = body?.selectedChild;
-        if (!child?.id) {
-          throw new Error("The selected child is not linked to this parent account.");
-        }
-
-        const me = {
-          id: String(child.id),
-          name: String(child.name || "Student"),
-          email: String(child.email || ""),
-          phone: String(child.phone || ""),
-          role: "student",
-          instituteId: String(body?.institute?.id || ""),
-          instituteName: String(body?.institute?.name || ""),
-          instituteLogoDataUrl: String(body?.institute?.logoDataUrl || ""),
-          enrollmentNo: String(child.enrollmentNo || ""),
-          courseId: String(child.courseId || ""),
-          courseName: String(child.courseName || ""),
-          batchId: String(child.batchId || ""),
-          batchName: String(child.batchName || ""),
-          academicYear: String(child.academicYear || body?.institute?.academicYear || ""),
-          className: String(child.className || ""),
-          section: String(child.section || ""),
-          board: String(child.board || ""),
-          boardOther: String(child.boardOther || ""),
-          schoolName: String(child.schoolName || ""),
-          photoDataUrl: String(child.photoDataUrl || ""),
-          dateOfBirth: String(child.dateOfBirth || ""),
-          gender: String(child.gender || ""),
-          genderOther: String(child.genderOther || ""),
-          bloodGroup: String(child.bloodGroup || ""),
-          aadhaarCard: String(child.aadhaarCard || ""),
-          previousMarksheet: String(child.previousMarksheet || ""),
-          lastClassPercentage: String(child.lastClassPercentage || ""),
-          lastClassMarks: String(child.lastClassMarks || ""),
-          parentName: String(child.parentName || ""),
-          parentPhone: String(child.parentPhone || ""),
-          fatherName: String(child.fatherName || ""),
-          fatherOccupation: String(child.fatherOccupation || ""),
-          fatherPhone: String(child.fatherPhone || ""),
-          fatherWhatsapp: String(child.fatherWhatsapp || ""),
-          motherName: String(child.motherName || ""),
-          motherOccupation: String(child.motherOccupation || ""),
-          motherPhone: String(child.motherPhone || ""),
-          motherWhatsapp: String(child.motherWhatsapp || ""),
-          emergencyPhone: String(child.emergencyPhone || ""),
-          correspondenceAddress: String(child.correspondenceAddress || ""),
-          correspondenceDistrict: String(child.correspondenceDistrict || ""),
-          correspondenceState: String(child.correspondenceState || ""),
-          correspondencePin: String(child.correspondencePin || ""),
-          permanentAddress: String(child.permanentAddress || ""),
-          permanentDistrict: String(child.permanentDistrict || ""),
-          permanentState: String(child.permanentState || ""),
-          permanentPin: String(child.permanentPin || ""),
-          loginId: String(body?.parent?.loginId || ""),
-        } as StudentMe & { instituteLogoDataUrl?: string };
-        setStudent(me);
-
-        const feeRows = Array.isArray(body?.fees?.recent) ? body.fees.recent : [];
-        setPayments(
-          feeRows.map((p: any) => ({
-            id: String(p.id || p._id || ""),
-            amount: Number(
-              p.amount ?? Math.max(0, Number(p.totalAmount || 0) - Number(p.lateFee || 0)),
-            ),
-            totalAmount: Number(p.totalAmount ?? p.amount ?? 0),
-            paidAmount: Number(p.paidAmount ?? 0),
-            lateFee: Number(p.lateFee ?? 0),
-            dueDate: String(p.dueDate || ""),
-            paidDate: p.paidDate ? String(p.paidDate) : null,
-            status: ["pending", "paid", "overdue", "partial"].includes(String(p.status))
-              ? p.status
-              : "pending",
-            month: String(p.month || ""),
-            monthLabel: String(p.monthLabel || p.month || "Fee"),
-          })),
-        );
-
-        const homeworkRows = Array.isArray(body?.homework) ? body.homework : [];
-        setHomework(
-          homeworkRows.map((h: any) => ({
-            id: String(h.id || h._id || ""),
-            title: String(h.title || "Homework"),
-            description: String(h.description || ""),
-            subjectName: String(h.subjectName || "Subject"),
-            dueDate: String(h.dueDate || ""),
-            status: String(h.status || "assigned"),
-          })),
-        );
-
-        const attendanceData = body?.attendance || {};
-        setAttendance({
-          studentId: String(child.id),
-          totalClasses: Number(attendanceData.total ?? attendanceData.totalClasses ?? 0),
-          present: Number(attendanceData.present ?? 0),
-          absent: Number(attendanceData.absent ?? 0),
-          late: Number(attendanceData.late ?? 0),
-          percentage: Number(attendanceData.percentage ?? 0),
-        });
-
-        const timetableRows = Array.isArray(body?.timetable) ? body.timetable : [];
-        setTimetable(
-          timetableRows.map((t: any) => ({
-            id: String(t.id || t._id || ""),
-            batchName: String(t.batchName || child.batchName || ""),
-            subjectName: String(t.subjectName || "Subject"),
-            teacherName: String(t.teacherName || ""),
-            day: String(t.day || ""),
-            startTime: String(t.startTime || ""),
-            endTime: String(t.endTime || ""),
-            room: String(t.room || ""),
-          })),
-        );
-
-        const examRows = Array.isArray(body?.exams) ? body.exams : [];
-        const mappedExams: Exam[] = examRows.map((e: any) => {
-          const base: Exam = {
-            id: String(e.id || e._id || ""),
-            title: String(e.title || e.name || "Exam"),
-            subjectName: String(e.subjectName || e.subject || "Subject"),
-            examType: (e.examType === "online" || e.type === "online" || e.isOnline
-              ? "online"
-              : "offline") as "online" | "offline",
-            examDate: String(e.examDate || e.date || e.startTime || new Date().toISOString()),
-            startTime: e.startTime ? String(e.startTime) : undefined,
-            endTime: e.endTime ? String(e.endTime) : undefined,
-            durationMinutes: Number(e.durationMinutes ?? e.duration ?? 60),
-            totalMarks: Number(e.totalMarks ?? 100),
-            passingMarks: Number(e.passingMarks ?? 33),
-            venue: String(e.venue || e.room || ""),
-            instructions: String(e.instructions || ""),
-            syllabus: String(e.syllabus || ""),
-            examUrl: e.examUrl ? String(e.examUrl) : undefined,
-            marksObtained:
-              e.marksObtained !== null && e.marksObtained !== undefined
-                ? Number(e.marksObtained)
-                : null,
-            grade: e.grade ? String(e.grade) : null,
-            resultStatus: e.resultStatus ? String(e.resultStatus) : null,
-            status: e.status,
-          };
-          return { ...base, status: deriveExamStatus(base) };
-        });
-        setExams(mappedExams);
-
-        setReport({
-          examResults: mappedExams
-            .filter((exam) => exam.marksObtained !== null && exam.marksObtained !== undefined)
-            .map((exam) => ({
-              subject: exam.subjectName,
-              marksObtained: exam.marksObtained,
-              totalMarks: exam.totalMarks,
-              grade: exam.grade || "",
-              resultStatus:
-                exam.resultStatus ||
-                (Number(exam.marksObtained || 0) >= Number(exam.passingMarks || 0)
-                  ? "Pass"
-                  : "Fail"),
-            })),
-        });
+        applyOverview(body);
+        writeCachedChildOverview(studentId, body);
 
         try {
           setLeaveLoading(true);
@@ -666,6 +756,18 @@ export default function ParentChildDashboard({ studentId, onBackToParent }: Pare
           setLeaveLoading(false);
         }
       } catch (error: any) {
+        // Never leave cached academic/fee data on screen if access is denied.
+        if (error?.status === 401 || error?.status === 403) {
+          const key = childSessionCacheKey(studentId);
+          if (key) sessionStorage.removeItem(key);
+          setStudent(null);
+          setPayments([]);
+          setHomework([]);
+          setReport(null);
+          setAttendance(null);
+          setTimetable([]);
+          setExams([]);
+        }
         setMessage(error?.message || "Unable to load the Student Dashboard.");
       } finally {
         setLoading(false);
@@ -1228,6 +1330,8 @@ export default function ParentChildDashboard({ studentId, onBackToParent }: Pare
         throw new Error(data?.details || data?.error || "Profile update failed.");
       }
 
+      const cacheKey = childSessionCacheKey(studentId);
+      if (cacheKey) sessionStorage.removeItem(cacheKey);
       setEditMessage({
         type: "success",
         text: data?.message || "Profile updated successfully!",
@@ -1312,7 +1416,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent }: Pare
               {student?.photoDataUrl ? (
                 <img
                   src={student.photoDataUrl}
-                  alt={student?.name || "Student"}
+                  alt={student?.name || ""}
                   className="h-full w-full object-cover"
                 />
               ) : (
@@ -1346,7 +1450,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent }: Pare
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-black">
-                    {student?.name || "Student"}
+                    {student?.name || ""}
                   </p>
                   <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">
                     {student?.enrollmentNo || "Student ID"} ·{" "}
@@ -1462,9 +1566,13 @@ export default function ParentChildDashboard({ studentId, onBackToParent }: Pare
 
                 <div className="relative z-10 mt-4 pr-[118px]">
                   <p className="text-sm font-extrabold text-white/95">Welcome</p>
-                  <h2 className="mt-0.5 truncate text-[28px] font-black leading-none tracking-tight">
-                    {student?.name || "Student"}
-                  </h2>
+                  {student?.name ? (
+                    <h2 className="mt-0.5 truncate text-[28px] font-black leading-none tracking-tight">
+                      {student.name}
+                    </h2>
+                  ) : (
+                    <div aria-label="Loading student name" className="mt-2 h-7 w-36 animate-pulse rounded-lg bg-white/25" />
+                  )}
                 </div>
 
               </section>
@@ -2385,7 +2493,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent }: Pare
                       )}
                     </div>
                     <h3 className="mt-3 text-lg font-black text-slate-950">
-                      {student?.name || "Student"}
+                      {student?.name || ""}
                     </h3>
                     <p className="mt-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-cyan-700">
                       {student?.enrollmentNo || "Student ID"}
@@ -3029,7 +3137,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent }: Pare
                   </div>
 
                   <h3 className="relative z-10 mt-4 text-[24px] font-black tracking-tight">
-                    {student?.name || "Student"}
+                    {student?.name || ""}
                   </h3>
                 </div>
 

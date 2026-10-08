@@ -16,7 +16,6 @@ import {
   X,
 } from "lucide-react";
 import ParentChildDashboard from "@/components/parent-child-dashboard";
-
 type Child = {
   id: string;
   name: string;
@@ -27,7 +26,6 @@ type Child = {
   batchName?: string;
   photoDataUrl?: string;
 };
-
 type ParentHomeData = {
   parent: {
     id: string;
@@ -47,9 +45,7 @@ type ParentHomeData = {
   };
   children: Child[];
 };
-
 type ParentTab = "home" | "profile" | "notifications";
-
 function initials(value?: string) {
   return String(value || "P")
     .trim()
@@ -59,7 +55,6 @@ function initials(value?: string) {
     .map((part) => part.charAt(0).toUpperCase())
     .join("");
 }
-
 function classLabel(child: Child) {
   return [
     child.className ? `Class ${child.className}` : "",
@@ -68,40 +63,132 @@ function classLabel(child: Child) {
     .filter(Boolean)
     .join(" • ") || "Class not set";
 }
-
 function parentHeaders(): Record<string, string> {
   const token = localStorage.getItem("coach_sutra_token") || "";
   const headers: Record<string, string> = {};
-
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
-
   return headers;
+}
+
+// Session-only display cache. Bound to the signed-in parent's JWT session,
+// so a different account/session cannot see the previous family's details.
+const PARENT_CACHE_PREFIX = "academy_parent_home_cache:v2:";
+const STUDENT_CACHE_PREFIX = "academy_child_overview_cache:v2:";
+const DASHBOARD_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function parentSessionScope(): { userId: string; sessionId: string } | null {
+  try {
+    const token = localStorage.getItem("coach_sutra_token") || "";
+    const chunk = token.split(".")[1];
+    if (!chunk) return null;
+    const base64 = chunk.replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(atob(base64)) as Record<string, unknown>;
+    if (claims.role !== "parent") return null;
+    if (typeof claims.exp === "number" && Date.now() >= claims.exp * 1000) return null;
+    const userId = String(claims.userId || claims.sub || "");
+    const sessionId = String(claims.sessionId || "");
+    return userId && sessionId ? { userId, sessionId } : null;
+  } catch {
+    return null;
+  }
+}
+
+function parentHomeCacheKey() {
+  const scope = parentSessionScope();
+  return scope ? `${PARENT_CACHE_PREFIX}${scope.userId}:${scope.sessionId}` : null;
+}
+
+function readCachedParentHome(): ParentHomeData | null {
+  const key = parentHomeCacheKey();
+  if (!key) return null;
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as { savedAt: number; data: ParentHomeData };
+    const scope = parentSessionScope();
+    if (!scope || !cached?.data?.parent?.id ||
+        cached.data.parent.id !== scope.userId ||
+        !Array.isArray(cached.data.children) ||
+        Date.now() - cached.savedAt > DASHBOARD_CACHE_TTL_MS) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    return cached.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedParentHome(data: ParentHomeData) {
+  const key = parentHomeCacheKey();
+  const scope = parentSessionScope();
+  if (!key || !scope || data.parent.id !== scope.userId) return;
+  try {
+    // Avoid keeping huge embedded photos in browser storage.
+    const compact = JSON.parse(JSON.stringify(data)) as ParentHomeData;
+    const smallImage = (value?: string) => value && value.length < 80000 ? value : "";
+    compact.parent.photoDataUrl = smallImage(compact.parent.photoDataUrl);
+    compact.institute.logoDataUrl = smallImage(compact.institute.logoDataUrl);
+    compact.children = compact.children.map((child) => ({
+      ...child, photoDataUrl: smallImage(child.photoDataUrl),
+    }));
+    sessionStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), data: compact }));
+  } catch {
+    // Storage may be blocked/full: dashboard continues to work without cache.
+  }
+}
+
+function signedInParentName(): string {
+  const scope = parentSessionScope();
+  if (!scope) return "";
+  try {
+    const saved = JSON.parse(localStorage.getItem("coach_sutra_user") || "null");
+    if (saved && String(saved.id || saved.userId || "") === scope.userId &&
+        saved.role === "parent") {
+      return String(saved.name || "").trim();
+    }
+  } catch { /* No stored account summary. */ }
+  return "";
+}
+
+function clearDashboardDisplayCaches() {
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = sessionStorage.key(i) || "";
+      if (key.startsWith(PARENT_CACHE_PREFIX) || key.startsWith(STUDENT_CACHE_PREFIX)) {
+        sessionStorage.removeItem(key);
+      }
+    }
+  } catch { /* Ignore disabled browser storage. */ }
 }
 
 export default function ParentDashboard() {
   const [, setLocation] = useLocation();
-  const [data, setData] = useState<ParentHomeData>(() => ({
-    parent: { id: "", name: "Parent" },
-    institute: {},
-    children: [],
-  }));
+  const [data, setData] = useState<ParentHomeData>(() =>
+    readCachedParentHome() || {
+      parent: { id: "", name: signedInParentName() },
+      institute: {},
+      children: [],
+    },
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<ParentTab>("home");
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeChildId, setActiveChildId] = useState("");
-
   const [profileEdit, setProfileEdit] = useState(false);
-  const [profileForm, setProfileForm] = useState({
-    name: "",
-    phone: "",
-    photoDataUrl: "",
+  const [profileForm, setProfileForm] = useState(() => {
+    const cached = readCachedParentHome()?.parent;
+    return {
+      name: cached?.name || signedInParentName(),
+      phone: cached?.phone || "",
+      photoDataUrl: cached?.photoDataUrl || "",
+    };
   });
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
-
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
@@ -109,7 +196,6 @@ export default function ParentDashboard() {
   });
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState("");
-
   const loadParentHome = async () => {
     setLoading(true);
     setError("");
@@ -120,60 +206,61 @@ export default function ParentDashboard() {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          clearDashboardDisplayCaches();
+          setData({ parent: { id: "", name: "" }, institute: {}, children: [] });
+          setProfileForm({ name: "", phone: "", photoDataUrl: "" });
+        }
         throw new Error(body?.error || "Unable to load the Parent Dashboard.");
       }
       const normalized: ParentHomeData = {
         parent: body?.parent || {
           id: "",
-          name: "Parent",
+          name: "",
         },
         institute: body?.institute || {},
         children: Array.isArray(body?.children) ? body.children : [],
       };
       setData(normalized);
+      writeCachedParentHome(normalized);
       setProfileForm({
         name: String(normalized.parent.name || ""),
         phone: String(normalized.parent.phone || ""),
         photoDataUrl: String(normalized.parent.photoDataUrl || ""),
       });
     } catch (cause: any) {
-      setError(cause?.message || "Unable to load the Parent Dashboard.");
+      // Never display stale family information after authorization fails.
+      const message = cause?.message || "Unable to load the Parent Dashboard.";
+      setError(message);
     } finally {
       setLoading(false);
     }
   };
-
   useEffect(() => {
     void loadParentHome();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
   const activeChild = useMemo(
     () => data?.children.find((child) => child.id === activeChildId) || null,
     [data?.children, activeChildId],
   );
-
   const openChild = (child: Child) => {
     setMenuOpen(false);
     setActiveChildId(child.id);
     localStorage.setItem("academy_last_child_id", child.id);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-
   const openStudentDashboardFromMenu = () => {
     const children = data?.children || [];
     const lastChildId = localStorage.getItem("academy_last_child_id") || "";
     const child = children.find((item) => item.id === lastChildId) || children[0];
-
     if (child) {
       openChild(child);
       return;
     }
-
     setActiveTab("home");
     setMenuOpen(false);
   };
-
   const logout = () => {
     const token = localStorage.getItem("coach_sutra_token") || "";
     if (token) {
@@ -182,6 +269,8 @@ export default function ParentDashboard() {
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {});
     }
+    clearDashboardDisplayCaches();
+    localStorage.removeItem("academy_last_child_id");
     [
       "coach_sutra_token",
       "coach_sutra_user_role",
@@ -194,7 +283,6 @@ export default function ParentDashboard() {
     window.dispatchEvent(new Event("storage"));
     setLocation("/login");
   };
-
   const saveProfile = async () => {
     if (!profileForm.name.trim()) {
       setProfileMessage("Name is required.");
@@ -227,7 +315,6 @@ export default function ParentDashboard() {
       setProfileSaving(false);
     }
   };
-
   const updatePassword = async () => {
     setPasswordMessage("");
     if (!passwordForm.currentPassword || !passwordForm.newPassword) {
@@ -262,11 +349,10 @@ export default function ParentDashboard() {
       setPasswordSaving(false);
     }
   };
-
   const handlePhoto = (file?: File) => {
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
-      setProfileMessage("Photo max 2 MB honi chahiye.");
+      setProfileMessage("Photo must be 2 MB or smaller.");
       return;
     }
     const reader = new FileReader();
@@ -278,11 +364,24 @@ export default function ParentDashboard() {
     };
     reader.readAsDataURL(file);
   };
-
   if (activeChildId) {
     return (
       <ParentChildDashboard
+        key={activeChildId}
         studentId={activeChildId}
+        initialStudent={activeChild ? {
+          id: activeChild.id,
+          name: activeChild.name,
+          enrollmentNo: activeChild.enrollmentNo,
+          className: activeChild.className,
+          section: activeChild.section,
+          courseName: activeChild.courseName,
+          batchName: activeChild.batchName,
+          photoDataUrl: activeChild.photoDataUrl,
+          instituteId: data.institute.id || "",
+          instituteName: data.institute.name || "",
+          instituteLogoDataUrl: data.institute.logoDataUrl || "",
+        } : undefined}
         onBackToParent={() => {
           setActiveChildId("");
           setActiveTab("home");
@@ -291,7 +390,6 @@ export default function ParentDashboard() {
       />
     );
   }
-
   if (!loading && error && !data.parent.id) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#03142f] px-5 text-white">
@@ -309,10 +407,8 @@ export default function ParentDashboard() {
       </div>
     );
   }
-
-  const instituteName = data.institute.name || "Institute";
-  const parentName = data.parent.name || "Parent";
-
+  const instituteName = data.institute.name || "";
+  const parentName = data.parent.name || "";
   return (
     <>
       <style>{`
@@ -321,8 +417,7 @@ export default function ParentDashboard() {
         .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
         body { overscroll-behavior-y: contain; -webkit-tap-highlight-color: transparent; }
       `}</style>
-
-      <div className="min-h-screen bg-[radial-gradient(circle_at_20%_0%,rgba(28,110,255,.24),transparent_31%),linear-gradient(180deg,#071f49_0%,#041a3b_47%,#02142f_100%)] pb-24 text-white antialiased">
+      <div className="min-h-screen bg-[radial-gradient(circle_at_20%_0%,rgba(28,110,255,.24),transparent_31%),linear-gradient(180deg,#071f49_0%,#041a3b_47%,#02142f_100%)] pb-[calc(88px+env(safe-area-inset-bottom,0px))] text-white antialiased">
         <header className="sticky top-0 z-40 border-b border-white/10 bg-[#061b3b]/95 px-4 py-3 backdrop-blur-xl">
           <div className="mx-auto flex max-w-lg items-center gap-3">
             <button
@@ -335,7 +430,7 @@ export default function ParentDashboard() {
             </button>
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-[16px] font-black">Parent Dashboard</h1>
-              <p className="truncate text-[10px] font-semibold text-slate-300">{instituteName}</p>
+              <p className="truncate text-[12px] font-semibold text-slate-300">{instituteName}</p>
             </div>
             <button
               type="button"
@@ -351,7 +446,6 @@ export default function ParentDashboard() {
             </button>
           </div>
         </header>
-
         {menuOpen && (
           <div className="fixed inset-0 z-[100]">
             <button
@@ -371,7 +465,7 @@ export default function ParentDashboard() {
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-black">{instituteName}</p>
-                  <p className="text-[9px] font-black uppercase tracking-[.16em] text-cyan-300">Parent App</p>
+                  <p className="text-[12px] font-black uppercase tracking-[.16em] text-cyan-300">Parent App</p>
                 </div>
                 <button
                   type="button"
@@ -381,7 +475,6 @@ export default function ParentDashboard() {
                   <X className="h-4 w-4" />
                 </button>
               </div>
-
               <div className="mt-6 space-y-1">
                 <DrawerButton
                   active={activeTab === "home"}
@@ -413,7 +506,6 @@ export default function ParentDashboard() {
                   onClick={() => { setActiveTab("profile"); setMenuOpen(false); }}
                 />
               </div>
-
               <div className="mt-auto border-t border-white/10 pt-4">
                 <DrawerButton
                   icon={<LogOut className="h-[18px] w-[18px]" />}
@@ -425,14 +517,12 @@ export default function ParentDashboard() {
             </aside>
           </div>
         )}
-
-        <main className="mx-auto max-w-lg space-y-4 px-4 py-4">
+        <main className="mx-auto max-w-lg space-y-3 px-4 pb-4 pt-3">
           {error && (
             <div className="rounded-2xl border border-red-300/20 bg-red-500/10 p-3 text-xs font-semibold text-red-100">
               {error}
             </div>
           )}
-
           {activeTab === "home" && (
             <div className="relative isolate min-h-[calc(100vh-150px)] parent-fade">
               <div
@@ -446,70 +536,105 @@ export default function ParentDashboard() {
                   backgroundSize: "100% auto",
                 }}
               />
+              <div className="relative z-10 space-y-3.5 pb-3">
+              <section
+                  aria-label={`Welcome ${parentName}`}
+                  className="relative min-h-[156px] overflow-hidden rounded-[22px] border border-cyan-200/40 bg-[#0878dd] p-4 shadow-[0_24px_55px_-28px_rgba(0,145,255,.9)] sm:min-h-[164px] sm:p-5"
+                >
+                  <img
+                    src="/parent-app/welcome-card-background.png"
+                    alt=""
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+                  />
+                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(3,63,156,.34)_0%,rgba(3,63,156,.14)_58%,rgba(1,22,86,.02)_100%)]" />
 
-              <div className="relative z-10 space-y-5 pb-3">
-              <section className="relative min-h-[215px] overflow-hidden rounded-[25px] border border-cyan-200/40 bg-[#0878dd] p-5 shadow-[0_24px_55px_-28px_rgba(0,145,255,.9)]">
-                <img
-                  src="/parent-app/welcome-card-background.png"
-                  alt=""
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
-                />
-                <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(3,63,156,.10)_0%,rgba(3,63,156,.08)_54%,rgba(1,22,86,.04)_100%)]" />
-                <div className="relative z-10 flex items-start gap-3 pr-[40%]">
-                  <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/60 bg-white shadow-lg">
-                    {data.institute.logoDataUrl ? (
-                      <img src={data.institute.logoDataUrl} alt={instituteName} className="h-full w-full object-contain p-1.5" />
-                    ) : (
-                      <GraduationCap className="h-8 w-8 text-blue-600" />
-                    )}
-                  </div>
-                  <div className="min-w-0 pt-2">
-                    <p className="text-[13px] font-black leading-4">{instituteName}</p>
-                    <p className="mt-1 text-[10px] font-semibold text-blue-100">Learn Today, Build Tomorrow</p>
-                  </div>
-                </div>
-                <div className="relative z-10 mt-7 max-w-[62%]">
-                  <p className="text-sm font-extrabold text-white/95">Welcome</p>
-                  <h2 className="mt-1 text-[27px] font-black leading-[1.02] tracking-tight">{parentName}</h2>
-                </div>
-              </section>
+                  {/* Keep the institute heading and welcome message on the same vertical axis. */}
+                  <div className="relative z-10 grid grid-cols-[46px_minmax(0,1fr)] gap-x-3 gap-y-3 pr-[15%] sm:pr-[26%]">
+                    <div className="row-span-2 flex h-[46px] w-[46px] items-center justify-center overflow-hidden rounded-full border border-white/70 bg-white shadow-md">
+                      {data.institute.logoDataUrl ? (
+                        <img
+                          src={data.institute.logoDataUrl}
+                          alt={instituteName}
+                          className="h-full w-full object-contain p-1.5"
+                        />
+                      ) : (
+                        <GraduationCap className="h-6 w-6 text-blue-600" />
+                      )}
+                    </div>
 
-              <section>
-                <div className="mb-3">
+                    <div className="col-start-2 min-w-0 self-center">
+                      <p className="line-clamp-2 text-[13px] font-black leading-snug text-white">
+                        {instituteName}
+                      </p>
+                      <p className="mt-0.5 text-[12px] font-semibold leading-snug text-blue-50">
+                        Learn Today, Build Tomorrow
+                      </p>
+                    </div>
+
+                    <div className="col-start-2 min-w-0 pb-1">
+                      <p className="text-[12px] font-bold text-white/95">Welcome</p>
+                      {parentName ? (
+                        <h2 className="mt-0.5 break-words text-[clamp(18px,5vw,24px)] font-black leading-tight tracking-tight text-white">
+                          {parentName}
+                        </h2>
+                      ) : (
+                        <div aria-label="Loading parent name" className="mt-2 h-7 w-36 animate-pulse rounded-lg bg-white/25" />
+                      )}
+                    </div>
+                  </div>
+                </section>
+              <section aria-label="Your Children">
+                <div className="mb-2">
                   <h2 className="text-xl font-black">Your Children</h2>
                   <p className="mt-0.5 text-xs font-medium text-slate-300">
                     Open a child card to access the complete Student Dashboard.
                   </p>
                 </div>
-
                 <div className="space-y-2.5">
                   {data.children.map((child) => (
                     <button
                       type="button"
                       key={child.id}
                       onClick={() => openChild(child)}
-                      className="flex w-full items-center gap-3 rounded-[19px] border border-white/90 bg-white p-3 text-left text-slate-950 shadow-[0_14px_30px_-22px_rgba(0,0,0,.86)] transition hover:-translate-y-0.5 active:scale-[.99]"
+                      aria-label={`Open ${child.name}'s Student Dashboard`}
+                      className="group flex w-full items-center gap-3 rounded-[19px] border border-white/90 bg-white p-3 text-left text-slate-950 shadow-[0_14px_30px_-22px_rgba(0,0,0,.86)] transition hover:-translate-y-0.5 hover:border-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#041a3b] active:scale-[.99]"
                     >
-                      <div className="flex h-[62px] w-[62px] shrink-0 items-center justify-center overflow-hidden rounded-[15px] bg-blue-100 font-black text-blue-700 shadow-inner">
+                      <div className="flex h-[58px] w-[58px] shrink-0 items-center justify-center overflow-hidden rounded-[14px] border border-blue-100 bg-blue-100 font-black text-blue-700 shadow-inner">
                         {child.photoDataUrl ? (
-                          <img src={child.photoDataUrl} alt={child.name} className="h-full w-full object-cover" />
+                          <img
+                            src={child.photoDataUrl}
+                            alt={`${child.name} profile`}
+                            className="h-full w-full object-cover object-center"
+                          />
                         ) : (
                           <span>{initials(child.name)}</span>
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[14px] font-black text-[#071a3f]">{child.name}</p>
-                        <p className="mt-1 truncate text-[10.5px] font-semibold text-slate-500">
+                        <p className="mt-1 truncate text-[12px] font-semibold text-slate-500">
                           {child.enrollmentNo ? `Roll No. ${child.enrollmentNo}` : "Student ID"} • {classLabel(child)}
                         </p>
-                        <p className="mt-1.5 text-[10px] font-black text-blue-600">Open Dashboard →</p>
+                        <p className="mt-1 text-[12px] font-medium text-slate-500">Student dashboard</p>
                       </div>
-                      <ChevronRight className="h-5 w-5 shrink-0 text-blue-300" />
+                      <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-blue-400 transition-transform group-hover:translate-x-0.5" />
                     </button>
                   ))}
-
-                  {data.children.length === 0 && (
+                  {loading && data.children.length === 0 && (
+                    <div className="space-y-2.5" aria-label="Loading children">
+                      {[0, 1].map((index) => (
+                        <div key={index} className="flex items-center gap-3 rounded-[19px] bg-white p-3 shadow-sm" role="status">
+                          <div className="h-[58px] w-[58px] shrink-0 animate-pulse rounded-[14px] bg-slate-200" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-4 w-32 animate-pulse rounded bg-slate-200" />
+                            <div className="h-3 w-44 max-w-full animate-pulse rounded bg-slate-100" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!loading && data.children.length === 0 && (
                     <div className="rounded-[20px] border border-white/10 bg-white/5 p-6 text-center">
                       <UsersRound className="mx-auto h-7 w-7 text-slate-500" />
                       <p className="mt-2 text-sm font-black">No child linked yet</p>
@@ -518,11 +643,9 @@ export default function ParentDashboard() {
                   )}
                 </div>
               </section>
-
               </div>
             </div>
           )}
-
           {activeTab === "profile" && (
             <div className="space-y-4 parent-fade pb-6">
               <div className="flex flex-col items-center pt-3 text-center">
@@ -542,35 +665,32 @@ export default function ParentDashboard() {
                   )}
                 </div>
                 <h2 className="mt-4 text-[24px] font-black">{parentName}</h2>
-                <p className="mt-1 text-[10px] font-black uppercase tracking-[.18em] text-cyan-300">Parent Account</p>
+                <p className="mt-1 text-[12px] font-black uppercase tracking-[.18em] text-cyan-300">Parent Account</p>
               </div>
-
               <section className="rounded-[22px] bg-white p-4 text-slate-950 shadow-[0_16px_35px_-24px_rgba(0,0,0,.55)]">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-blue-600"><UserRound className="h-5 w-5" /></span>
                     <div>
                       <p className="text-sm font-black text-[#071a3f]">My Profile</p>
-                      <p className="text-[10px] font-medium text-slate-500">Parent information</p>
+                      <p className="text-[12px] font-medium text-slate-500">Parent information</p>
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => { setProfileEdit((value) => !value); setProfileMessage(""); }}
-                    className="rounded-xl bg-blue-50 px-3 py-2 text-[10px] font-black text-blue-600"
+                    className="rounded-xl bg-blue-50 px-3 py-2 text-[12px] font-black text-blue-600"
                   >
                     {profileEdit ? "Cancel" : "Edit"}
                   </button>
                 </div>
-
                 <div className="mt-4 space-y-3">
                   <Field label="Name" value={profileForm.name} disabled={!profileEdit} onChange={(value) => setProfileForm((current) => ({ ...current, name: value }))} />
                   <Field label="Phone" value={profileForm.phone} disabled={!profileEdit} onChange={(value) => setProfileForm((current) => ({ ...current, phone: value }))} />
                   <Field label="Email / Login" value={data.parent.email || ""} disabled onChange={() => {}} />
                   <Field label="Linked Children" value={String(data.children.length)} disabled onChange={() => {}} />
                 </div>
-
-                {profileMessage && <p className="mt-3 text-[11px] font-bold text-slate-600">{profileMessage}</p>}
+                {profileMessage && <p className="mt-3 text-[12px] font-bold text-slate-600">{profileMessage}</p>}
                 {profileEdit && (
                   <button
                     type="button"
@@ -582,20 +702,19 @@ export default function ParentDashboard() {
                   </button>
                 )}
               </section>
-
               <section className="rounded-[22px] bg-white p-4 text-slate-950 shadow-[0_16px_35px_-24px_rgba(0,0,0,.55)]">
                 <div className="flex items-center gap-3">
                   <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-600"><KeyRound className="h-5 w-5" /></span>
                   <div>
                     <h3 className="text-[17px] font-black text-[#071a3f]">Change Password</h3>
-                    <p className="text-[10px] font-medium text-slate-500">Parent login password</p>
+                    <p className="text-[12px] font-medium text-slate-500">Parent login password</p>
                   </div>
                 </div>
                 <div className="mt-4 space-y-3">
                   <Field type="password" label="Current Password" value={passwordForm.currentPassword} onChange={(value) => setPasswordForm((current) => ({ ...current, currentPassword: value }))} />
                   <Field type="password" label="New Password" value={passwordForm.newPassword} onChange={(value) => setPasswordForm((current) => ({ ...current, newPassword: value }))} />
                   <Field type="password" label="Confirm Password" value={passwordForm.confirmPassword} onChange={(value) => setPasswordForm((current) => ({ ...current, confirmPassword: value }))} />
-                  {passwordMessage && <p className="text-[11px] font-bold text-slate-600">{passwordMessage}</p>}
+                  {passwordMessage && <p className="text-[12px] font-bold text-slate-600">{passwordMessage}</p>}
                   <button
                     type="button"
                     disabled={passwordSaving}
@@ -609,7 +728,6 @@ export default function ParentDashboard() {
               </section>
             </div>
           )}
-
           {activeTab === "notifications" && (
             <div className="parent-fade">
               <h2 className="text-xl font-black">Notifications</h2>
@@ -621,17 +739,21 @@ export default function ParentDashboard() {
             </div>
           )}
         </main>
-
-        <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 mx-auto flex w-full max-w-lg items-center border-t border-white/10 bg-[#08224a]/95 px-4 py-2 backdrop-blur-xl">
-          <BottomButton label="Home" icon={<Home className="h-5 w-5" />} active={activeTab === "home"} onClick={() => setActiveTab("home")} />
-          <BottomButton label="Profile" icon={<UserRound className="h-5 w-5" />} active={activeTab === "profile"} onClick={() => setActiveTab("profile")} />
-          <BottomButton label="Notifications" icon={<Bell className="h-5 w-5" />} active={activeTab === "notifications"} onClick={() => setActiveTab("notifications")} />
+        <nav
+          aria-label="Parent app navigation"
+          className="fixed inset-x-0 bottom-0 z-50 w-full border-t border-white/10 bg-[#08224a]/98 shadow-[0_-8px_24px_rgba(1,10,28,.24)] backdrop-blur-xl"
+          style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px))" }}
+        >
+          <div className="mx-auto flex w-full max-w-lg items-center gap-1 px-3 pt-2">
+            <BottomButton label="Home" icon={<Home className="h-5 w-5" />} active={activeTab === "home"} onClick={() => setActiveTab("home")} />
+            <BottomButton label="Profile" icon={<UserRound className="h-5 w-5" />} active={activeTab === "profile"} onClick={() => setActiveTab("profile")} />
+            <BottomButton label="Notifications" icon={<Bell className="h-5 w-5" />} active={activeTab === "notifications"} onClick={() => setActiveTab("notifications")} />
+          </div>
         </nav>
       </div>
     </>
   );
 }
-
 function DrawerButton({
   label,
   icon,
@@ -662,7 +784,6 @@ function DrawerButton({
     </button>
   );
 }
-
 function BottomButton({
   label,
   icon,
@@ -678,16 +799,16 @@ function BottomButton({
     <button
       type="button"
       onClick={onClick}
-      className={`mx-1 flex h-14 flex-1 flex-col items-center justify-center rounded-2xl transition active:scale-95 ${
+      aria-current={active ? "page" : undefined}
+      className={`flex min-h-14 flex-1 flex-col items-center justify-center rounded-2xl px-1 transition active:scale-95 ${
         active ? "bg-blue-900/60 text-cyan-200" : "text-slate-300"
       }`}
     >
       {icon}
-      <span className="mt-1 text-[9px] font-black">{label}</span>
+      <span className="mt-1 text-[12px] font-semibold leading-tight">{label}</span>
     </button>
   );
 }
-
 function Field({
   label,
   value,
@@ -703,7 +824,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-500">{label}</span>
+      <span className="mb-1.5 block text-[12px] font-black uppercase tracking-wide text-slate-500">{label}</span>
       <input
         type={type}
         value={value}
