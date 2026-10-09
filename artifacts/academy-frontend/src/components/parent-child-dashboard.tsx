@@ -28,9 +28,7 @@ import {
   Timer,
   Camera,
   Eye,
-  EyeOff,
   IdCard,
-  KeyRound,
   Upload,
   FileCheck2,
   ChevronDown,
@@ -41,11 +39,9 @@ import {
   Menu,
   Settings,
   Users,
-  ShieldCheck,
   ArrowLeft,
   School,
   BookMarked,
-  LockKeyhole,
 } from "lucide-react";
 
 type StudentMe = {
@@ -502,20 +498,6 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [readNotifications, setReadNotifications] = useState<string[]>([]);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: "",
-  });
-  const [passwordMessage, setPasswordMessage] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
-  const [isPasswordSaving, setIsPasswordSaving] = useState(false);
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
   const [selectedDay, setSelectedDay] = useState<string>(() => {
     const today = new Date().toLocaleDateString("en-US", { weekday: "long" });
     return DAYS_OF_WEEK.includes(today as any) ? today : "Monday";
@@ -982,8 +964,18 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
 
   const dayTimetable = useMemo(() => {
     return timetable
-      .filter((t) => t.day?.toLowerCase() === selectedDay.toLowerCase())
-      .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
+      .filter((slot) =>
+        selectedDay === "All Week" ||
+        slot.day?.toLowerCase() === selectedDay.toLowerCase(),
+      )
+      .sort((a, b) => {
+        if (selectedDay === "All Week") {
+          const aDay = DAYS_OF_WEEK.findIndex((day) => day.toLowerCase() === a.day?.toLowerCase());
+          const bDay = DAYS_OF_WEEK.findIndex((day) => day.toLowerCase() === b.day?.toLowerCase());
+          if (aDay !== bDay) return aDay - bDay;
+        }
+        return (a.startTime || "").localeCompare(b.startTime || "");
+      });
   }, [timetable, selectedDay]);
 
   const enrichedExams = useMemo(
@@ -1198,68 +1190,6 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
       setLeaveMessage(error?.message || "Unable to submit the leave request.");
     } finally {
       setLeaveSubmitting(false);
-    }
-  };
-
-  const updateOwnPassword = async () => {
-    const currentPassword = passwordForm.currentPassword.trim();
-    const newPassword = passwordForm.newPassword.trim();
-    const confirmPassword = passwordForm.confirmPassword.trim();
-
-    if (!currentPassword) {
-      setPasswordMessage({ type: "error", text: "Please enter your current password." });
-      return;
-    }
-    if (newPassword.length < 8 || !/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/\d/.test(newPassword)) {
-      setPasswordMessage({
-        type: "error",
-        text: "New password must be at least 8 characters and include uppercase, lowercase, and a number.",
-      });
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordMessage({
-        type: "error",
-        text: "New password and confirm password do not match.",
-      });
-      return;
-    }
-
-    const token = localStorage.getItem("coach_sutra_token") || "";
-    if (!token) {
-      setPasswordMessage({ type: "error", text: "Session expired. Please login again." });
-      return;
-    }
-
-    setIsPasswordSaving(true);
-    setPasswordMessage(null);
-    try {
-      const response = await fetch("/api/parent/self-password", {
-        method: "PUT",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data?.error || "Unable to update the password.");
-      }
-
-      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-      setPasswordMessage({
-        type: "success",
-        text: data?.message || "App password updated successfully.",
-      });
-    } catch (error: any) {
-      setPasswordMessage({
-        type: "error",
-        text: error?.message || "Unable to update the password.",
-      });
-    } finally {
-      setIsPasswordSaving(false);
     }
   };
 
@@ -1563,11 +1493,8 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
 
             <button
               type="button"
-              aria-label="Open profile and settings"
-              onClick={() => {
-                setIsNotificationsOpen(false);
-                setIsProfileOpen(true);
-              }}
+              aria-label="Open student profile form"
+              onClick={openEditModal}
               className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white/80 bg-slate-800 shadow-[0_8px_24px_rgba(0,0,0,0.25)] transition active:scale-95"
             >
               {student?.photoDataUrl ? (
@@ -1619,7 +1546,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
               <div className="mt-5 space-y-1">
                 <DrawerItem
                   icon={<Home className="h-[18px] w-[18px]" />}
-                  label="Parent Dashboard"
+                  label="Parent/Student Dashboard"
                   onClick={() => {
                     setIsMenuOpen(false);
                     onBackToParent();
@@ -1638,7 +1565,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
                   onClick={() => {
                     setIsMenuOpen(false);
                     setIsNotificationsOpen(false);
-                    setIsProfileOpen(true);
+                    openEditModal();
                   }}
                 />
                 <DrawerItem
@@ -1772,7 +1699,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
                     label="My Profile"
                     icon={<User className="h-5 w-5" />}
                     tone="blue"
-                    onClick={() => setIsProfileOpen(true)}
+                    onClick={openEditModal}
                   />
                   <HomeShortcut
                     label="ID Card"
@@ -1918,27 +1845,27 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
                 icon={<CalendarDays className="h-5 w-5" />}
                 onBack={() => openStudentSection("home")}
               />
-              <div className="flex items-center gap-2.5 bg-white p-4 rounded-3xl shadow-sm border border-slate-100">
-                <div className="rounded-xl bg-indigo-50 p-2 text-indigo-600">
-                  <CalendarDays className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-black text-slate-800">
-                    Class Timetable
-                  </h3>
-                  <p className="text-[10px] text-slate-400 font-bold">
-                    Batch: {student?.batchName || "Assigned Batch"}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1" role="group" aria-label="Choose timetable day">
+                <button
+                  type="button"
+                  aria-pressed={selectedDay === "All Week"}
+                  onClick={() => setSelectedDay("All Week")}
+                  className={`shrink-0 rounded-2xl px-3.5 py-2 text-[10px] font-black uppercase tracking-wider active:scale-95 ${
+                    selectedDay === "All Week"
+                      ? "bg-indigo-600 text-white shadow-md"
+                      : "border border-slate-100 bg-white text-slate-500"
+                  }`}
+                >
+                  All Week
+                </button>
                 {DAYS_OF_WEEK.map((day) => {
                   const isSelected =
                     selectedDay.toLowerCase() === day.toLowerCase();
                   return (
                     <button
                       key={day}
+                      type="button"
+                      aria-pressed={isSelected}
                       onClick={() => setSelectedDay(day)}
                       className={`shrink-0 rounded-2xl px-3.5 py-2 text-[10px] font-black uppercase tracking-wider active:scale-95 ${
                         isSelected
@@ -1954,12 +1881,17 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
 
               <div className="space-y-2.5">
                 {dayTimetable.length > 0 ? (
-                  dayTimetable.map((slot) => (
-                    <div
-                      key={slot.id}
-                      className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm flex items-center justify-between"
-                    >
-                      <div className="space-y-1 min-w-0 flex-1">
+                  dayTimetable.map((slot, index) => (
+                    <div key={`${slot.id}-${index}`} className="space-y-2.5">
+                      {selectedDay === "All Week" &&
+                        (index === 0 || slot.day?.toLowerCase() !== dayTimetable[index - 1]?.day?.toLowerCase()) && (
+                          <div className="flex items-center gap-2 px-1 pt-2" role="heading" aria-level={3}>
+                            <CalendarDays className="h-4 w-4 text-indigo-600" />
+                            <span className="text-sm font-black text-slate-800">{slot.day}</span>
+                          </div>
+                        )}
+                      <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+                        <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="inline-block rounded-lg bg-indigo-50 px-2 py-0.5 text-[10px] font-extrabold text-indigo-700">
                             {slot.subjectName || "Subject"}
@@ -1989,10 +1921,11 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
                         </p>
                       </div>
                     </div>
+                    </div>
                   ))
                 ) : (
                   <EmptyText
-                    text={`No lectures scheduled for ${selectedDay}.`}
+                    text={selectedDay === "All Week" ? "No lectures scheduled for this week." : `No lectures scheduled for ${selectedDay}.`}
                   />
                 )}
               </div>
@@ -2790,7 +2723,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
 
         {/* HOMEWORK DRAWER */}
         {selectedHomework && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0">
+          <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 p-0">
             <div
               className="absolute inset-0"
               onClick={() => setSelectedHomework(null)}
@@ -3448,89 +3381,6 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
                   </button>
                 </section>
 
-                <section className="mt-4 rounded-[22px] bg-white p-4 text-slate-950 shadow-[0_16px_35px_-24px_rgba(0,0,0,0.55)]">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
-                      <LockKeyhole className="h-4 w-4" />
-                    </span>
-                    <h3 className="text-[17px] font-black text-[#071a3f]">
-                      Change Password
-                    </h3>
-                  </div>
-
-                  <div className="mt-4 space-y-3.5">
-                    <PasswordField
-                      label="Current Password"
-                      value={passwordForm.currentPassword}
-                      onChange={(value) =>
-                        setPasswordForm((current) => ({
-                          ...current,
-                          currentPassword: value,
-                        }))
-                      }
-                      show={showCurrentPassword}
-                      onToggle={() =>
-                        setShowCurrentPassword((current) => !current)
-                      }
-                      placeholder="Enter current password"
-                      disabled={supportMode || isPasswordSaving}
-                    />
-
-                    <PasswordField
-                      label="New Password"
-                      value={passwordForm.newPassword}
-                      onChange={(value) =>
-                        setPasswordForm((current) => ({
-                          ...current,
-                          newPassword: value,
-                        }))
-                      }
-                      show={showNewPassword}
-                      onToggle={() => setShowNewPassword((current) => !current)}
-                      placeholder="Enter new password"
-                      disabled={supportMode || isPasswordSaving}
-                    />
-
-                    <PasswordField
-                      label="Confirm New Password"
-                      value={passwordForm.confirmPassword}
-                      onChange={(value) =>
-                        setPasswordForm((current) => ({
-                          ...current,
-                          confirmPassword: value,
-                        }))
-                      }
-                      show={showConfirmPassword}
-                      onToggle={() =>
-                        setShowConfirmPassword((current) => !current)
-                      }
-                      placeholder="Confirm new password"
-                      disabled={supportMode || isPasswordSaving}
-                    />
-
-                    {passwordMessage && (
-                      <div
-                        className={`rounded-xl border px-3 py-2 text-[11px] font-bold ${
-                          passwordMessage.type === "success"
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                            : "border-red-200 bg-red-50 text-red-700"
-                        }`}
-                      >
-                        {passwordMessage.text}
-                      </div>
-                    )}
-
-                    <Button
-                      type="button"
-                      onClick={() => void updateOwnPassword()}
-                      disabled={supportMode || isPasswordSaving}
-                      className="h-12 w-full rounded-xl bg-[linear-gradient(90deg,#08b7e8_0%,#087ff5_55%,#1466ef_100%)] text-sm font-black text-white shadow-[0_10px_24px_-12px_rgba(8,127,245,0.75)] hover:opacity-95 disabled:opacity-50"
-                    >
-                      <ShieldCheck className="mr-2 h-4 w-4" />
-                      {isPasswordSaving ? "Updating..." : "Update Password"}
-                    </Button>
-                  </div>
-                </section>
               </main>
             </div>
           </div>
@@ -4128,61 +3978,6 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
                   </CardContent>
                 </Card>
 
-                {/* 5 Login */}
-                <Card className="rounded-2xl border border-slate-200 shadow-sm bg-white">
-                  <CardContent className="p-5 space-y-5">
-                    <SectionTitle
-                      number={5}
-                      icon={<KeyRound className="h-4 w-4" />}
-                    >
-                      Login Details
-                    </SectionTitle>
-                    <div className="rounded-xl border bg-slate-50/50 p-4">
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <EditField
-                          label="Login ID"
-                          value={editForm.loginId}
-                          onChange={(v) =>
-                            setFormValue(
-                              "loginId",
-                              v.toLowerCase().replace(/\s/g, "")
-                            )
-                          }
-                          disabled
-                          icon={
-                            <IdCard className="h-3.5 w-3.5 text-slate-400" />
-                          }
-                        />
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-500 uppercase">
-                            Password Security
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsEditOpen(false);
-                              setIsProfileOpen(true);
-                            }}
-                            className="flex w-full items-center justify-between rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2.5 text-left"
-                          >
-                            <span className="flex items-center gap-2">
-                              <LockKeyhole className="h-4 w-4 text-cyan-700" />
-                              <span>
-                                <span className="block text-xs font-black text-cyan-950">
-                                  Change Password
-                                </span>
-                                <span className="mt-0.5 block text-[9px] font-semibold text-cyan-700">
-                                  Unified app password · current password required
-                                </span>
-                              </span>
-                            </span>
-                            <ChevronRight className="h-4 w-4 text-cyan-600" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
                 </fieldset>
               </div>
             </div>
@@ -4200,10 +3995,10 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
               label="Home"
             />
             <NavBtn
-              active={isProfileOpen}
+              active={isEditOpen}
               onClick={() => {
                 setIsNotificationsOpen(false);
-                setIsProfileOpen(true);
+                openEditModal();
               }}
               icon={<User className="h-5 w-5" strokeWidth={2.2} />}
               label="Profile"
@@ -4448,56 +4243,6 @@ function IdInfo({ label, value }: { label: string; value: string }) {
       <p className="mt-1 truncate text-[11px] font-black text-slate-900">
         {value}
       </p>
-    </div>
-  );
-}
-
-function PasswordField({
-  label,
-  value,
-  onChange,
-  show,
-  onToggle,
-  placeholder,
-  disabled,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  show: boolean;
-  onToggle: () => void;
-  placeholder: string;
-  disabled: boolean;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-[11px] font-bold text-[#071a3f]">
-        {label}
-      </label>
-      <div className="relative">
-        <KeyRound className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input
-          type={show ? "text" : "password"}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          disabled={disabled}
-          autoComplete={
-            label.toLowerCase().includes("current")
-              ? "current-password"
-              : "new-password"
-          }
-          placeholder={placeholder}
-          className="h-12 w-full rounded-xl border border-blue-100 bg-white pl-10 pr-11 text-xs font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/10 disabled:bg-slate-50 disabled:text-slate-400"
-        />
-        <button
-          type="button"
-          onClick={onToggle}
-          disabled={disabled}
-          className="absolute right-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
-        >
-          {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-        </button>
-      </div>
     </div>
   );
 }

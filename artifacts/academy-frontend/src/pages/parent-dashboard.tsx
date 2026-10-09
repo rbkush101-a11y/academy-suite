@@ -429,7 +429,7 @@ export default function ParentDashboard() {
               <Menu className="h-6 w-6" />
             </button>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-[16px] font-black">Parent Dashboard</h1>
+              <h1 className="truncate text-[15px] font-black">Parent/Student Dashboard</h1>
               <p className="truncate text-[12px] font-semibold text-slate-300">{instituteName}</p>
             </div>
             <button
@@ -479,7 +479,7 @@ export default function ParentDashboard() {
                 <DrawerButton
                   active={activeTab === "home"}
                   icon={<Home className="h-[18px] w-[18px]" />}
-                  label="Parent Dashboard"
+                  label="Parent/Student Dashboard"
                   onClick={() => { setActiveTab("home"); setMenuOpen(false); }}
                 />
                 <DrawerButton
