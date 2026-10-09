@@ -250,6 +250,18 @@ const formatClassAndSection = (className?: string, section?: string) => {
   return classStr || sectionStr;
 };
 
+// Display only the actual batch label when imported batch names also append
+// class/board metadata (e.g. "Pre-Nurture - 1 CLASS 1 CBSE").
+// Keep the original batchName untouched for lookups, updates and APIs.
+const formatStudentBatchName = (batchName?: string): string => {
+  const name = String(batchName || "").trim();
+  if (!name) return "—";
+  const withAppendedClass = name.match(
+    /^(.+?)\s+[-–—]\s+(?:(?:\d{1,2}|LKG|UKG)\s+)?(?:CLASS|GRADE)\s+(?:\d{1,2}|LKG|UKG)(?:\s+(?:CBSE|ICSE|ISC|STATE\s+BOARD|UP\s+BOARD))?\s*$/i
+  );
+  return withAppendedClass?.[1]?.trim() || name;
+};
+
 const getCountdown = (targetTime: string) => {
   const diff = new Date(targetTime).getTime() - new Date().getTime();
   if (diff <= 0) return null;
@@ -505,6 +517,17 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isProfileFormEditing, setIsProfileFormEditing] = useState(false);
+
+  // A full-height student form must scroll independently of the dashboard.
+  // Restore the body's original overflow when the form closes/unmounts.
+  useEffect(() => {
+    if (!isEditOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isEditOpen]);
   const [editForm, setEditForm] = useState<any>({});
   const [fieldErrors, setFieldErrors] = useState<any>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -1248,7 +1271,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
           <div class="details-box">
             <div class="row"><span class="label">Student Name:</span> <span class="value">${student?.name || "-"}</span></div>
             <div class="row"><span class="label">Enrollment / Roll No:</span> <span class="value">${student?.enrollmentNo || "-"}</span></div>
-            <div class="row"><span class="label">Class & Batch:</span> <span class="value">${student?.className || "-"} ${student?.batchName ? `(${student.batchName})` : ""}</span></div>
+            <div class="row"><span class="label">Class & Batch:</span> <span class="value">${student?.className || "-"} ${student?.batchName ? `(${formatStudentBatchName(student.batchName)})` : ""}</span></div>
           </div>
 
           <div class="row"><span class="label">Receipt Status:</span> <span class="value"><span class="status-badge">${payment.status}</span></span></div>
@@ -1841,7 +1864,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
             <div className="space-y-3.5 animate-fadeIn">
               <StudentSectionHeader
                 title="Time Table"
-                description={`Batch: ${student?.batchName || "Assigned Batch"}`}
+                description="Weekly class schedule"
                 icon={<CalendarDays className="h-5 w-5" />}
                 onBack={() => openStudentSection("home")}
               />
@@ -2595,7 +2618,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
                   </div>
 
                   <div className="mt-5 grid grid-cols-2 gap-2">
-                    <InfoPill label="Batch" value={student?.batchName || "—"} />
+                    <InfoPill label="Batch" value={formatStudentBatchName(student?.batchName)} />
                     <InfoPill
                       label="Class"
                       value={formatClassAndSection(
@@ -2702,7 +2725,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
 
                   <div className="mt-5 grid grid-cols-2 gap-2.5">
                     <IdInfo label="Class" value={formatClassAndSection(student?.className, student?.section)} />
-                    <IdInfo label="Batch" value={student?.batchName || "—"} />
+                    <IdInfo label="Batch" value={formatStudentBatchName(student?.batchName)} />
                     <IdInfo label="Course" value={student?.courseName || "—"} />
                     <IdInfo label="Session" value={student?.academicYear || "—"} />
                   </div>
@@ -3123,7 +3146,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500 font-semibold">Class & Batch:</span>
-                    <span className="font-bold text-slate-800">{student?.className || "-"} {student?.batchName ? `(${student.batchName})` : ""}</span>
+                    <span className="font-bold text-slate-800">{student?.className || "-"} {student?.batchName ? `(${formatStudentBatchName(student.batchName)})` : ""}</span>
                   </div>
                 </div>
 
@@ -3388,15 +3411,20 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
 
         {/* EDIT FORM */}
         {isEditOpen && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="student-profile-form-title"
+            className="fixed inset-0 z-[130] flex items-end justify-center overflow-hidden bg-black/70 p-0 sm:items-center sm:p-4"
+          >
             <div
               className="absolute inset-0"
               onClick={() => !isSaving && setIsEditOpen(false)}
             />
-            <div className="relative w-full max-w-lg rounded-t-3xl bg-[#f6f7f9] p-0 shadow-2xl h-[95vh] overflow-hidden animate-slideUp flex flex-col">
-              <div className="bg-white px-5 py-4 border-b border-slate-200 flex items-center justify-between sticky top-0 z-20 shadow-sm shrink-0">
+            <div className="relative flex h-[100dvh] max-h-[100dvh] w-full max-w-2xl min-h-0 flex-col overflow-hidden bg-[#f6f7f9] shadow-2xl sm:h-[min(94dvh,900px)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-3xl">
+              <div className="z-20 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5 sm:py-4">
                 <div>
-                  <h2 className="text-base font-black text-slate-800">
+                  <h2 id="student-profile-form-title" className="text-base font-black text-slate-800">
                     Student Admission Form
                   </h2>
                   <p className="text-[10px] text-slate-500 font-medium">
@@ -3438,7 +3466,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
                 </div>
               </div>
 
-              <div className="p-4 overflow-y-auto space-y-5 flex-1">
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-4 pb-[max(24px,env(safe-area-inset-bottom,0px))] [webkit-overflow-scrolling:touch]">
                 {!isProfileFormEditing && (
                   <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] font-bold text-blue-700">
                     Profile view mode. Click the <span className="font-black">Edit</span> button above to make changes.
@@ -3652,7 +3680,7 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
                         />
                         <EditField
                           label="Batch"
-                          value={student?.batchName || ""}
+                          value={formatStudentBatchName(student?.batchName)}
                           onChange={() => {}}
                           disabled
                         />
@@ -3984,8 +4012,8 @@ export default function ParentChildDashboard({ studentId, onBackToParent, initia
           </div>
         )}
 
-        {/* BOTTOM NAV */}
-        {!isMenuOpen && (
+        {/* Keep the navigation out of the way while the full-screen profile form is open. */}
+        {!isMenuOpen && !isEditOpen && (
         <div className="fixed bottom-0 left-0 right-0 z-[90] border-t border-white/10 bg-[#03142f]/95 pb-safe shadow-[0_-10px_30px_rgba(0,0,0,0.18)] backdrop-blur-md">
           <div className="mx-auto flex h-[72px] max-w-lg items-center justify-around px-3">
             <NavBtn
