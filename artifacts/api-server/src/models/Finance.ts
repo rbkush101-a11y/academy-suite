@@ -50,7 +50,12 @@ export interface IPayment extends Document {
   totalAmount: number;
   paidAmount: number;
   dueDate: string;
-  paidDate?: string;
+  paidDate?: string;             // Actual date of payment receipt (legacy-compatible)
+  receivedAt?: string;           // Actual business date money was received (YYYY-MM-DD)
+  recordedAt?: Date;             // UTC instant entered into system
+  collectedBy?: mongoose.Types.ObjectId;
+  backdateReason?: string;
+  supportingReference?: string;
   status: "pending" | "paid" | "overdue" | "partial";
   month: string;                   // "2025-10"
   monthLabel: string;              // "Oct 2025"
@@ -133,6 +138,11 @@ const paymentSchema = new Schema<IPayment>(
     paidAmount: { type: Number, default: 0 },
     dueDate: { type: String, required: true },
     paidDate: { type: String },
+    receivedAt: { type: String },
+    recordedAt: { type: Date },
+    collectedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    backdateReason: { type: String, trim: true, maxlength: 1000 },
+    supportingReference: { type: String, trim: true, maxlength: 200 },
     status: {
       type: String,
       enum: ["pending", "paid", "overdue", "partial"],
@@ -184,3 +194,41 @@ export const FeeStructure = mongoose.model<IFeeStructure>("FeeStructure", feeStr
 export const StudentFeeAssignment = mongoose.model<IStudentFeeAssignment>("StudentFeeAssignment", studentFeeAssignmentSchema);
 export const Payment = mongoose.model<IPayment>("Payment", paymentSchema);
 export const Expense = mongoose.model<IExpense>("Expense", expenseSchema);
+// Backdated fee entries requested by an accountant require administrator review.
+// Historical requests are retained for audit and cannot be silently overwritten.
+export interface IFeePaymentApproval extends Document {
+  instituteId: mongoose.Types.ObjectId;
+  paymentId: mongoose.Types.ObjectId;
+  requestedBy: mongoose.Types.ObjectId;
+  requestedAt: Date;
+  receivedDate: string;
+  paymentMethod: "cash" | "upi" | "online" | "cheque";
+  transactionId?: string;
+  remarks?: string;
+  reason: string;
+  supportingReference: string;
+  expectedTotal: number;
+  status: "pending" | "approved" | "rejected";
+  reviewedBy?: mongoose.Types.ObjectId;
+  reviewedAt?: Date;
+  reviewNote?: string;
+}
+const feePaymentApprovalSchema = new Schema<IFeePaymentApproval>({
+  instituteId: { type: Schema.Types.ObjectId, ref: "Institute", required: true, index: true },
+  paymentId: { type: Schema.Types.ObjectId, ref: "Payment", required: true, index: true },
+  requestedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+  requestedAt: { type: Date, required: true, default: Date.now },
+  receivedDate: { type: String, required: true },
+  paymentMethod: { type: String, enum: ["cash", "upi", "online", "cheque"], required: true },
+  transactionId: { type: String, trim: true },
+  remarks: { type: String, trim: true },
+  reason: { type: String, required: true, trim: true },
+  supportingReference: { type: String, required: true, trim: true },
+  expectedTotal: { type: Number, required: true, min: 0 },
+  status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending", index: true },
+  reviewedBy: { type: Schema.Types.ObjectId, ref: "User" },
+  reviewedAt: { type: Date },
+  reviewNote: { type: String, trim: true },
+}, { timestamps: true });
+feePaymentApprovalSchema.index({ paymentId: 1, status: 1 }, { unique: true, partialFilterExpression: { status: "pending" } });
+export const FeePaymentApproval = mongoose.model<IFeePaymentApproval>("FeePaymentApproval", feePaymentApprovalSchema);

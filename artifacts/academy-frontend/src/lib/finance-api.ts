@@ -147,11 +147,37 @@ export const financeApi = {
       paymentMethod: "cash" | "online" | "cheque" | "upi";
       transactionId?: string;
       remarks?: string;
+      receivedDate?: string;
+      backdateReason?: string;
+      supportingReference?: string;
+      expectedTotal?: number;
     }
   ) {
     return financeRequest<any>(`/finance/payments/${id}/pay`, {
       method: "POST",
       body: JSON.stringify(input),
+    });
+  },
+
+  getPaymentQuote(id: string, receivedDate: string): Promise<{
+    paymentId: string; dueDate: string; receivedDate: string; daysLate: number;
+    lateFeePerDay: number; lateFee: number; totalPayable: number;
+    remainingBalance: number; approvalRequired: boolean; needsApproval: boolean; entryDate: string;
+  }> {
+    return financeRequest(`/finance/payments/${encodeURIComponent(id)}/quote?receivedDate=${encodeURIComponent(receivedDate)}`);
+  },
+
+  listBackdatedPayments(): Promise<Array<{
+    id: string; paymentId: string; studentName: string; studentEnrollmentNo: string;
+    receivedDate: string; requestedAt: string; expectedTotal: number;
+    paymentMethod: string; reason: string; month: string; billStatus: string;
+  }>> {
+    return financeRequest("/finance/backdated-payments");
+  },
+
+  reviewBackdatedPayment(id: string, action: "approve" | "reject", reviewNote = "") {
+    return financeRequest(`/finance/backdated-payments/${encodeURIComponent(id)}/review`, {
+      method: "POST", body: JSON.stringify({ action, reviewNote }),
     });
   },
 

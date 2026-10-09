@@ -19,13 +19,12 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { IndianRupee, TrendingUp, AlertCircle, ArrowUpRight, Plus, CheckCircle, Pencil, Trash2, ReceiptText } from "lucide-react";
+import { IndianRupee, TrendingUp, AlertCircle, Plus, CheckCircle, Pencil, Trash2, ReceiptText } from "lucide-react";
 import {
   financeApi,
   type FeeAssignment,
@@ -33,14 +32,8 @@ import {
   type CreateFeeAssignmentResult,
 } from "../lib/finance-api";
 import { SearchableDropdown } from "@/components/searchable-dropdown";
-import { useLocation } from "wouter";
 
 export default function Finance() {
-const [location] = useLocation();
-const financeSection = location.includes("section=daily-expense")
-  ? "daily-expense"
-  : "student-fee-management";
-
 const queryClient = useQueryClient();
 
 const { data: summary } = useGetFinanceSummary();
@@ -75,6 +68,9 @@ const payPaymentMutation = useMutation({
     }),
 
   onSuccess: () => {
+    setCollectTarget(null);
+    setCollectReference("");
+    setCollectRemarks("");
     refreshFinanceData();
   },
 
@@ -120,8 +116,14 @@ const [editingPayment, setEditingPayment] = useState<any>(null);
 const [editingFeeStructure, setEditingFeeStructure] = useState<any>(null);
 const [sectionSearch, setSectionSearch] = useState("");
 const [activeTab, setActiveTab] = useState<
-  "fee-structures" | "fee-cycles" | "payments"
->("fee-structures");
+  "collect" | "pending" | "history" | "settings"
+>("collect");
+const [settingsTab, setSettingsTab] = useState<"fee-structures" | "fee-cycles">("fee-structures");
+const [onlyOverdue, setOnlyOverdue] = useState(false);
+const [collectTarget, setCollectTarget] = useState<any>(null);
+const [collectMethod, setCollectMethod] = useState<"cash" | "upi" | "online" | "cheque">("cash");
+const [collectReference, setCollectReference] = useState("");
+const [collectRemarks, setCollectRemarks] = useState("");
 
 const [feeForm, setFeeForm] = useState({
 name: "",
@@ -515,8 +517,12 @@ receiptWindow.document.close();
 };
 
 const handleDeletePayment = (payment: any) => {
+if (payment.status === "paid" || payment.status === "partial") {
+  alert("Paid or partially paid bills cannot be deleted from this screen.");
+  return;
+}
 const confirmed = confirm(
-'Delete payment for "' + (payment.studentName || "student") + '"?'
+'Delete this UNPAID fee bill for "' + (payment.studentName || "student") + '"? This action cannot be undone.'
 );
 
 if (!confirmed) return;
@@ -532,6 +538,11 @@ alert(error?.message || "Payment could not be deleted.");
 };
 
 const handleSavePayment = () => {
+const enteredAmount = Number(paymentForm.amount);
+if (!Number.isFinite(enteredAmount) || enteredAmount <= 0) {
+  alert("Fee bill amount must be greater than zero.");
+  return;
+}
 if (
 !paymentForm.studentId ||
 !paymentForm.feeStructureId ||
@@ -610,17 +621,29 @@ paymentMethod: paymentForm.paymentMethod as
 );
 };
 
-const markPaymentPaid = (payment: any) => {
-  const paymentMethod =
-    (payment.paymentMethod as
-      | "cash"
-      | "online"
-      | "cheque"
-      | "upi") || "cash";
+// Collecting money is separate from generating a bill.
+// The existing /pay endpoint settles the FULL bill and recalculates late fees.
+const openCollectDialog = (payment: any) => {
+  if (payment.status === "paid" || payment.status === "partial") return;
+  setCollectTarget(payment);
+  setCollectMethod("cash");
+  setCollectReference("");
+  setCollectRemarks("");
+};
 
+const confirmFullCollection = () => {
+  if (!collectTarget || payPaymentMutation.isPending) return;
+  if (collectTarget.status === "paid" || collectTarget.status === "partial") return;
+  const reference = collectReference.trim();
+  if (collectMethod !== "cash" && !reference) {
+    alert("Enter the UPI / bank / cheque reference number before saving.");
+    return;
+  }
   payPaymentMutation.mutate({
-    id: payment.id,
-    paymentMethod,
+    id: collectTarget.id,
+    paymentMethod: collectMethod,
+    ...(reference ? { transactionId: reference } : {}),
+    ...(collectRemarks.trim() ? { remarks: collectRemarks.trim() } : {}),
   });
 };
 
@@ -801,17 +824,35 @@ const filteredFeeCycles = (feeAssignments ?? []).filter((assignment: any) => {
   );
 });
 
-const filteredPayments = (payments ?? []).filter((payment: any) => {
-  const text = sectionSearch.trim().toLowerCase();
-  if (!text) return true;
-
-  return (
-    String(payment.studentName ?? "").toLowerCase().includes(text) ||
-    String(payment.receiptNo ?? "").toLowerCase().includes(text) ||
-    String(payment.status ?? "").toLowerCase().includes(text) ||
-    String(payment.paymentMethod ?? "").toLowerCase().includes(text)
-  );
-});
+const searchTerm = sectionSearch.trim().toLowerCase();
+const filteredBills = (payments ?? [])
+  .filter((payment: any) => payment.status !== "paid")
+  .filter((payment: any) => !onlyOverdue || activeTab !== "pending" || payment.status === "overdue")
+  .filter((payment: any) => {
+    if (!searchTerm) return true;
+    const student = (students ?? []).find((item: any) => item.id === payment.studentId) as any;
+    return [payment.studentName, payment.studentEnrollmentNo, payment.month,
+      payment.status, payment.courseName, student?.phone, student?.parentPhone]
+      .some((value) => String(value ?? "").toLowerCase().includes(searchTerm));
+  })
+  .sort((a: any, b: any) => {
+    const aLate = a.status === "overdue" ? 0 : 1;
+    const bLate = b.status === "overdue" ? 0 : 1;
+    return aLate - bLate || String(a.dueDate || "").localeCompare(String(b.dueDate || ""));
+  });
+const filteredPaidPayments = (payments ?? [])
+  .filter((payment: any) => payment.status === "paid")
+  .filter((payment: any) => !searchTerm || [payment.studentName,
+    payment.studentEnrollmentNo, payment.receiptNo, payment.paymentMethod, payment.month]
+    .some((value) => String(value ?? "").toLowerCase().includes(searchTerm)))
+  .sort((a: any, b: any) => String(b.paidDate || "").localeCompare(String(a.paidDate || "")));
+const formatRupees = (value: unknown) => `₹${Math.max(0, Number(value) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+const unpaidBalance = (payment: any) => Math.max(0, Number(payment.totalAmount ?? payment.amount ?? 0) - Number(payment.paidAmount ?? 0));
+const navigateTab = (tab: "collect" | "pending" | "history" | "settings") => {
+  setActiveTab(tab);
+  setSectionSearch("");
+  setOnlyOverdue(false);
+};
 
 const selectedAssignmentFeeStructure = feeStructures?.find(
   (fee: any) => fee.id === assignmentForm.feeStructureId
@@ -836,167 +877,76 @@ const assignmentPayableAmount = Math.max(
 
 
 return (
-<div className="space-y-6">
-<div className="mb-4 flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-center sm:justify-between">
-<h1 className="text-3xl font-bold tracking-tight">Student Fee Management</h1>
-
-    <div className="flex gap-2">
-      {financeSection === "student-fee-management" && (
-        <>
-          <Button variant="outline" onClick={openFeeStructureDialog}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Fee Structure
-          </Button>
-
-          <Button variant="outline" onClick={openAssignmentDialog}>
-            <Plus className="mr-2 h-4 w-4" />
-            Assign Fee Cycle
-          </Button>
-
-          <Button onClick={openPaymentDialog}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Manual Fee
-          </Button>
-        </>
-      )}
-
+<div className="mx-auto max-w-[1600px] space-y-5 pb-8">
+  <section className="relative overflow-hidden rounded-[25px] border border-[#142b51] bg-[linear-gradient(115deg,#071326_0%,#102e59_65%,#14377a_100%)] p-5 text-white shadow-[0_20px_50px_-24px_rgba(3,17,44,.6)] sm:p-6">
+    <div className="pointer-events-none absolute -right-12 -top-20 h-56 w-56 rounded-full bg-blue-400/15 blur-3xl" />
+    <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-[11px] font-black uppercase tracking-[.16em] text-cyan-300">FINANCE / FEE COUNTER</p>
+        <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">Fee Collection</h1>
+        <p className="mt-2 max-w-lg text-sm text-blue-100">Find a student, collect fees, and print the receipt — all in one place.</p>
+      </div>
+      <Button type="button" onClick={() => navigateTab("collect")}
+        className="h-11 shrink-0 rounded-xl border-0 bg-[#1194f6] px-5 font-bold text-white hover:bg-[#087cde]">
+        <IndianRupee className="mr-2 h-4 w-4" /> Collect Fee
+      </Button>
     </div>
-  </div>
+  </section>
 
-
-  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="mb-1 text-sm font-medium text-muted-foreground">
-              Collected Fees
-            </p>
-            <h3 className="text-2xl font-bold">
-              ₹{Number((summary as any)?.totalRevenue ?? 0).toLocaleString("en-IN")}
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Ab tak jama fees
-            </p>
+  <section aria-label="Fee totals" className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+    {[
+      { label: "Total Collected", value: formatRupees((summary as any)?.totalRevenue), note: "All recorded collections", icon: <TrendingUp className="h-5 w-5" /> },
+      { label: "Remaining Fees", value: formatRupees((summary as any)?.totalOutstanding), note: "Unpaid balance across bills", icon: <IndianRupee className="h-5 w-5" /> },
+      { label: "Past Due", value: formatRupees((summary as any)?.totalOverdue), note: "Included in Remaining Fees", icon: <AlertCircle className="h-5 w-5" /> },
+      { label: "Students with Dues", value: String((summary as any)?.studentsWithDue ?? 0), note: "Students with unpaid fees", icon: <CheckCircle className="h-5 w-5" /> },
+    ].map((stat) => (
+      <div key={stat.label} className="rounded-[19px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-slate-500">{stat.label}</p>
+            <p className="mt-1 text-xl font-black tracking-tight text-[#0b2243] sm:text-2xl">{stat.value}</p>
           </div>
-
-          <div className="rounded-xl bg-green-100 p-3 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-            <TrendingUp className="h-5 w-5" />
-          </div>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">{stat.icon}</span>
         </div>
-      </CardContent>
-    </Card>
+        <p className="mt-2 text-[11px] font-medium text-slate-500 sm:text-xs">{stat.note}</p>
+      </div>
+    ))}
+  </section>
 
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="mb-1 text-sm font-medium text-muted-foreground">
-              Current Due
-            </p>
-            <h3 className="text-2xl font-bold">
-              ₹{Number((summary as any)?.currentDue ?? 0).toLocaleString("en-IN")}
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Abhi lene wali fees
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-blue-100 p-3 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-            <IndianRupee className="h-5 w-5" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="mb-1 text-sm font-medium text-muted-foreground">
-              Late Due
-            </p>
-            <h3 className="text-2xl font-bold text-destructive">
-              ₹{Number((summary as any)?.totalOverdue ?? 0).toLocaleString("en-IN")}
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Due date cross ho chuki fees
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-red-100 p-3 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-            <AlertCircle className="h-5 w-5" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="mb-1 text-sm font-medium text-muted-foreground">
-              Recovery %
-            </p>
-            <h3 className="text-2xl font-bold">
-              {summary?.collectionRate || 0}%
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Total bills me se kitna collect hua
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-purple-100 p-3 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
-            <ArrowUpRight className="h-5 w-5" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="mb-1 text-sm font-medium text-muted-foreground">
-              Outstanding
-            </p>
-            <h3 className="text-2xl font-bold">
-              ₹{Number((summary as any)?.totalOutstanding ?? 0).toLocaleString("en-IN")}
-            </h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Poori baki fees
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-orange-100 p-3 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
-            <IndianRupee className="h-5 w-5" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="mb-1 text-sm font-medium text-muted-foreground">
-              Due Students
-            </p>
-            <h3 className="text-2xl font-bold">
-              {(summary as any)?.studentsWithDue ?? 0}
-            </h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Jin students ki fee baki hai
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-purple-100 p-3 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
-            <CheckCircle className="h-5 w-5" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  </div>
+  <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-sm">
+    <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3 sm:p-4" role="tablist" aria-label="Fee management sections">
+      {([
+        ["collect", "Collect Fees"],
+        ["pending", "Pending Fees"],
+        ["history", "Payment History"],
+        ["settings", "Fee Settings"],
+      ] as const).map(([key, title]) => (
+        <button key={key} type="button" role="tab" aria-selected={activeTab === key}
+          onClick={() => navigateTab(key)}
+          className={`min-h-10 rounded-xl px-3 py-2 text-sm font-bold transition sm:px-4 ${
+            activeTab === key ? "bg-[#0d3473] text-white" : "bg-slate-50 text-slate-600 hover:bg-blue-50 hover:text-blue-900"
+          }`}>{title}</button>
+      ))}
+    </div>
+    <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+      <div className="min-w-0">
+        <h2 className="text-lg font-black text-[#0c2244]">
+          {activeTab === "collect" ? "Collect an outstanding fee" :
+            activeTab === "pending" ? "Students with pending fees" :
+            activeTab === "history" ? "Received payments & receipts" : "Manage fee setup"}
+        </h2>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          {activeTab === "collect" ? "Search a student, select their unpaid bill, and record a full payment." :
+            activeTab === "pending" ? "Track unpaid or overdue bills; overdue fees are part of the remaining balance." :
+            activeTab === "history" ? "Only completed payments appear here. Open a receipt to print or save it." :
+              "Set up fee amounts, generate monthly bills, or create a one-time bill."}
+        </p>
+      </div>
+      <Input type="search" value={sectionSearch} onChange={(event) => setSectionSearch(event.target.value)}
+        placeholder={activeTab === "settings" ? "Search structure or student..." : activeTab === "history" ? "Student, ID, receipt no..." : "Student name, roll no, phone..."}
+        aria-label="Search fees" className="h-11 w-full rounded-xl border-slate-200 bg-slate-50 sm:max-w-[310px]" />
+    </div>
+  </section>
 
 <Dialog
   open={assignmentDialogOpen}
@@ -1004,7 +954,7 @@ return (
 >
   <DialogContent className="sm:max-w-lg">
     <DialogHeader>
-      <DialogTitle>Assign Student Fee Cycle</DialogTitle>
+      <DialogTitle>Assign Monthly Fees</DialogTitle>
     </DialogHeader>
 
     <div className="space-y-4">
@@ -1362,7 +1312,7 @@ return (
   <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
     <DialogContent className="sm:max-w-[520px]">
       <DialogHeader>
-          <DialogTitle>{editingPayment ? "Edit Payment" : "Add Manual Fee"}</DialogTitle>      
+          <DialogTitle>{editingPayment ? "Edit Fee Bill" : "Create Fee Bill"}</DialogTitle>      
       </DialogHeader>
 
       <div className="space-y-4">
@@ -1531,8 +1481,8 @@ return (
           {recordPayment.isPending || updatePayment.isPending
             ? "Saving..."
             : editingPayment
-            ? "Update Payment"
-            : "Save Payment"
+            ? "Update Fee Bill"
+            : "Create Bill"
           }
 
         </Button>
@@ -1540,375 +1490,230 @@ return (
     </DialogContent>
   </Dialog>
 
-<div className="mb-4 flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-center sm:justify-between">
-  <div className="flex flex-wrap items-center gap-2">
-    <button
-      type="button"
-      onClick={() => {
-        setActiveTab("fee-structures");
-        setSectionSearch("");
-      }}
-      className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-        activeTab === "fee-structures"
-          ? "bg-primary text-primary-foreground"
-          : "bg-muted text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      Fee Structures
-    </button>
-
-    <button
-      type="button"
-      onClick={() => {
-        setActiveTab("fee-cycles");
-        setSectionSearch("");
-      }}
-      className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-        activeTab === "fee-cycles"
-          ? "bg-primary text-primary-foreground"
-          : "bg-muted text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      Student Fee Cycles
-    </button>
-
-    <button
-      type="button"
-      onClick={() => {
-        setActiveTab("payments");
-        setSectionSearch("");
-      }}
-      className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-        activeTab === "payments"
-          ? "bg-primary text-primary-foreground"
-          : "bg-muted text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      Payments
-    </button>
-  </div>
-
-  <Input
-    type="search"
-    placeholder={
-      activeTab === "fee-structures"
-        ? "Search fee structures..."
-        : activeTab === "fee-cycles"
-          ? "Search by student, ID or status..."
-          : "Search by student, status or receipt..."
-    }
-    className="w-full sm:max-w-xs"
-    value={sectionSearch}
-    onChange={(event) => setSectionSearch(event.target.value)}
-  />
-</div>
-
-{activeTab === "fee-structures" && (
-  <Card>
-    <CardContent className="p-6">
-      <div className="rounded-md border bg-background p-3 shadow-sm">
-        <Table className="text-sm">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Course</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Frequency</TableHead>
-              {/* <TableHead>Due Day</TableHead> */}
-              <TableHead>Late Fee</TableHead>
-<TableHead className="text-right">Action</TableHead>
-            </TableRow>
-          </TableHeader>
-
-          <TableBody>
-            {isLoadingFeeStructures ? (
-              <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center">
-                  Loading fee structures...
-                </TableCell>
-              </TableRow>
-            ) : filteredFeeStructures.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={7}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  No fee structure added yet.
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredFeeStructures.map((feeStructure) => (
-                <TableRow key={feeStructure.id} className="hover:bg-muted/40">
-                  <TableCell className="font-semibold text-foreground">
-                    {feeStructure.name}
-                  </TableCell>
-                  <TableCell>{feeStructure.courseName || "-"}</TableCell>
-                  <TableCell>₹{feeStructure.amount}</TableCell>
-                  <TableCell className="capitalize">
-                    {feeStructure.frequency}
-                  </TableCell>
-                  {/* <TableCell>{feeStructure.dueDay}</TableCell> */}
-                  <TableCell>₹{feeStructure.lateFeePerDay}/day</TableCell>
-<TableCell className="text-right">
-<div className="flex justify-end gap-2">
-<Button
-variant="outline"
-size="sm"
-onClick={() => openEditFeeStructureDialog(feeStructure)}
->
-<Pencil className="mr-1 h-4 w-4" />
-Edit
-</Button>
-
-<Button
-variant="destructive"
-size="sm"
-onClick={() => handleDeleteFeeStructure(feeStructure)}
-disabled={deleteFeeStructure.isPending}
->
-<Trash2 className="mr-1 h-4 w-4" />
-Delete
-</Button>
-</div>
-</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-    </CardContent>
-  </Card>
-)}
-
-{activeTab === "fee-cycles" && (
-  <Card>
-    <CardContent className="p-6">
-      <div className="rounded-md border bg-background p-3 shadow-sm">
-        <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Student</TableHead>
-            <TableHead>Fee Structure</TableHead>
-            <TableHead>Admission</TableHead>
-            <TableHead>Cycle Day</TableHead>
-            <TableHead>Monthly Fee</TableHead>
-            <TableHead>Period</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Action</TableHead>
-          </TableRow>
-        </TableHeader>
-
-        <TableBody>
-          {isLoadingAssignments ? (
-            <TableRow>
-              <TableCell colSpan={8} className="text-center">
-                Loading fee cycles...
-              </TableCell>
-            </TableRow>
-          ) : filteredFeeCycles.length === 0 ? (
-            <TableRow>
-              <TableCell
-                colSpan={8}
-                className="py-8 text-center text-muted-foreground"
-              >
-                No fee cycles assigned yet.
-              </TableCell>
-            </TableRow>
-          ) : (
-            filteredFeeCycles.map((assignment) => (
-              <TableRow key={assignment.id}>
-                <TableCell>
-                  <div className="font-medium">
-                    {assignment.studentName || "-"}
-                  </div>
-
-                  <div className="text-xs text-muted-foreground">
-                    {assignment.studentEnrollmentNo || "-"}
-                  </div>
-                </TableCell>
-
-                <TableCell>
-                  {assignment.feeStructureName || "-"}
-                </TableCell>
-
-                <TableCell>
-                  {formatDate(assignment.admissionDate)}
-                </TableCell>
-
-                <TableCell>
-                  Every {assignment.feeCycleDay}
-                </TableCell>
-
-                <TableCell>
-                  ₹{assignment.monthlyAmount.toLocaleString("en-IN")}
-                </TableCell>
-
-                <TableCell>
-                  <div>{assignment.startMonth}</div>
-                  <div className="text-xs text-muted-foreground">
-                    to {assignment.endMonth}
-                  </div>
-                </TableCell>
-
-                <TableCell>
-                  <Badge
-                    variant={
-                      assignment.status === "active"
-                        ? "default"
-                        : "secondary"
-                    }
-                  >
-                    {assignment.status}
-                  </Badge>
-                </TableCell>
-
-                <TableCell className="text-right">
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() =>
-                      handleDeleteAssignment(assignment)
-                    }
-                    disabled={deleteFeeAssignment.isPending}
-                  >
-                    <Trash2 className="mr-1 h-4 w-4" />
-                    Delete
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))
+  <Dialog open={Boolean(collectTarget)} onOpenChange={(open) => {
+    if (!open && !payPaymentMutation.isPending) setCollectTarget(null);
+  }}>
+    <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl sm:max-w-[490px]">
+      <DialogHeader><DialogTitle>Confirm Full Fee Payment</DialogTitle></DialogHeader>
+      {collectTarget && (
+        <div className="space-y-4">
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="font-black text-slate-900">{collectTarget.studentName || "Student"}</p>
+            <p className="mt-1 text-xs text-slate-600">{collectTarget.studentEnrollmentNo || "No roll number"} • {collectTarget.month || "Fee bill"}</p>
+            <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3">
+              <span className="text-sm font-semibold text-slate-600">Current recorded balance</span>
+              <span className="text-xl font-black text-[#0c3472]">{formatRupees(unpaidBalance(collectTarget))}</span>
+            </div>
+          </div>
+          <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+            This action marks the entire bill as Paid. The server will calculate any late fee again when saving. Only confirm after receiving the full amount.
+          </p>
+          <div>
+            <label htmlFor="collect-method" className="mb-1.5 block text-sm font-semibold text-slate-700">Payment method</label>
+            <select id="collect-method" value={collectMethod} onChange={(event) => setCollectMethod(event.target.value as typeof collectMethod)}
+              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm">
+              <option value="cash">Cash</option><option value="upi">UPI</option><option value="online">Bank / Online</option><option value="cheque">Cheque</option>
+            </select>
+          </div>
+          {collectMethod !== "cash" && (
+            <div>
+              <label htmlFor="collect-reference" className="mb-1.5 block text-sm font-semibold text-slate-700">Transaction / reference number</label>
+              <Input id="collect-reference" value={collectReference} onChange={(e) => setCollectReference(e.target.value)}
+                placeholder="Enter payment reference" className="h-11 rounded-xl" />
+            </div>
           )}
-        </TableBody>
-      </Table>
-    </div>
-  </CardContent>
-</Card>
-)}
+          <div>
+            <label htmlFor="collect-remarks" className="mb-1.5 block text-sm font-semibold text-slate-700">Note (optional)</label>
+            <Input id="collect-remarks" value={collectRemarks} onChange={(e) => setCollectRemarks(e.target.value)}
+              placeholder="Payment details" className="h-11 rounded-xl" />
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" className="h-11 flex-1 rounded-xl" disabled={payPaymentMutation.isPending} onClick={() => setCollectTarget(null)}>Cancel</Button>
+            <Button className="h-11 flex-1 rounded-xl bg-[#0d3473] font-bold hover:bg-[#1553a4]"
+              disabled={payPaymentMutation.isPending} onClick={confirmFullCollection}>
+              {payPaymentMutation.isPending ? "Saving..." : "Confirm Full Payment"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </DialogContent>
+  </Dialog>
 
-{activeTab === "payments" && (
-  <Card>
-      <CardContent className="p-6">
-        <div className="rounded-md border bg-background p-3 shadow-sm">
-          <Table>
-          <TableHeader>
+  {(activeTab === "collect" || activeTab === "pending") && (
+    <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
+        <div>
+          <h3 className="font-black text-[#0b2243]">{activeTab === "collect" ? "Unpaid student bills" : "All outstanding bills"}</h3>
+          <p className="mt-0.5 text-xs text-slate-500">{filteredBills.length} matching bill(s)</p>
+        </div>
+        {activeTab === "pending" && (
+          <label className="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+            <input type="checkbox" checked={onlyOverdue} onChange={(event) => setOnlyOverdue(event.target.checked)} className="h-4 w-4 accent-blue-700" />
+            Overdue only
+          </label>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <Table className="min-w-[740px]">
+          <TableHeader className="bg-slate-50/80">
             <TableRow>
-              <TableHead>Student</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Due Date</TableHead>
+              <TableHead>Student & bill</TableHead>
+              <TableHead>Due date</TableHead>
+              <TableHead>Remaining</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Method</TableHead>
-              <TableHead>Receipt No.</TableHead>
               <TableHead className="text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
-
           <TableBody>
             {isLoadingPayments ? (
-              <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center">
-                  Loading payments...
+              <TableRow><TableCell colSpan={5} className="py-10 text-center text-slate-500">Loading student fees...</TableCell></TableRow>
+            ) : filteredBills.length === 0 ? (
+              <TableRow><TableCell colSpan={5} className="py-12 text-center text-slate-500">No unpaid bills match your search.</TableCell></TableRow>
+            ) : filteredBills.map((payment: any) => (
+              <TableRow key={payment.id} className="hover:bg-blue-50/40">
+                <TableCell>
+                  <p className="font-bold text-[#0b2243]">{payment.studentName || "Student"}</p>
+                  <p className="mt-1 text-xs text-slate-500">{payment.studentEnrollmentNo || "No roll number"} • {payment.month || "-"}{payment.courseName ? ` • ${payment.courseName}` : ""}</p>
+                </TableCell>
+                <TableCell className="text-sm">{formatDate(payment.dueDate)}</TableCell>
+                <TableCell>
+                  <p className="font-black text-slate-900">{formatRupees(unpaidBalance(payment))}</p>
+                  {Number(payment.paidAmount) > 0 && <p className="text-xs text-slate-500">Paid: {formatRupees(payment.paidAmount)}</p>}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={payment.status === "overdue" ? "destructive" : "secondary"} className="capitalize">{payment.status || "pending"}</Badge>
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-2">
+                    {payment.status === "partial" ? (
+                      <span className="max-w-[170px] text-right text-xs text-amber-700">Partial bill: use a verified payment workflow</span>
+                    ) : (
+                      <Button size="sm" onClick={() => openCollectDialog(payment)}
+                        className="rounded-lg bg-[#1369d9] font-semibold text-white hover:bg-[#0d54b4]">Collect Full Fee</Button>
+                    )}
+                    {activeTab === "pending" && (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => openEditPaymentDialog(payment)} className="rounded-lg">Edit Bill</Button>
+                        {payment.status !== "partial" && (
+                          <Button size="sm" variant="outline" title="Delete unpaid fee bill" aria-label="Delete unpaid fee bill"
+                            onClick={() => handleDeletePayment(payment)} disabled={deletePayment.isPending} className="rounded-lg text-red-600 hover:text-red-800">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
-            ) : filteredPayments.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={7}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  No payments added yet.
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredPayments.map((payment) => (
-                <TableRow key={payment.id}>
-                  <TableCell className="font-medium">
-                    {payment.studentName || "-"}
-                  </TableCell>
-
-                  <TableCell>
-                    <div>₹{payment.totalAmount || payment.amount}</div>
-                    {(payment as any).scholarshipPercent ? (
-                    <div className="text-xs text-green-600">
-                      Scholarship: {(payment as any).scholarshipPercent}% (-₹
-                      {(payment as any).scholarshipAmount || 0})
-                    </div>
-                  ) : null}
-                  </TableCell>
-
-                  <TableCell>{formatDate(payment.dueDate)}</TableCell>
-
-                  <TableCell>
-                    <Badge
-                      variant={
-                        payment.status === "paid"
-                          ? "default"
-                          : payment.status === "pending"
-                            ? "secondary"
-                            : "destructive"
-                      }
-                    >
-                      {payment.status}
-                    </Badge>
-                  </TableCell>
-
-                  <TableCell className="capitalize">
-                    {payment.paymentMethod || "-"}
-                  </TableCell>
-
-                  <TableCell>{payment.receiptNo || "-"}</TableCell>
-
-                  <TableCell className="text-right">
-<div className="flex justify-end gap-2">
-<Button
-variant="outline"
-size="sm"
-onClick={() => openEditPaymentDialog(payment)}
->
-<Pencil className="mr-1 h-4 w-4" />
-Edit
-</Button>
-
-{payment.status !== "paid" ? (
-<Button
-size="sm"
-onClick={() => markPaymentPaid(payment)}
-disabled={updatePayment.isPending}
->
-<CheckCircle className="mr-1 h-4 w-4" />
-Mark Paid
-</Button>
-) : (
-<Button
-variant="outline"
-size="sm"
-onClick={() => printReceipt(payment)}
->
-<ReceiptText className="mr-1 h-4 w-4" />
-Receipt
-</Button>
-)}
-
-<Button
-variant="destructive"
-size="sm"
-onClick={() => handleDeletePayment(payment)}
-disabled={deletePayment.isPending}
->
-<Trash2 className="mr-1 h-4 w-4" />
-Delete
-</Button>
-</div>
-</TableCell>
-                </TableRow>
-              ))
-            )}
+            ))}
           </TableBody>
         </Table>
       </div>
-    </CardContent>
-  </Card>
-)}
+      <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
+        “Collect Full Fee” completes the selected bill. Partial payments require a separate verified backend flow.
+      </div>
+    </section>
+  )}
+
+  {activeTab === "history" && (
+    <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <h3 className="font-black text-[#0b2243]">Completed payments</h3>
+        <p className="mt-1 text-xs text-slate-500">{filteredPaidPayments.length} paid bill(s) — tap Receipt to print or save.</p>
+      </div>
+      <div className="overflow-x-auto">
+        <Table className="min-w-[720px]">
+          <TableHeader className="bg-slate-50"><TableRow>
+            <TableHead>Student</TableHead><TableHead>Paid amount</TableHead><TableHead>Paid on</TableHead><TableHead>Method</TableHead><TableHead>Receipt no.</TableHead><TableHead className="text-right">Action</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>
+            {isLoadingPayments ? (
+              <TableRow><TableCell colSpan={6} className="py-10 text-center">Loading payment history...</TableCell></TableRow>
+            ) : filteredPaidPayments.length === 0 ? (
+              <TableRow><TableCell colSpan={6} className="py-12 text-center text-slate-500">No completed payments found.</TableCell></TableRow>
+            ) : filteredPaidPayments.map((payment: any) => (
+              <TableRow key={payment.id}>
+                <TableCell><p className="font-bold text-slate-900">{payment.studentName || "Student"}</p><p className="text-xs text-slate-500">{payment.month || "-"}</p></TableCell>
+                <TableCell className="font-black text-slate-900">{formatRupees(payment.paidAmount || payment.totalAmount || payment.amount)}</TableCell>
+                <TableCell>{formatDate(payment.paidDate)}</TableCell>
+                <TableCell className="capitalize">{payment.paymentMethod || "-"}</TableCell>
+                <TableCell>{payment.receiptNo || "-"}</TableCell>
+                <TableCell className="text-right"><Button size="sm" variant="outline" className="rounded-lg" onClick={() => printReceipt(payment)}>
+                  <ReceiptText className="mr-1.5 h-4 w-4" />Receipt
+                </Button></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </section>
+  )}
+
+  {activeTab === "settings" && (
+    <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4 sm:p-5">
+        <div>
+          <h3 className="font-black text-[#0b2243]">Fee Setup</h3>
+          <p className="mt-1 text-xs text-slate-500">Configure fees and generate bills. These actions do not receive a payment.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={openFeeStructureDialog} className="rounded-lg"><Plus className="mr-1 h-4 w-4" />Fee Structure</Button>
+          <Button variant="outline" size="sm" onClick={openAssignmentDialog} className="rounded-lg"><Plus className="mr-1 h-4 w-4" />Assign Monthly Fees</Button>
+          <Button size="sm" onClick={openPaymentDialog} className="rounded-lg bg-[#0d3473] text-white hover:bg-[#1651a6]"><Plus className="mr-1 h-4 w-4" />Create Fee Bill</Button>
+        </div>
+      </div>
+      <div className="flex gap-2 border-b border-slate-100 px-4 py-3 sm:px-5">
+        {([ ["fee-structures", "Fee Structures"], ["fee-cycles", "Student Fee Plans"] ] as const).map(([tab, label]) => (
+          <button key={tab} type="button" onClick={() => {setSettingsTab(tab); setSectionSearch("");}}
+            className={`rounded-lg px-4 py-2 text-sm font-semibold ${settingsTab === tab ? "bg-blue-100 text-blue-900" : "text-slate-500 hover:bg-slate-50"}`}>{label}</button>
+        ))}
+      </div>
+      {settingsTab === "fee-structures" ? (
+        <div className="overflow-x-auto p-3 sm:p-4">
+          <Table className="min-w-[710px]">
+            <TableHeader><TableRow><TableHead>Fee name</TableHead><TableHead>Course</TableHead><TableHead>Amount</TableHead><TableHead>Frequency</TableHead><TableHead>Late Fee / Day</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {isLoadingFeeStructures ? (
+                <TableRow><TableCell colSpan={6} className="py-8 text-center">Loading fee structures...</TableCell></TableRow>
+              ) : filteredFeeStructures.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="py-8 text-center text-slate-500">No fee structures match.</TableCell></TableRow>
+              ) : filteredFeeStructures.map((fee: any) => (
+                <TableRow key={fee.id}><TableCell className="font-bold">{fee.name}</TableCell><TableCell>{fee.courseName || "-"}</TableCell>
+                  <TableCell>{formatRupees(fee.amount)}</TableCell><TableCell className="capitalize">{fee.frequency}</TableCell><TableCell>{formatRupees(fee.lateFeePerDay)}</TableCell>
+                  <TableCell className="text-right"><div className="flex justify-end gap-2">
+                    <Button size="sm" variant="outline" className="rounded-lg" onClick={() => openEditFeeStructureDialog(fee)}><Pencil className="mr-1 h-4 w-4"/>Edit</Button>
+                    <Button size="sm" variant="destructive" className="rounded-lg" onClick={() => handleDeleteFeeStructure(fee)} disabled={deleteFeeStructure.isPending}><Trash2 className="mr-1 h-4 w-4"/>Delete</Button>
+                  </div></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <div className="overflow-x-auto p-3 sm:p-4">
+          <Table className="min-w-[900px]">
+            <TableHeader><TableRow><TableHead>Student</TableHead><TableHead>Fee plan</TableHead><TableHead>Admission</TableHead><TableHead>Due day</TableHead><TableHead>Monthly</TableHead><TableHead>Duration</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {isLoadingAssignments ? (
+                <TableRow><TableCell colSpan={8} className="py-8 text-center">Loading fee plans...</TableCell></TableRow>
+              ) : filteredFeeCycles.length === 0 ? (
+                <TableRow><TableCell colSpan={8} className="py-8 text-center text-slate-500">No assigned fee plans found.</TableCell></TableRow>
+              ) : filteredFeeCycles.map((plan) => (
+                <TableRow key={plan.id}><TableCell><p className="font-bold">{plan.studentName || "-"}</p><p className="text-xs text-slate-500">{plan.studentEnrollmentNo || "-"}</p></TableCell>
+                  <TableCell>{plan.feeStructureName || "-"}</TableCell><TableCell>{formatDate(plan.admissionDate)}</TableCell><TableCell>Every {plan.feeCycleDay}</TableCell>
+                  <TableCell>{formatRupees(plan.monthlyAmount)}</TableCell><TableCell>{plan.startMonth} to {plan.endMonth}</TableCell>
+                  <TableCell><Badge variant={plan.status === "active" ? "default" : "secondary"}>{plan.status}</Badge></TableCell>
+                  <TableCell className="text-right"><Button size="sm" variant="destructive" className="rounded-lg" onClick={() => handleDeleteAssignment(plan)} disabled={deleteFeeAssignment.isPending}>
+                    <Trash2 className="mr-1 h-4 w-4"/>Delete
+                  </Button></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </section>
+  )}
 </div>
 
 );

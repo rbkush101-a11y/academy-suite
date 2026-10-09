@@ -5,6 +5,7 @@ import {
   Payment,
   StudentFeeAssignment,
   Expense,
+  FeePaymentApproval,
 } from "../models/Finance";
 import { Course } from "../models/Course";
 import { Batch } from "../models/Batch";
@@ -17,12 +18,85 @@ import {
   isOverdue,
 } from "../lib/feeCycle";
 import { runOverdueCheckNow } from "../lib/cronJobs";
+import { recordAudit } from "../lib/foundation";
 
 const router: IRouter = Router();
 
 // ============================================================
 // HELPERS
 // ============================================================
+
+// Date-only helpers use business dates in Asia/Kolkata, never UTC midnight or
+// the machine timezone (otherwise late fee can shift by one day).
+const FEE_DAY = /^\d{4}-\d{2}-\d{2}$/;
+function todayInIndia(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+}
+function feeDayTime(date: string): number | null {
+  if (!FEE_DAY.test(date)) return null;
+  const [y, m, d] = date.split("-").map(Number);
+  if (m < 1 || m > 12 || d < 1 || d > new Date(Date.UTC(y, m, 0)).getUTCDate()) return null;
+  return Date.UTC(y, m - 1, d);
+}
+function paymentQuote(payment: any, dailyRate: number, receivedDate: string) {
+  const dueMs = feeDayTime(String(payment.dueDate));
+  const receivedMs = feeDayTime(receivedDate);
+  if (dueMs === null || receivedMs === null) throw new Error("Invalid payment/due date");
+  const rate = Math.max(0, Number.isFinite(Number(dailyRate)) ? Number(dailyRate) : 0);
+  const daysLate = Math.max(0, Math.round((receivedMs - dueMs) / 86400000));
+  const lateFee = Math.round(daysLate * rate * 100) / 100;
+  const totalPayable = Math.round((Number(payment.amount || 0) + lateFee) * 100) / 100;
+  return {
+    dueDate: String(payment.dueDate), receivedDate, daysLate,
+    lateFeePerDay: rate, lateFee, totalPayable,
+    alreadyPaid: Number(payment.paidAmount || 0),
+    remainingBalance: Math.max(0, totalPayable - Number(payment.paidAmount || 0)),
+    needsApproval: receivedDate < todayInIndia(),
+    entryDate: todayInIndia(),
+  };
+}
+function ensureValidReceivedDate(date: unknown): string | null {
+  const receivedDate = String(date ?? todayInIndia()).trim();
+  const receivedMs = feeDayTime(receivedDate);
+  if (receivedMs === null || receivedDate > todayInIndia()) return null;
+  return receivedDate;
+}
+const allowedPaymentMethods = ["cash", "upi", "online", "cheque"] as const;
+function validMethod(value: unknown): value is typeof allowedPaymentMethods[number] {
+  return allowedPaymentMethods.includes(value as typeof allowedPaymentMethods[number]);
+}
+async function settleFullBill(payment: any, quote: ReturnType<typeof paymentQuote>, data: {
+  paymentMethod: "cash" | "upi" | "online" | "cheque";
+  transactionId?: string; remarks?: string; reason?: string; supportingReference?: string; userId: string;
+}) {
+  // Atomic claim: only one concurrent payment can turn this bill from unpaid to paid.
+  // The settled amount is based on the SAME quote returned/validated by the API.
+  return Payment.findOneAndUpdate({
+    _id: payment._id,
+    instituteId: payment.instituteId,
+    status: { $in: ["pending", "overdue"] },
+    amount: payment.amount,
+    dueDate: payment.dueDate,
+    paidAmount: { $in: [0, null] },
+  }, { $set: {
+    status: "paid",
+    lateFee: quote.lateFee,
+    totalAmount: quote.totalPayable,
+    paidAmount: quote.totalPayable,
+    paidDate: quote.receivedDate,
+    receivedAt: quote.receivedDate,
+    recordedAt: new Date(),
+    collectedBy: data.userId,
+    backdateReason: data.reason ?? "",
+    supportingReference: data.supportingReference ?? "",
+    paymentMethod: data.paymentMethod,
+    transactionId: data.transactionId ?? "",
+    remarks: data.remarks ?? "",
+  } }, { returnDocument: "after", runValidators: true });
+}
+
 function getLoggedInUser(req: any) {
   return req.user;
 }
@@ -50,6 +124,9 @@ async function fmtFeeStructure(fs: any) {
 }
 
 async function fmtPayment(p: any) {
+  const structure = await FeeStructure.findById(p.feeStructureId).select("lateFeePerDay").lean();
+  const quote = p.status === "paid" || p.status === "partial" ? null :
+    paymentQuote(p, Number(structure?.lateFeePerDay ?? 0), todayInIndia());
   const student = await Student.findById(p.studentId).select(
     "name enrollmentNo className board courseId batchId academicYear"
   );
@@ -83,6 +160,12 @@ async function fmtPayment(p: any) {
     paidAmount: p.paidAmount ?? 0,
     dueDate: p.dueDate,
     paidDate: p.paidDate ?? null,
+    receivedAt: p.receivedAt ?? p.paidDate ?? null,
+    recordedAt: p.recordedAt ? new Date(p.recordedAt).toISOString() : null,
+    collectedBy: p.collectedBy ? String(p.collectedBy) : null,
+    backdateReason: p.backdateReason ?? "",
+    supportingReference: p.supportingReference ?? "",
+    lateFeePreview: quote,
     status: p.status,
     month: p.month,
     monthLabel: p.monthLabel,
@@ -645,7 +728,20 @@ router.patch(
         res.status(404).json({ error: "Payment not found" });
         return;
       }
+      if (existing.status === "paid" || existing.status === "partial" ||
+          ["paid", "partial"].includes(String(req.body?.status ?? ""))) {
+        res.status(409).json({ error: "Use the verified fee collection workflow to record payments. Paid/partial bills cannot be edited here." });
+        return;
+      }
+      if (await FeePaymentApproval.exists({ paymentId: existing._id, status: "pending" })) {
+        res.status(409).json({ error: "An admin approval is pending for this bill. Resolve it before editing." });
+        return;
+      }
       const updateData = { ...req.body };
+      for (const protectedKey of [
+        "paidAmount", "lateFee", "totalAmount", "paidDate", "receivedAt",
+        "recordedAt", "collectedBy", "backdateReason", "supportingReference",
+      ]) delete updateData[protectedKey];
       delete updateData.instituteId;
       delete updateData.studentId;
       delete updateData.feeStructureId;
@@ -690,55 +786,192 @@ router.patch(
   }
 );
 
-/**
- * POST /finance/payments/:id/pay
- * -------------------------------
- * Quick pay — mark as paid with method
- */
-router.post(
-  "/finance/payments/:id/pay",
-  authenticate,
-  authorize("super_admin", "institute_admin", "accountant"),
-  async (req, res): Promise<void> => {
-    try {
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const { paymentMethod, transactionId, remarks } = req.body;
-      const user = getLoggedInUser(req);
-      const instituteId = getInstituteIdForUser(req);
-      const filter: any = { _id: id };
-      if (user.role !== "super_admin") {
-        if (!instituteId) {
-          res.status(403).json({ error: "Not linked" });
-          return;
-        }
-        filter.instituteId = instituteId;
-      }
-      const payment = await Payment.findOne(filter);
-      if (!payment) {
-        res.status(404).json({ error: "Not found" });
-        return;
-      }
-
-      // Calculate late fee at time of payment
-      const fs = await FeeStructure.findById(payment.feeStructureId);
-      if (fs) {
-        payment.lateFee = calculateLateFee(payment.dueDate, fs.lateFeePerDay);
-        payment.totalAmount = payment.amount + payment.lateFee;
-      }
-      payment.status = "paid";
-      payment.paidDate = new Date().toISOString().split("T")[0];
-      payment.paidAmount = payment.totalAmount;
-      if (paymentMethod) payment.paymentMethod = paymentMethod;
-      if (transactionId) payment.transactionId = transactionId;
-      if (remarks) payment.remarks = remarks;
-
-      await payment.save();
-      res.json(await fmtPayment(payment));
-    } catch (error: any) {
-      res.status(500).json({ error: error?.message });
+/** GET /finance/payments/:id/quote?receivedDate=YYYY-MM-DD — read-only, authoritative preview */
+router.get("/finance/payments/:id/quote", authenticate,
+  authorize("super_admin", "institute_admin", "accountant"), async (req, res): Promise<void> => {
+  try {
+    const user = getLoggedInUser(req);
+    const instituteId = getInstituteIdForUser(req);
+    if (user.role !== "super_admin" && !instituteId) { res.status(403).json({ error: "Not linked" }); return; }
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const payment = await Payment.findOne({ _id: id, ...(user.role === "super_admin" ? {} : { instituteId }) });
+    if (!payment) { res.status(404).json({ error: "Bill not found" }); return; }
+    if (!["pending", "overdue"].includes(payment.status) || Number(payment.paidAmount || 0) > 0) {
+      res.status(409).json({ error: "Only unpaid bills can be fully collected here" }); return;
     }
+    const receivedDate = ensureValidReceivedDate(req.query.receivedDate);
+    if (!receivedDate) { res.status(400).json({ error: "Choose a valid payment received date, not in the future" }); return; }
+    const fs = await FeeStructure.findOne({ _id: payment.feeStructureId, instituteId: payment.instituteId });
+    const quote = paymentQuote(payment, Number(fs?.lateFeePerDay || 0), receivedDate);
+    res.json({ paymentId: String(payment._id), ...quote, approvalRequired: quote.needsApproval && user.role === "accountant" });
+  } catch (error: any) {
+    res.status(500).json({ error: "Unable to calculate fee quote" });
   }
-);
+});
+
+/** POST /finance/payments/:id/pay — validated full settlement or approval request */
+router.post("/finance/payments/:id/pay", authenticate,
+  authorize("super_admin", "institute_admin", "accountant"), async (req, res): Promise<void> => {
+  try {
+    const user = getLoggedInUser(req);
+    const instituteId = getInstituteIdForUser(req);
+    if (user.role !== "super_admin" && !instituteId) { res.status(403).json({ error: "Not linked" }); return; }
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const payment = await Payment.findOne({ _id: id, ...(user.role === "super_admin" ? {} : { instituteId }) });
+    if (!payment) { res.status(404).json({ error: "Bill not found" }); return; }
+    if (!["pending", "overdue"].includes(payment.status) || Number(payment.paidAmount || 0) > 0) {
+      res.status(409).json({ error: "Bill has already been settled or partially paid" }); return;
+    }
+    const receivedDate = ensureValidReceivedDate(req.body?.receivedDate);
+    if (!receivedDate) { res.status(400).json({ error: "Invalid payment received date; future date is not allowed" }); return; }
+    const paymentMethod = req.body?.paymentMethod;
+    if (!validMethod(paymentMethod)) { res.status(400).json({ error: "Select a valid payment method" }); return; }
+    const transactionId = String(req.body?.transactionId ?? "").trim();
+    const remarks = String(req.body?.remarks ?? "").trim().slice(0, 1000);
+    const reason = String(req.body?.backdateReason ?? "").trim().slice(0, 1000);
+    const supportingReference = String(req.body?.supportingReference ?? "").trim().slice(0, 200);
+    if (paymentMethod !== "cash" && !transactionId) {
+      res.status(400).json({ error: "UPI/bank/cheque reference is required" }); return;
+    }
+    const fs = await FeeStructure.findOne({ _id: payment.feeStructureId, instituteId: payment.instituteId });
+    const quote = paymentQuote(payment, Number(fs?.lateFeePerDay || 0), receivedDate);
+    const expectedTotal = Number(req.body?.expectedTotal);
+    if (req.body?.expectedTotal !== undefined && (!Number.isFinite(expectedTotal) || Math.abs(expectedTotal - quote.totalPayable) > 0.009)) {
+      res.status(409).json({ error: "Fee amount changed. Refresh the preview before confirming." }); return;
+    }
+    if (quote.needsApproval && reason.length < 10) {
+      res.status(400).json({ error: "Backdated entry requires a reason of at least 10 characters" }); return;
+    }
+    if (quote.needsApproval && supportingReference.length < 3) {
+      res.status(400).json({ error: "Backdated payment requires a register/receipt number or verifiable payment reference" }); return;
+    }
+    if (quote.needsApproval && user.role === "accountant") {
+      const existing = await FeePaymentApproval.findOne({ paymentId: payment._id, status: "pending" });
+      if (existing) { res.status(409).json({ error: "A backdated approval request for this bill is already pending" }); return; }
+      const request = await FeePaymentApproval.create({
+        instituteId: payment.instituteId, paymentId: payment._id, requestedBy: user.userId,
+        receivedDate, paymentMethod, transactionId, remarks, reason, supportingReference,
+        expectedTotal: quote.totalPayable, status: "pending",
+      });
+      try { await recordAudit(req, "fee.backdate.request", "payment", String(payment._id), {
+        approvalRequestId: String(request._id), receivedDate, reason, supportingReference, expectedTotal: quote.totalPayable,
+      }); } catch (auditError) { console.error("Fee audit log error:", auditError); }
+      res.status(202).json({ approvalRequired: true, status: "pending", requestId: String(request._id), message: "Sent for admin approval. Bill is not paid yet." });
+      return;
+    }
+    if (await FeePaymentApproval.exists({ paymentId: payment._id, status: "pending" })) {
+      res.status(409).json({ error: "A backdated payment approval is pending. Resolve it before another payment." }); return;
+    }
+    const settled = await settleFullBill(payment, quote, {
+      paymentMethod, transactionId, remarks, reason, supportingReference, userId: String(user.userId),
+    });
+    if (!settled) { res.status(409).json({ error: "Payment was already recorded or bill changed. Reload." }); return; }
+    try { await recordAudit(req, "fee.payment.collect", "payment", String(payment._id), {
+      amount: quote.totalPayable, lateFee: quote.lateFee, receivedDate, supportingReference,
+      recordedAt: new Date().toISOString(), backdateReason: reason || null,
+    }); } catch (auditError) { console.error("Fee audit log error:", auditError); }
+    res.json(await fmtPayment(settled));
+  } catch (error: any) {
+    if (error?.code === 11000) { res.status(409).json({ error: "A pending approval request already exists" }); return; }
+    console.error("FEE PAY ERROR:", error);
+    res.status(500).json({ error: "Unable to record fee payment" });
+  }
+});
+
+/** Pending requests are visible to an institute admin (and to the requesting accountant). */
+router.get("/finance/backdated-payments", authenticate,
+  authorize("super_admin", "institute_admin", "accountant"), async (req, res): Promise<void> => {
+  try {
+    const user = getLoggedInUser(req);
+    const instituteId = getInstituteIdForUser(req);
+    if (user.role !== "super_admin" && !instituteId) { res.status(403).json({ error: "Not linked" }); return; }
+    const filter: any = { status: "pending" };
+    if (user.role !== "super_admin") filter.instituteId = instituteId;
+    if (user.role === "accountant") filter.requestedBy = user.userId;
+    const approvals = await FeePaymentApproval.find(filter).sort({ requestedAt: -1 }).limit(100).lean();
+    const paymentIds = approvals.map((entry) => entry.paymentId);
+    const bills = await Payment.find({ _id: { $in: paymentIds } }).select("studentId month dueDate status").lean();
+    const billById = new Map(bills.map((bill) => [String(bill._id), bill]));
+    const studentIds = bills.map((bill) => bill.studentId);
+    const students = await Student.find({ _id: { $in: studentIds } }).select("name enrollmentNo").lean();
+    const studentById = new Map(students.map((student) => [String(student._id), student]));
+    res.json(approvals.map((entry) => {
+      const bill = billById.get(String(entry.paymentId));
+      const student = bill ? studentById.get(String(bill.studentId)) : null;
+      return {
+        id: String(entry._id), paymentId: String(entry.paymentId), status: entry.status,
+        studentName: student?.name ?? "Student", studentEnrollmentNo: student?.enrollmentNo ?? "",
+        month: bill?.month ?? "", billStatus: bill?.status ?? "",
+        receivedDate: entry.receivedDate, paymentMethod: entry.paymentMethod,
+        transactionId: entry.transactionId ?? "", reason: entry.reason,
+        remarks: entry.remarks ?? "", supportingReference: entry.supportingReference, expectedTotal: entry.expectedTotal,
+        requestedAt: entry.requestedAt, requestedBy: String(entry.requestedBy),
+      };
+    }));
+  } catch (error: any) {
+    res.status(500).json({ error: "Unable to load approvals" });
+  }
+});
+
+router.post("/finance/backdated-payments/:id/review", authenticate,
+  authorize("super_admin", "institute_admin"), async (req, res): Promise<void> => {
+  try {
+    const user = getLoggedInUser(req);
+    const instituteId = getInstituteIdForUser(req);
+    if (user.role !== "super_admin" && !instituteId) { res.status(403).json({ error: "Not linked" }); return; }
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const action = String(req.body?.action ?? "");
+    const reviewNote = String(req.body?.reviewNote ?? "").trim().slice(0, 1000);
+    if (!["approve", "reject"].includes(action)) {
+      res.status(400).json({ error: "Choose approve or reject" }); return;
+    }
+    const request = await FeePaymentApproval.findOne({ _id: id, status: "pending", ...(user.role === "super_admin" ? {} : { instituteId }) });
+    if (!request) { res.status(404).json({ error: "Pending request not found" }); return; }
+    if (String(request.requestedBy) === String(user.userId)) {
+      res.status(403).json({ error: "You cannot approve your own backdated request" }); return;
+    }
+    if (action === "reject") {
+      const updated = await FeePaymentApproval.findOneAndUpdate({ _id: request._id, status: "pending" }, {
+        $set: { status: "rejected", reviewedBy: user.userId, reviewedAt: new Date(), reviewNote },
+      }, { returnDocument: "after" });
+      if (!updated) { res.status(409).json({ error: "Request already reviewed" }); return; }
+      try { await recordAudit(req, "fee.backdate.reject", "payment", String(request.paymentId), { requestId: id, reviewNote }); } catch (auditError) { console.error("Fee audit log error:", auditError); }
+      res.json({ status: "rejected" }); return;
+    }
+    const payment = await Payment.findOne({ _id: request.paymentId, instituteId: request.instituteId });
+    if (!payment || !["pending", "overdue"].includes(payment.status) || Number(payment.paidAmount || 0) > 0) {
+      res.status(409).json({ error: "Bill is no longer unpaid" }); return;
+    }
+    const fs = await FeeStructure.findOne({ _id: payment.feeStructureId, instituteId: payment.instituteId });
+    const quote = paymentQuote(payment, Number(fs?.lateFeePerDay || 0), request.receivedDate);
+    if (Math.abs(quote.totalPayable - request.expectedTotal) > 0.009) {
+      res.status(409).json({ error: "Fee configuration changed. Reject and ask accountant to resubmit." }); return;
+    }
+    // Claim request before settlement to prevent simultaneous approvals.
+    const claimed = await FeePaymentApproval.findOneAndUpdate({ _id: request._id, status: "pending" }, {
+      $set: { status: "approved", reviewedBy: user.userId, reviewedAt: new Date(), reviewNote },
+    }, { returnDocument: "after" });
+    if (!claimed) { res.status(409).json({ error: "Request already reviewed" }); return; }
+    const settled = await settleFullBill(payment, quote, {
+      paymentMethod: request.paymentMethod, transactionId: request.transactionId,
+      remarks: request.remarks, reason: request.reason, supportingReference: request.supportingReference, userId: String(request.requestedBy),
+    });
+    if (!settled) {
+      await FeePaymentApproval.updateOne({ _id: claimed._id, status: "approved" }, {
+        $set: { status: "rejected", reviewNote: "Automatic reversal: bill modified during approval." },
+      });
+      res.status(409).json({ error: "Bill was modified during approval; request has been rejected. Reload." }); return;
+    }
+    try { await recordAudit(req, "fee.backdate.approve", "payment", String(payment._id), {
+      requestId: id, receivedDate: request.receivedDate, recordedAt: new Date().toISOString(),
+      reason: request.reason, supportingReference: request.supportingReference, amount: quote.totalPayable, lateFee: quote.lateFee,
+    }); } catch (auditError) { console.error("Fee audit log error:", auditError); }
+    res.json({ status: "approved", payment: await fmtPayment(settled) });
+  } catch (error: any) {
+    console.error("BACKDATED PAYMENT REVIEW ERROR:", error);
+    res.status(500).json({ error: "Unable to review request" });
+  }
+});
 
 router.delete(
   "/finance/payments/:id",
@@ -756,11 +989,14 @@ router.delete(
       }
       filter.instituteId = instituteId;
     }
-    const p = await Payment.findOneAndDelete(filter);
-    if (!p) {
-      res.status(404).json({ error: "Not found" });
-      return;
+    const p = await Payment.findOne(filter);
+    if (!p) { res.status(404).json({ error: "Not found" }); return; }
+    if (p.status === "paid" || p.status === "partial" || Number(p.paidAmount || 0) > 0) {
+      res.status(409).json({ error: "A bill with received payments cannot be deleted" }); return;
     }
+    const activeApproval = await FeePaymentApproval.exists({ paymentId: p._id, status: "pending" });
+    if (activeApproval) { res.status(409).json({ error: "Resolve the pending payment approval before deleting this bill" }); return; }
+    await Payment.deleteOne({ _id: p._id, status: { $in: ["pending", "overdue"] } });
     res.sendStatus(204);
   }
 );
